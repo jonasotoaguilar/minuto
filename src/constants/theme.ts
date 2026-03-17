@@ -20,6 +20,7 @@ export const Colors = {
     accent: '#0E8E6D',
     surfaceMuted: '#F5FBF7',
     shadow: '#0B1F14',
+    error: '#D14343',
   },
   dark: {
     text: '#F5F7F6',
@@ -33,6 +34,7 @@ export const Colors = {
     accent: '#0FA579',
     surfaceMuted: '#151E19',
     shadow: '#000000',
+    error: '#F06B6B',
   },
 } as const;
 

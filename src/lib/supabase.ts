@@ -1,5 +1,6 @@
+import { AppState, Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
-import 'expo-sqlite/localStorage/install';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -9,11 +10,31 @@ if (!supabaseUrl || !supabasePublishableKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
+const isWebServerRender =
+  Platform.OS === 'web' && typeof window === 'undefined';
+
+const authStorage =
+  Platform.OS === 'web'
+    ? isWebServerRender
+      ? undefined
+      : window.localStorage
+    : AsyncStorage;
+
 export const supabase = createClient(supabaseUrl, supabasePublishableKey, {
   auth: {
-    storage: localStorage,
+    storage: authStorage,
     autoRefreshToken: true,
-    persistSession: true,
+    persistSession: !isWebServerRender,
     detectSessionInUrl: false,
   },
 });
+
+if (Platform.OS !== 'web') {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') {
+      supabase.auth.startAutoRefresh();
+    } else {
+      supabase.auth.stopAutoRefresh();
+    }
+  });
+}

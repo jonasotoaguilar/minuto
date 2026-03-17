@@ -1,4 +1,5 @@
-import { Link } from 'expo-router';
+import { type Href, Link, useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -13,10 +14,58 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { supabase } from '@/lib/supabase';
 
 export default function LoginScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSignIn = async () => {
+    if (isSubmitting) return;
+    setErrorMessage('');
+    setInfoMessage('');
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      setErrorMessage('Completa email y contraseña para continuar.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password,
+      });
+
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+
+      if (data.session) {
+        const redirectTo = '/(tabs)/home' as Href;
+        router.replace(redirectTo);
+        return;
+      }
+
+      setInfoMessage('Sesión creada. Continuá para ingresar.');
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Error inesperado al ingresar.';
+      setErrorMessage(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -91,6 +140,10 @@ export default function LoginScreen() {
                 placeholder="nombre@empresa.com"
                 theme={theme}
                 icon="@"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
               <View style={styles.passwordRow}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
@@ -100,14 +153,43 @@ export default function LoginScreen() {
                   ¿Olvidaste la contraseña?
                 </Text>
               </View>
-              <Field placeholder="********" theme={theme} icon="*" secure />
+              <Field
+                placeholder="********"
+                theme={theme}
+                icon="*"
+                secure
+                value={password}
+                onChangeText={setPassword}
+              />
             </View>
 
             <Pressable
-              style={[styles.primaryButton, { backgroundColor: theme.primary }]}
+              onPress={handleSignIn}
+              disabled={isSubmitting}
+              style={[
+                styles.primaryButton,
+                {
+                  backgroundColor: theme.primary,
+                  opacity: isSubmitting ? 0.7 : 1,
+                },
+              ]}
             >
-              <Text style={styles.primaryButtonText}>Iniciar Sesión →</Text>
+              <Text style={styles.primaryButtonText}>
+                {isSubmitting ? 'Ingresando...' : 'Iniciar Sesión →'}
+              </Text>
             </Pressable>
+
+            {errorMessage ? (
+              <Text style={[styles.errorText, { color: theme.error }]}>
+                {errorMessage}
+              </Text>
+            ) : null}
+
+            {infoMessage ? (
+              <Text style={[styles.infoText, { color: theme.textSecondary }]}>
+                {infoMessage}
+              </Text>
+            ) : null}
 
             <Text style={[styles.helpText, { color: theme.textSecondary }]}>
               ¿Problemas para entrar?{' '}
@@ -150,9 +232,23 @@ type FieldProps = {
   icon: string;
   theme: ReturnType<typeof useTheme>;
   secure?: boolean;
+  value?: string;
+  onChangeText?: (value: string) => void;
+  keyboardType?: 'default' | 'email-address';
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 };
 
-function Field({ label, placeholder, icon, theme, secure }: FieldProps) {
+function Field({
+  label,
+  placeholder,
+  icon,
+  theme,
+  secure,
+  value,
+  onChangeText,
+  keyboardType,
+  autoCapitalize,
+}: FieldProps) {
   return (
     <View style={styles.fieldGroup}>
       {label ? (
@@ -165,6 +261,10 @@ function Field({ label, placeholder, icon, theme, secure }: FieldProps) {
           placeholderTextColor={theme.textSecondary}
           style={[styles.fieldInput, { color: theme.text }]}
           secureTextEntry={secure}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
         />
       </View>
     </View>
@@ -300,6 +400,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   helpText: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  infoText: {
     fontSize: 12,
     textAlign: 'center',
   },

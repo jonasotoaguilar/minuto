@@ -108,7 +108,7 @@ export function BottomTabBar({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            descriptors[leftRoute.key]?.options.title ?? 'Inicio'
+            descriptors[leftRoute.key]?.options.title ?? 'Home'
           }
           onPress={() => goToRoute(leftRoute.name)}
           style={styles.tabButton}

@@ -1,13 +1,40 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OrganizationSetupView } from '@/components/organization-setup-view';
+import { OrganizationSwitcher } from '@/components/organization-switcher';
 
 import { StatusPill } from '@/components/status-pill';
 import { Fonts, Spacing } from '@/constants/theme';
+import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function ControlScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const {
+    activeOrganization,
+    organizations,
+    isLoadingOrganizations,
+    isOrganizationSetupOpen,
+    setActiveOrganizationById,
+    openOrganizationSetup,
+  } = useOrganization();
+
+  if (isLoadingOrganizations) {
+    return (
+      <View
+        style={[styles.loaderContainer, { backgroundColor: theme.background }]}
+      >
+        <Text style={[styles.loaderText, { color: theme.textSecondary }]}>
+          Cargando organizaciones...
+        </Text>
+      </View>
+    );
+  }
+
+  if (!activeOrganization || isOrganizationSetupOpen) {
+    return <OrganizationSetupView />;
+  }
 
   return (
     <ScrollView
@@ -21,19 +48,12 @@ export default function ControlScreen() {
       ]}
     >
       <View style={styles.header}>
-        <View style={styles.brand}>
-          <View style={[styles.brandIcon, { backgroundColor: theme.primary }]}>
-            <Text style={styles.brandLetter}>M</Text>
-          </View>
-          <View>
-            <Text style={[styles.brandText, { color: theme.text }]}>
-              Minuto
-            </Text>
-            <Text style={[styles.brandSub, { color: theme.primary }]}>
-              ASISTENCIA
-            </Text>
-          </View>
-        </View>
+        <OrganizationSwitcher
+          activeOrganization={activeOrganization}
+          organizations={organizations}
+          onSelectOrganization={setActiveOrganizationById}
+          onOpenOrganizationSetup={openOrganizationSetup}
+        />
         <View style={styles.headerActions}>
           <View
             style={[styles.roundIcon, { backgroundColor: theme.surfaceMuted }]}
@@ -160,6 +180,15 @@ export default function ControlScreen() {
 }
 
 const styles = StyleSheet.create({
+  loaderContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loaderText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
   page: {
     flex: 1,
   },
@@ -171,33 +200,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  brand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  brandIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  brandLetter: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 18,
-  },
-  brandText: {
-    fontSize: 20,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
-  },
-  brandSub: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
+    zIndex: 120,
+    elevation: 120,
   },
   headerActions: {
     flexDirection: 'row',

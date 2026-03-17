@@ -1,4 +1,5 @@
-import { Link } from 'expo-router';
+import { type Href, Link, useRouter } from 'expo-router';
+import { useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -13,10 +14,73 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { supabase } from '@/lib/supabase';
 
 export default function RegisterScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSignUp = async () => {
+    if (isSubmitting) return;
+    setErrorMessage('');
+    setInfoMessage('');
+
+    const trimmedEmail = email.trim();
+    const trimmedName = fullName.trim();
+    if (!trimmedName || !trimmedEmail || !password || !confirmPassword) {
+      setErrorMessage('Completa todos los campos para continuar.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setErrorMessage('Las contraseñas no coinciden.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      const { data, error } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        options: {
+          data: {
+            global_name: trimmedName,
+          },
+        },
+      });
+
+      if (error) {
+        setErrorMessage(error.message);
+        return;
+      }
+
+      if (data.session) {
+        const redirectTo = '/(tabs)/home' as Href;
+        router.replace(redirectTo);
+        return;
+      }
+
+      setInfoMessage(
+        'Cuenta creada. Revisa tu email para confirmar e ingresar.',
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Error inesperado al registrarte.';
+      setErrorMessage(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -83,12 +147,18 @@ export default function RegisterScreen() {
                 placeholder="Nombre y apellido"
                 theme={theme}
                 icon="A"
+                value={fullName}
+                onChangeText={setFullName}
               />
               <Field
                 label="Email"
                 placeholder="nombre@empresa.com"
                 theme={theme}
                 icon="@"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
               />
               <Field
                 label="Contraseña"
@@ -96,6 +166,8 @@ export default function RegisterScreen() {
                 theme={theme}
                 icon="*"
                 secure
+                value={password}
+                onChangeText={setPassword}
               />
               <Field
                 label="Confirmar contraseña"
@@ -103,14 +175,38 @@ export default function RegisterScreen() {
                 theme={theme}
                 icon="*"
                 secure
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
               />
             </View>
 
             <Pressable
-              style={[styles.primaryButton, { backgroundColor: theme.primary }]}
+              onPress={handleSignUp}
+              disabled={isSubmitting}
+              style={[
+                styles.primaryButton,
+                {
+                  backgroundColor: theme.primary,
+                  opacity: isSubmitting ? 0.7 : 1,
+                },
+              ]}
             >
-              <Text style={styles.primaryButtonText}>Crear cuenta →</Text>
+              <Text style={styles.primaryButtonText}>
+                {isSubmitting ? 'Creando...' : 'Crear cuenta →'}
+              </Text>
             </Pressable>
+
+            {errorMessage ? (
+              <Text style={[styles.errorText, { color: theme.error }]}>
+                {errorMessage}
+              </Text>
+            ) : null}
+
+            {infoMessage ? (
+              <Text style={[styles.infoText, { color: theme.textSecondary }]}>
+                {infoMessage}
+              </Text>
+            ) : null}
 
             <Text style={[styles.helpText, { color: theme.textSecondary }]}>
               Ya tienes cuenta?{' '}
@@ -134,9 +230,23 @@ type FieldProps = {
   icon: string;
   theme: ReturnType<typeof useTheme>;
   secure?: boolean;
+  value?: string;
+  onChangeText?: (value: string) => void;
+  keyboardType?: 'default' | 'email-address';
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
 };
 
-function Field({ label, placeholder, icon, theme, secure }: FieldProps) {
+function Field({
+  label,
+  placeholder,
+  icon,
+  theme,
+  secure,
+  value,
+  onChangeText,
+  keyboardType,
+  autoCapitalize,
+}: FieldProps) {
   return (
     <View style={styles.fieldGroup}>
       <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
@@ -147,6 +257,10 @@ function Field({ label, placeholder, icon, theme, secure }: FieldProps) {
           placeholderTextColor={theme.textSecondary}
           style={[styles.fieldInput, { color: theme.text }]}
           secureTextEntry={secure}
+          value={value}
+          onChangeText={onChangeText}
+          keyboardType={keyboardType}
+          autoCapitalize={autoCapitalize}
         />
       </View>
     </View>
@@ -264,6 +378,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   helpText: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  infoText: {
     fontSize: 12,
     textAlign: 'center',
   },
