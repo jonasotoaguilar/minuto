@@ -1,5 +1,6 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HeaderUserMenu } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 
@@ -72,11 +73,7 @@ export default function HomeScreen() {
               ]}
             />
           </View>
-          <View style={[styles.avatarShell, { borderColor: theme.primary }]}>
-            <Text style={[styles.avatarText, { color: theme.textSecondary }]}>
-              TO
-            </Text>
-          </View>
+          <HeaderUserMenu initials="TO" />
         </View>
       </View>
 
@@ -347,18 +344,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: 2,
     transform: [{ rotate: '45deg' }],
-  },
-  avatarShell: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 12,
-    fontWeight: '700',
   },
   profileCard: {
     borderRadius: 28,

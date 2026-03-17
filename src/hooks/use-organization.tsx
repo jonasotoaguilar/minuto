@@ -202,6 +202,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
         : normalizedOrganizations[0].id;
 
     setActiveOrganizationId(nextActiveOrganizationId);
+    setIsOrganizationSetupOpen(false);
     await writeStoredActiveOrganizationId(nextActiveOrganizationId);
     setIsLoadingOrganizations(false);
   }, [sessionUserId]);

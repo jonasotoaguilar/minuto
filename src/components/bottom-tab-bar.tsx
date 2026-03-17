@@ -95,8 +95,16 @@ export function BottomTabBar({
   const inactive = theme.textSecondary;
   const routes = state.routes;
 
-  const leftRoute = routes[0];
-  const rightRoute = routes[1];
+  const leftRoute = routes.find((route) => route.name === 'home') ?? routes[0];
+  const rightRoute =
+    routes.find((route) => route.name === 'control') ??
+    routes[routes.length - 1];
+  const leftRouteIndex = routes.findIndex(
+    (route) => route.key === leftRoute.key,
+  );
+  const rightRouteIndex = routes.findIndex(
+    (route) => route.key === rightRoute.key,
+  );
 
   const goToRoute = (routeName: string) => {
     navigation.navigate(routeName as never);
@@ -114,14 +122,14 @@ export function BottomTabBar({
           style={styles.tabButton}
         >
           <HomeIcon
-            color={state.index === 0 ? primary : inactive}
-            isActive={state.index === 0}
+            color={state.index === leftRouteIndex ? primary : inactive}
+            isActive={state.index === leftRouteIndex}
           />
           <Text
             style={[
               styles.tabLabel,
               {
-                color: state.index === 0 ? primary : inactive,
+                color: state.index === leftRouteIndex ? primary : inactive,
               },
             ]}
           >
@@ -152,14 +160,14 @@ export function BottomTabBar({
           style={styles.tabButton}
         >
           <ClockIcon
-            color={state.index === 1 ? primary : inactive}
-            isActive={state.index === 1}
+            color={state.index === rightRouteIndex ? primary : inactive}
+            isActive={state.index === rightRouteIndex}
           />
           <Text
             style={[
               styles.tabLabel,
               {
-                color: state.index === 1 ? primary : inactive,
+                color: state.index === rightRouteIndex ? primary : inactive,
               },
             ]}
           >

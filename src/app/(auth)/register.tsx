@@ -1,5 +1,5 @@
 import { type Href, Link, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,74 +11,370 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { z } from 'zod';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 
+const MAX_NAME_LENGTH = 80;
+const MAX_EMAIL_LENGTH = 120;
+const MAX_RUT_LENGTH = 12;
+const MAX_ADDRESS_LENGTH = 160;
+const MAX_PASSWORD_LENGTH = 72;
+
+const RUT_RAW_MAX_LENGTH = 9;
+
+function formatRutInput(rawValue: string) {
+  const normalizedValue = rawValue
+    .toUpperCase()
+    .replace(/[^0-9K]/g, '')
+    .slice(0, RUT_RAW_MAX_LENGTH);
+
+  if (normalizedValue.length <= 1) {
+    return normalizedValue;
+  }
+
+  const body = normalizedValue.slice(0, -1);
+  const verifier = normalizedValue.slice(-1);
+  const reversedGroups = body
+    .split('')
+    .reverse()
+    .join('')
+    .match(/.{1,3}/g);
+
+  const formattedBody = reversedGroups
+    ? reversedGroups
+        .map((group) => group.split('').reverse().join(''))
+        .reverse()
+        .join('.')
+    : body;
+
+  return `${formattedBody}-${verifier}`;
+}
+
+const registerSchema = z
+  .object({
+    fullName: z
+      .string()
+      .trim()
+      .min(3, 'El nombre debe tener al menos 3 caracteres.')
+      .max(
+        MAX_NAME_LENGTH,
+        `El nombre no puede superar ${MAX_NAME_LENGTH} caracteres.`,
+      ),
+    email: z
+      .string()
+      .trim()
+      .email('Ingresa un email válido.')
+      .max(
+        MAX_EMAIL_LENGTH,
+        `El email no puede superar ${MAX_EMAIL_LENGTH} caracteres.`,
+      ),
+    rut: z
+      .string()
+      .trim()
+      .max(
+        MAX_RUT_LENGTH,
+        `El RUT no puede superar ${MAX_RUT_LENGTH} caracteres.`,
+      )
+      .regex(
+        /^\d{1,2}\.\d{3}\.\d{3}-[\dK]$/,
+        'Ingresa un RUT válido. Formato: 12.345.678-9 o 1.234.567-K',
+      ),
+    address: z
+      .string()
+      .trim()
+      .min(6, 'La dirección debe tener al menos 6 caracteres.')
+      .max(
+        MAX_ADDRESS_LENGTH,
+        `La dirección no puede superar ${MAX_ADDRESS_LENGTH} caracteres.`,
+      ),
+    password: z
+      .string()
+      .min(8, 'La contraseña debe tener al menos 8 caracteres.')
+      .max(
+        MAX_PASSWORD_LENGTH,
+        `La contraseña no puede superar ${MAX_PASSWORD_LENGTH} caracteres.`,
+      ),
+    confirmPassword: z
+      .string()
+      .max(
+        MAX_PASSWORD_LENGTH,
+        `La contraseña no puede superar ${MAX_PASSWORD_LENGTH} caracteres.`,
+      ),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    path: ['confirmPassword'],
+    message: 'Las contraseñas no coinciden.',
+  });
+
+type RegisterFormValues = z.infer<typeof registerSchema>;
+type RegisterFieldErrors = Partial<Record<keyof RegisterFormValues, string>>;
+type TouchedFields = Partial<Record<keyof RegisterFormValues, boolean>>;
+
+const initialFormValues: RegisterFormValues = {
+  fullName: '',
+  email: '',
+  rut: '',
+  address: '',
+  password: '',
+  confirmPassword: '',
+};
+
 export default function RegisterScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [fullName, setFullName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [formValues, setFormValues] =
+    useState<RegisterFormValues>(initialFormValues);
+  const [availabilityErrors, setAvailabilityErrors] =
+    useState<RegisterFieldErrors>({});
+  const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [isCheckingRut, setIsCheckingRut] = useState(false);
+  const [availabilityChecked, setAvailabilityChecked] = useState({
+    email: false,
+    rut: false,
+  });
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] =
+    useState(false);
+  const isSubmittingRef = useRef(false);
+
+  const normalizedValues = useMemo(
+    () => ({
+      fullName: formValues.fullName,
+      email: formValues.email.trim().toLowerCase(),
+      rut: formatRutInput(formValues.rut),
+      address: formValues.address,
+      password: formValues.password,
+      confirmPassword: formValues.confirmPassword,
+    }),
+    [formValues],
+  );
+
+  const validationResult = useMemo(
+    () => registerSchema.safeParse(normalizedValues),
+    [normalizedValues],
+  );
+
+  const validationFieldErrors = useMemo<RegisterFieldErrors>(() => {
+    if (validationResult.success) {
+      return {};
+    }
+
+    const flattenedError = z.flattenError(validationResult.error);
+    const nextFieldErrors: RegisterFieldErrors = {};
+
+    Object.entries(flattenedError.fieldErrors).forEach(([field, errors]) => {
+      if (!errors?.length) {
+        return;
+      }
+      const fieldKey = field as keyof RegisterFormValues;
+      nextFieldErrors[fieldKey] = errors[0];
+    });
+
+    return nextFieldErrors;
+  }, [validationResult]);
+
+  const isFormComplete = useMemo(
+    () =>
+      Boolean(
+        normalizedValues.fullName.trim() &&
+          normalizedValues.email &&
+          normalizedValues.rut &&
+          normalizedValues.address.trim() &&
+          normalizedValues.password &&
+          normalizedValues.confirmPassword,
+      ),
+    [normalizedValues],
+  );
+
+  const isSubmitDisabled =
+    !isFormComplete ||
+    !validationResult.success ||
+    Boolean(availabilityErrors.email || availabilityErrors.rut) ||
+    !availabilityChecked.email ||
+    !availabilityChecked.rut ||
+    isCheckingEmail ||
+    isCheckingRut ||
+    isSubmitting;
+
+  useEffect(() => {
+    if (!infoMessage) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      router.replace('/login' as Href);
+    }, 1600);
+
+    return () => clearTimeout(timeoutId);
+  }, [infoMessage, router]);
+
+  const setFieldValue = (field: keyof RegisterFormValues, value: string) => {
+    setFormValues((current) => ({ ...current, [field]: value }));
+    if (availabilityErrors[field]) {
+      setAvailabilityErrors((current) => ({ ...current, [field]: undefined }));
+    }
+    if (field === 'email' || field === 'rut') {
+      setAvailabilityChecked((current) => ({
+        ...current,
+        [field]: false,
+      }));
+    }
+  };
+
+  const setTouched = (field: keyof RegisterFormValues) => {
+    setTouchedFields((current) => ({ ...current, [field]: true }));
+  };
+
+  const checkAvailability = async (field: 'email' | 'rut') => {
+    if (field === 'email') {
+      if (validationFieldErrors.email || !normalizedValues.email) {
+        return;
+      }
+      setIsCheckingEmail(true);
+    } else {
+      if (validationFieldErrors.rut || !normalizedValues.rut) {
+        return;
+      }
+      setIsCheckingRut(true);
+    }
+
+    setErrorMessage('');
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'check_registration_availability',
+        {
+          p_email: field === 'email' ? normalizedValues.email : null,
+          p_rut: field === 'rut' ? normalizedValues.rut : null,
+        },
+      );
+
+      if (error) {
+        setAvailabilityErrors((current) => ({
+          ...current,
+          [field]: 'No se pudo validar este campo. Intentá de nuevo.',
+        }));
+        return;
+      }
+
+      const firstResult = Array.isArray(data) ? data[0] : data;
+      const isAlreadyRegistered =
+        field === 'email'
+          ? Boolean(firstResult?.email_exists)
+          : Boolean(firstResult?.rut_exists);
+
+      setAvailabilityErrors((current) => ({
+        ...current,
+        [field]: isAlreadyRegistered
+          ? field === 'email'
+            ? 'Este email ya está registrado.'
+            : 'Este RUT ya está registrado.'
+          : undefined,
+      }));
+    } catch {
+      setAvailabilityErrors((current) => ({
+        ...current,
+        [field]: 'No se pudo validar este campo. Intentá de nuevo.',
+      }));
+    } finally {
+      setAvailabilityChecked((current) => ({
+        ...current,
+        [field]: true,
+      }));
+      if (field === 'email') {
+        setIsCheckingEmail(false);
+      } else {
+        setIsCheckingRut(false);
+      }
+    }
+  };
+
+  const getSignupErrorMessage = (message: string) => {
+    const normalizedMessage = message.toLowerCase();
+
+    if (normalizedMessage.includes('already registered')) {
+      return 'Este email ya está registrado. Iniciá sesión o recuperá la contraseña.';
+    }
+
+    if (normalizedMessage.includes('password should be at least')) {
+      return 'La contraseña no cumple los requisitos mínimos de seguridad.';
+    }
+
+    if (normalizedMessage.includes('invalid email')) {
+      return 'El email ingresado no es válido.';
+    }
+
+    if (normalizedMessage.includes('network')) {
+      return 'No se pudo conectar. Revisá tu conexión e intentá de nuevo.';
+    }
+
+    return 'No se pudo completar el registro. Probá nuevamente.';
+  };
 
   const handleSignUp = async () => {
-    if (isSubmitting) return;
+    if (isSubmittingRef.current || isSubmitDisabled) return;
+    isSubmittingRef.current = true;
     setErrorMessage('');
     setInfoMessage('');
-
-    const trimmedEmail = email.trim();
-    const trimmedName = fullName.trim();
-    if (!trimmedName || !trimmedEmail || !password || !confirmPassword) {
-      setErrorMessage('Completa todos los campos para continuar.');
+    if (!validationResult.success) {
+      setTouchedFields({
+        fullName: true,
+        email: true,
+        rut: true,
+        address: true,
+        password: true,
+        confirmPassword: true,
+      });
+      setErrorMessage('Revisá los campos marcados y corregilos.');
+      isSubmittingRef.current = false;
       return;
     }
 
-    if (password !== confirmPassword) {
-      setErrorMessage('Las contraseñas no coinciden.');
-      return;
-    }
+    const { fullName, email, rut, address, password } = validationResult.data;
 
     try {
       setIsSubmitting(true);
-      const { data, error } = await supabase.auth.signUp({
-        email: trimmedEmail,
+      const { error } = await supabase.auth.signUp({
+        email,
         password,
         options: {
           data: {
-            global_name: trimmedName,
+            display_name: fullName,
+            rut,
+            address,
           },
         },
       });
 
       if (error) {
-        setErrorMessage(error.message);
+        setErrorMessage(getSignupErrorMessage(error.message));
         return;
       }
 
-      if (data.session) {
-        const redirectTo = '/(tabs)/home' as Href;
-        router.replace(redirectTo);
-        return;
-      }
-
+      setFormValues(initialFormValues);
+      setTouchedFields({});
+      setAvailabilityErrors({});
+      setAvailabilityChecked({ email: false, rut: false });
       setInfoMessage(
-        'Cuenta creada. Revisa tu email para confirmar e ingresar.',
+        'Registro exitoso. Te redirigimos al login para iniciar sesión.',
       );
     } catch (error) {
       const message =
         error instanceof Error
-          ? error.message
+          ? getSignupErrorMessage(error.message)
           : 'Error inesperado al registrarte.';
       setErrorMessage(message);
     } finally {
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -147,52 +443,161 @@ export default function RegisterScreen() {
                 placeholder="Nombre y apellido"
                 theme={theme}
                 icon="A"
-                value={fullName}
-                onChangeText={setFullName}
+                value={formValues.fullName}
+                onChangeText={(value) => setFieldValue('fullName', value)}
+                onBlur={() => setTouched('fullName')}
+                error={
+                  touchedFields.fullName ? validationFieldErrors.fullName : ''
+                }
+                isValid={
+                  Boolean(touchedFields.fullName) &&
+                  Boolean(formValues.fullName.trim()) &&
+                  !validationFieldErrors.fullName
+                }
+                isDisabled={isSubmitting}
+                maxLength={MAX_NAME_LENGTH}
+              />
+              <Field
+                label="RUT"
+                placeholder="12.345.678-9"
+                theme={theme}
+                icon="ID"
+                value={formValues.rut}
+                onChangeText={(value) =>
+                  setFieldValue('rut', formatRutInput(value))
+                }
+                onBlur={() => {
+                  setTouched('rut');
+                  void checkAvailability('rut');
+                }}
+                autoCapitalize="none"
+                error={
+                  touchedFields.rut
+                    ? availabilityErrors.rut || validationFieldErrors.rut
+                    : ''
+                }
+                isValid={
+                  Boolean(touchedFields.rut) &&
+                  Boolean(formValues.rut) &&
+                  !validationFieldErrors.rut &&
+                  !availabilityErrors.rut
+                }
+                isDisabled={isSubmitting}
+                maxLength={MAX_RUT_LENGTH}
+              />
+              <Field
+                label="Dirección"
+                placeholder="Av. Siempre Viva 123"
+                theme={theme}
+                icon="D"
+                value={formValues.address}
+                onChangeText={(value) => setFieldValue('address', value)}
+                onBlur={() => setTouched('address')}
+                error={
+                  touchedFields.address ? validationFieldErrors.address : ''
+                }
+                isValid={
+                  Boolean(touchedFields.address) &&
+                  Boolean(formValues.address.trim()) &&
+                  !validationFieldErrors.address
+                }
+                isDisabled={isSubmitting}
+                maxLength={MAX_ADDRESS_LENGTH}
               />
               <Field
                 label="Email"
                 placeholder="nombre@empresa.com"
                 theme={theme}
                 icon="@"
-                value={email}
-                onChangeText={setEmail}
+                value={formValues.email}
+                onChangeText={(value) => setFieldValue('email', value)}
+                onBlur={() => {
+                  setTouched('email');
+                  void checkAvailability('email');
+                }}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                error={
+                  touchedFields.email
+                    ? availabilityErrors.email || validationFieldErrors.email
+                    : ''
+                }
+                isValid={
+                  Boolean(touchedFields.email) &&
+                  Boolean(formValues.email.trim()) &&
+                  !validationFieldErrors.email &&
+                  !availabilityErrors.email
+                }
+                isDisabled={isSubmitting}
+                maxLength={MAX_EMAIL_LENGTH}
               />
               <Field
                 label="Contraseña"
                 placeholder="********"
                 theme={theme}
                 icon="*"
-                secure
-                value={password}
-                onChangeText={setPassword}
+                secure={!isPasswordVisible}
+                value={formValues.password}
+                onChangeText={(value) => setFieldValue('password', value)}
+                onBlur={() => setTouched('password')}
+                error={
+                  touchedFields.password ? validationFieldErrors.password : ''
+                }
+                isValid={
+                  Boolean(touchedFields.password) &&
+                  Boolean(formValues.password) &&
+                  !validationFieldErrors.password
+                }
+                actionLabel={isPasswordVisible ? 'Ocultar' : 'Mostrar'}
+                onPressAction={() =>
+                  setIsPasswordVisible((current) => !current)
+                }
+                isDisabled={isSubmitting}
+                maxLength={MAX_PASSWORD_LENGTH}
               />
               <Field
                 label="Confirmar contraseña"
                 placeholder="********"
                 theme={theme}
                 icon="*"
-                secure
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                secure={!isConfirmPasswordVisible}
+                value={formValues.confirmPassword}
+                onChangeText={(value) =>
+                  setFieldValue('confirmPassword', value)
+                }
+                onBlur={() => setTouched('confirmPassword')}
+                error={
+                  touchedFields.confirmPassword
+                    ? validationFieldErrors.confirmPassword
+                    : ''
+                }
+                isValid={
+                  Boolean(touchedFields.confirmPassword) &&
+                  Boolean(formValues.confirmPassword) &&
+                  !validationFieldErrors.confirmPassword
+                }
+                actionLabel={isConfirmPasswordVisible ? 'Ocultar' : 'Mostrar'}
+                onPressAction={() =>
+                  setIsConfirmPasswordVisible((current) => !current)
+                }
+                isDisabled={isSubmitting}
+                maxLength={MAX_PASSWORD_LENGTH}
               />
             </View>
 
             <Pressable
               onPress={handleSignUp}
-              disabled={isSubmitting}
+              disabled={isSubmitDisabled}
               style={[
                 styles.primaryButton,
                 {
                   backgroundColor: theme.primary,
-                  opacity: isSubmitting ? 0.7 : 1,
+                  opacity: isSubmitDisabled ? 0.7 : 1,
                 },
               ]}
             >
               <Text style={styles.primaryButtonText}>
-                {isSubmitting ? 'Creando...' : 'Crear cuenta →'}
+                {isSubmitting ? 'Registrando...' : 'Crear cuenta →'}
               </Text>
             </Pressable>
 
@@ -232,8 +637,15 @@ type FieldProps = {
   secure?: boolean;
   value?: string;
   onChangeText?: (value: string) => void;
+  onBlur?: () => void;
   keyboardType?: 'default' | 'email-address';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  error?: string;
+  isValid?: boolean;
+  actionLabel?: string;
+  onPressAction?: () => void;
+  isDisabled?: boolean;
+  maxLength?: number;
 };
 
 function Field({
@@ -244,13 +656,31 @@ function Field({
   secure,
   value,
   onChangeText,
+  onBlur,
   keyboardType,
   autoCapitalize,
+  error,
+  isValid,
+  actionLabel,
+  onPressAction,
+  isDisabled,
+  maxLength,
 }: FieldProps) {
   return (
     <View style={styles.fieldGroup}>
       <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
-      <View style={[styles.field, { borderColor: theme.border }]}>
+      <View
+        style={[
+          styles.field,
+          {
+            borderColor: error
+              ? theme.error
+              : isValid
+                ? theme.primary
+                : theme.border,
+          },
+        ]}
+      >
         <Text style={[styles.fieldIcon, { color: theme.primary }]}>{icon}</Text>
         <TextInput
           placeholder={placeholder}
@@ -259,10 +689,25 @@ function Field({
           secureTextEntry={secure}
           value={value}
           onChangeText={onChangeText}
+          onBlur={onBlur}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          editable={!isDisabled}
+          maxLength={maxLength}
         />
+        {actionLabel && onPressAction ? (
+          <Pressable onPress={onPressAction} hitSlop={8}>
+            <Text style={[styles.fieldActionText, { color: theme.primary }]}>
+              {actionLabel}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
+      {error ? (
+        <Text style={[styles.fieldErrorText, { color: theme.error }]}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -366,6 +811,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     paddingVertical: Spacing.one,
+  },
+  fieldActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   primaryButton: {
     paddingVertical: Spacing.two,

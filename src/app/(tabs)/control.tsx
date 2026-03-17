@@ -1,14 +1,39 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { HeaderUserMenu } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
-
 import { StatusPill } from '@/components/status-pill';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  type AttendanceEvent,
+  type AttendanceRecord,
+  calculateWeeklyTotals,
+  getAttendanceRecordsForRange,
+  getOrganizationToday,
+  getOrganizationWeekRange,
+  getRecentAttendanceEvents,
+  getTodayAttendanceRecord,
+  registerClockIn,
+  registerClockOut,
+} from '@/lib/attendance';
+
+const LOCATION_UNAVAILABLE_MESSAGE = 'servicio de ubicacion no disponible';
 
 export default function ControlScreen() {
+  const router = useRouter();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const {
@@ -19,6 +44,197 @@ export default function ControlScreen() {
     setActiveOrganizationById,
     openOrganizationSetup,
   } = useOrganization();
+
+  const [now, setNow] = useState(() => new Date());
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
+  const [weeklyMinutes, setWeeklyMinutes] = useState(0);
+  const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
+  const [recentEvents, setRecentEvents] = useState<AttendanceEvent[]>([]);
+  const [isLocationAvailable, setIsLocationAvailable] = useState(false);
+  const [locationStatusMessage, setLocationStatusMessage] = useState(
+    'Verificando servicio de ubicacion...',
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const refreshLocationAvailability = useCallback(async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const servicesEnabled = await Location.hasServicesEnabledAsync();
+        if (!servicesEnabled) {
+          setIsLocationAvailable(false);
+          setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
+          return false;
+        }
+      }
+
+      let permission = await Location.getForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        permission = await Location.requestForegroundPermissionsAsync();
+      }
+
+      if (permission.status !== 'granted') {
+        setIsLocationAvailable(false);
+        setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
+        return false;
+      }
+
+      setIsLocationAvailable(true);
+      setLocationStatusMessage('');
+      return true;
+    } catch {
+      setIsLocationAvailable(false);
+      setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshLocationAvailability();
+  }, [refreshLocationAvailability]);
+
+  const loadAttendance = useCallback(async () => {
+    if (!activeOrganization) return;
+
+    setIsLoadingAttendance(true);
+    setErrorMessage('');
+
+    const currentDate = getOrganizationToday(activeOrganization.timezone);
+    const week = getOrganizationWeekRange(activeOrganization.timezone);
+
+    try {
+      const [today, weeklyRecords, events] = await Promise.all([
+        getTodayAttendanceRecord({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          workDate: currentDate,
+        }),
+        getAttendanceRecordsForRange({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          startDate: week.start,
+          endDate: week.end,
+        }),
+        getRecentAttendanceEvents({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          recordLimit: 12,
+          eventLimit: 6,
+        }),
+      ]);
+
+      const totals = calculateWeeklyTotals(weeklyRecords);
+
+      setTodayRecord(today);
+      setWeeklyMinutes(totals.totalMinutes);
+      setWeeklyAttendedDays(totals.attendedDays);
+      setRecentEvents(events);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo cargar el control.',
+      );
+    } finally {
+      setIsLoadingAttendance(false);
+    }
+  }, [activeOrganization]);
+
+  useEffect(() => {
+    loadAttendance();
+  }, [loadAttendance]);
+
+  const onRegisterAction = useCallback(async () => {
+    if (!activeOrganization) return;
+
+    const workDate = getOrganizationToday(activeOrganization.timezone);
+    const occurredAt = new Date().toISOString();
+
+    setIsSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      const canUseLocation = await refreshLocationAvailability();
+      if (!canUseLocation) {
+        throw new Error(LOCATION_UNAVAILABLE_MESSAGE);
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const locationSnapshot = {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        accuracy: location.coords.accuracy ?? null,
+      };
+
+      if (!todayRecord?.clockInAt) {
+        await registerClockIn({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          workDate,
+          clockInAt: occurredAt,
+          clockInLocation: locationSnapshot,
+        });
+      } else if (!todayRecord.clockOutAt) {
+        await registerClockOut({
+          attendanceId: todayRecord.id,
+          clockOutAt: occurredAt,
+          clockOutLocation: locationSnapshot,
+        });
+      }
+
+      await loadAttendance();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el registro.',
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [
+    activeOrganization,
+    loadAttendance,
+    refreshLocationAvailability,
+    todayRecord,
+  ]);
+
+  const buttonState = useMemo(() => {
+    if (!todayRecord?.clockInAt) {
+      return {
+        label: 'Registrar entrada del dia',
+        helper: 'Registra tu entrada para habilitar el control de la jornada.',
+        disabled: false,
+      };
+    }
+
+    if (!todayRecord.clockOutAt) {
+      return {
+        label: 'Registrar salida del dia',
+        helper:
+          'Tu entrada ya está registrada. Cerrá la jornada con tu salida.',
+        disabled: false,
+      };
+    }
+
+    return {
+      label: 'Jornada completada',
+      helper: 'Ya registraste entrada y salida para hoy.',
+      disabled: true,
+    };
+  }, [todayRecord]);
 
   if (isLoadingOrganizations) {
     return (
@@ -58,7 +274,7 @@ export default function ControlScreen() {
           <View
             style={[styles.roundIcon, { backgroundColor: theme.surfaceMuted }]}
           />
-          <View style={[styles.avatarShell, { borderColor: theme.primary }]} />
+          <HeaderUserMenu initials="TO" />
         </View>
       </View>
 
@@ -72,18 +288,58 @@ export default function ControlScreen() {
         ]}
       >
         <StatusPill label="ZONA DE TRABAJO VALIDADA" />
-        <Text style={[styles.clock, { color: theme.text }]}>09:41</Text>
+        <Text style={[styles.clock, { color: theme.text }]}>
+          {formatClock(now, activeOrganization.timezone)}
+        </Text>
         <Text style={[styles.date, { color: theme.textSecondary }]}>
-          Jueves, 12 de Octubre
+          {formatLongDate(now, activeOrganization.timezone)}
         </Text>
-        <View
-          style={[styles.primaryButton, { backgroundColor: theme.primary }]}
+
+        <Pressable
+          onPress={onRegisterAction}
+          disabled={
+            isSubmitting ||
+            buttonState.disabled ||
+            isLoadingAttendance ||
+            !isLocationAvailable
+          }
+          style={[
+            styles.primaryButton,
+            {
+              backgroundColor: buttonState.disabled
+                ? theme.surfaceMuted
+                : theme.primary,
+              opacity: isSubmitting || isLoadingAttendance ? 0.6 : 1,
+            },
+          ]}
         >
-          <Text style={styles.primaryButtonText}>Registrar Entrada</Text>
-        </View>
+          <Text
+            style={[
+              styles.primaryButtonText,
+              { color: buttonState.disabled ? theme.textSecondary : '#FFFFFF' },
+            ]}
+          >
+            {buttonState.label}
+          </Text>
+        </Pressable>
+
         <Text style={[styles.helper, { color: theme.textSecondary }]}>
-          Asegura el pago correcto de tus horas registrando tu entrada.
+          {isLocationAvailable
+            ? buttonState.helper
+            : LOCATION_UNAVAILABLE_MESSAGE}
         </Text>
+
+        {locationStatusMessage ? (
+          <Text style={[styles.errorText, { color: theme.error }]}>
+            {locationStatusMessage}
+          </Text>
+        ) : null}
+
+        {errorMessage ? (
+          <Text style={[styles.errorText, { color: theme.error }]}>
+            {errorMessage}
+          </Text>
+        ) : null}
       </View>
 
       <View style={styles.metricsRow}>
@@ -100,7 +356,7 @@ export default function ControlScreen() {
             style={[styles.metricIcon, { backgroundColor: theme.primaryMuted }]}
           />
           <Text style={[styles.metricValue, { color: theme.text }]}>
-            38h 20m
+            {formatMinutes(weeklyMinutes)}
           </Text>
           <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>
             Horas semanales
@@ -118,9 +374,11 @@ export default function ControlScreen() {
           <View
             style={[styles.metricIcon, { backgroundColor: theme.primaryMuted }]}
           />
-          <Text style={[styles.metricValue, { color: theme.text }]}>4 / 5</Text>
+          <Text style={[styles.metricValue, { color: theme.text }]}>
+            {weeklyAttendedDays} dias
+          </Text>
           <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>
-            Asistencia comp.
+            Dias asistidos semana
           </Text>
         </View>
       </View>
@@ -129,9 +387,13 @@ export default function ControlScreen() {
         <Text style={[styles.sectionTitle, { color: theme.text }]}>
           Historial Reciente
         </Text>
-        <Text style={[styles.sectionLink, { color: theme.primary }]}>
-          Ver Todo
-        </Text>
+        <Pressable
+          onPress={() => router.push('/(tabs)/control-history' as never)}
+        >
+          <Text style={[styles.sectionLink, { color: theme.primary }]}>
+            Ver todo
+          </Text>
+        </Pressable>
       </View>
 
       <View
@@ -143,40 +405,93 @@ export default function ControlScreen() {
           },
         ]}
       >
-        {[
-          {
-            label: 'Entrada Hoy',
-            time: '09:00 AM',
-            place: 'Oficina Principal',
-          },
-          { label: 'Salida Ayer', time: '06:15 PM', place: 'Remoto' },
-          { label: 'Entrada Ayer', time: '08:55 AM', place: 'Remoto' },
-        ].map((item) => (
-          <View key={item.label} style={styles.historyRow}>
-            <View
-              style={[
-                styles.historyIcon,
-                { backgroundColor: theme.primaryMuted },
-              ]}
-            />
-            <View style={styles.historyInfo}>
-              <Text style={[styles.historyTitle, { color: theme.text }]}>
-                {item.label}
-              </Text>
+        {recentEvents.length === 0 ? (
+          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+            Todavía no hay registros.
+          </Text>
+        ) : (
+          recentEvents.map((event) => (
+            <View key={event.id} style={styles.historyRow}>
+              <View
+                style={[
+                  styles.historyIcon,
+                  {
+                    backgroundColor:
+                      event.type === 'clock_in'
+                        ? theme.primaryMuted
+                        : theme.surfaceMuted,
+                  },
+                ]}
+              />
+              <View style={styles.historyInfo}>
+                <Text style={[styles.historyTitle, { color: theme.text }]}>
+                  {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
+                </Text>
+                <Text
+                  style={[styles.historyPlace, { color: theme.textSecondary }]}
+                >
+                  {formatCompactDate(
+                    event.occurredAt,
+                    activeOrganization.timezone,
+                  )}
+                </Text>
+              </View>
               <Text
-                style={[styles.historyPlace, { color: theme.textSecondary }]}
+                style={[styles.historyTime, { color: theme.textSecondary }]}
               >
-                {item.place}
+                {formatTime(event.occurredAt, activeOrganization.timezone)}
               </Text>
             </View>
-            <Text style={[styles.historyTime, { color: theme.textSecondary }]}>
-              {item.time}
-            </Text>
-          </View>
-        ))}
+          ))
+        )}
       </View>
     </ScrollView>
   );
+}
+
+function formatClock(date: Date, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date);
+}
+
+function formatLongDate(date: Date, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    weekday: 'long',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+}
+
+function formatCompactDate(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(value));
+}
+
+function formatTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function formatMinutes(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
 }
 
 const styles = StyleSheet.create({
@@ -213,12 +528,6 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
   },
-  avatarShell: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 2,
-  },
   heroCard: {
     borderRadius: 32,
     padding: Spacing.three,
@@ -230,13 +539,14 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   clock: {
-    fontSize: 48,
+    fontSize: 44,
     fontWeight: '700',
     fontFamily: Fonts.serif,
   },
   date: {
     fontSize: 14,
     fontWeight: '500',
+    textTransform: 'capitalize',
   },
   primaryButton: {
     marginTop: Spacing.two,
@@ -246,13 +556,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
   },
   helper: {
     textAlign: 'center',
     fontSize: 12,
+  },
+  errorText: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
   },
   metricsRow: {
     flexDirection: 'row',
@@ -326,5 +640,8 @@ const styles = StyleSheet.create({
   historyTime: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  emptyText: {
+    fontSize: 13,
   },
 });

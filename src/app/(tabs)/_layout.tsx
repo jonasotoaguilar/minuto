@@ -12,6 +12,10 @@ export default function TabsLayout() {
       >
         <Tabs.Screen name="home" options={{ title: 'Home' }} />
         <Tabs.Screen name="control" options={{ title: 'Control' }} />
+        <Tabs.Screen
+          name="control-history"
+          options={{ href: null, title: 'Historial Control' }}
+        />
       </Tabs>
     </OrganizationProvider>
   );
