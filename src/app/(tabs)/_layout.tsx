@@ -12,6 +12,8 @@ export default function TabsLayout() {
       >
         <Tabs.Screen name="home" options={{ title: 'Home' }} />
         <Tabs.Screen name="control" options={{ title: 'Control' }} />
+        <Tabs.Screen name="team" options={{ title: 'Equipo' }} />
+        <Tabs.Screen name="profile" options={{ title: 'Perfil' }} />
         <Tabs.Screen
           name="control-history"
           options={{ href: null, title: 'Historial Control' }}

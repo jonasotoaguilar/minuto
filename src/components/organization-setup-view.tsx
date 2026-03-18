@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -19,6 +19,7 @@ import { useTheme } from '@/hooks/use-theme';
 import {
   createOrganizationInputSchema,
   getDefaultTimezone,
+  getSupportedTimezones,
 } from '@/lib/organization-validation';
 
 export function OrganizationSetupView() {
@@ -41,17 +42,91 @@ export function OrganizationSetupView() {
   );
   const [inviteCodeOrLink, setInviteCodeOrLink] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [touchedFields, setTouchedFields] = useState<
+    Partial<Record<'name' | 'location' | 'timezone', boolean>>
+  >({});
+  const [focusedField, setFocusedField] = useState<
+    'name' | 'location' | 'timezone' | null
+  >(null);
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<'name' | 'location' | 'timezone', string>>
   >({});
+  const [activeTimezoneOptionIndex, setActiveTimezoneOptionIndex] = useState(0);
+  const timezoneBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const hasOrganizations = organizations.length > 0;
+  const supportedTimezones = useMemo(() => getSupportedTimezones(), []);
   const createValidationResult = createOrganizationInputSchema.safeParse({
     name: organizationName,
     location: organizationLocation,
     timezone: organizationTimezone,
   });
+  const validationFieldErrors = useMemo(() => {
+    if (createValidationResult.success) {
+      return {};
+    }
+
+    const nextFieldErrors = z.flattenError(
+      createValidationResult.error,
+    ).fieldErrors;
+    return {
+      name: nextFieldErrors.name?.[0],
+      location: nextFieldErrors.location?.[0],
+      timezone: nextFieldErrors.timezone?.[0],
+    };
+  }, [createValidationResult]);
+  const timezoneSuggestions = useMemo(() => {
+    const normalizedQuery = organizationTimezone.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return supportedTimezones;
+    }
+
+    return supportedTimezones.filter((timezone) =>
+      timezone.toLowerCase().includes(normalizedQuery),
+    );
+  }, [organizationTimezone, supportedTimezones]);
   const isCreateFormValid = createValidationResult.success;
+
+  useEffect(
+    () => () => {
+      if (timezoneBlurTimeoutRef.current) {
+        clearTimeout(timezoneBlurTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (timezoneSuggestions.length === 0) {
+      setActiveTimezoneOptionIndex(0);
+      return;
+    }
+
+    setActiveTimezoneOptionIndex((currentIndex) =>
+      Math.min(currentIndex, timezoneSuggestions.length - 1),
+    );
+  }, [timezoneSuggestions]);
+
+  const applyTimezoneSuggestion = (timezone: string) => {
+    if (timezoneBlurTimeoutRef.current) {
+      clearTimeout(timezoneBlurTimeoutRef.current);
+      timezoneBlurTimeoutRef.current = null;
+    }
+
+    setOrganizationTimezone(timezone);
+    setTouchedFields((current) => ({
+      ...current,
+      timezone: true,
+    }));
+    setFocusedField(null);
+    setFieldErrors((currentErrors) => ({
+      ...currentErrors,
+      timezone: undefined,
+    }));
+    setActiveTimezoneOptionIndex(0);
+  };
 
   const handleCreateOrganization = async () => {
     if (isSubmitting) return;
@@ -197,6 +272,13 @@ export function OrganizationSetupView() {
                 }}
                 placeholder="Ejemplo: Minuto Labs"
                 placeholderTextColor={theme.textSecondary}
+                onBlur={() => {
+                  setTouchedFields((current) => ({ ...current, name: true }));
+                  setFocusedField((current) =>
+                    current === 'name' ? null : current,
+                  );
+                }}
+                onFocus={() => setFocusedField('name')}
                 style={[
                   styles.input,
                   {
@@ -206,14 +288,16 @@ export function OrganizationSetupView() {
                   },
                 ]}
               />
-              {fieldErrors.name ? (
+              {focusedField !== 'name' &&
+              (touchedFields.name || fieldErrors.name) &&
+              (validationFieldErrors.name || fieldErrors.name) ? (
                 <Text style={[styles.fieldErrorText, { color: theme.error }]}>
-                  {fieldErrors.name}
+                  {validationFieldErrors.name || fieldErrors.name}
                 </Text>
               ) : null}
 
               <Text style={[styles.label, { color: theme.text }]}>
-                Ubicación de la organización
+                Dirección de la organización
               </Text>
               <TextInput
                 value={organizationLocation}
@@ -224,8 +308,18 @@ export function OrganizationSetupView() {
                     location: undefined,
                   }));
                 }}
-                placeholder="Ejemplo: Santiago, Chile"
+                placeholder="Ejemplo: Av. Providencia 1234, Santiago"
                 placeholderTextColor={theme.textSecondary}
+                onBlur={() => {
+                  setTouchedFields((current) => ({
+                    ...current,
+                    location: true,
+                  }));
+                  setFocusedField((current) =>
+                    current === 'location' ? null : current,
+                  );
+                }}
+                onFocus={() => setFocusedField('location')}
                 style={[
                   styles.input,
                   {
@@ -235,19 +329,22 @@ export function OrganizationSetupView() {
                   },
                 ]}
               />
-              {fieldErrors.location ? (
+              {focusedField !== 'location' &&
+              (touchedFields.location || fieldErrors.location) &&
+              (validationFieldErrors.location || fieldErrors.location) ? (
                 <Text style={[styles.fieldErrorText, { color: theme.error }]}>
-                  {fieldErrors.location}
+                  {validationFieldErrors.location || fieldErrors.location}
                 </Text>
               ) : null}
 
               <Text style={[styles.label, { color: theme.text }]}>
-                Zona horaria (IANA)
+                Ubicación
               </Text>
               <TextInput
                 value={organizationTimezone}
                 onChangeText={(value) => {
                   setOrganizationTimezone(value);
+                  setFocusedField('timezone');
                   setFieldErrors((currentErrors) => ({
                     ...currentErrors,
                     timezone: undefined,
@@ -255,6 +352,63 @@ export function OrganizationSetupView() {
                 }}
                 placeholder="Ejemplo: America/Santiago"
                 placeholderTextColor={theme.textSecondary}
+                onBlur={() => {
+                  setTouchedFields((current) => ({
+                    ...current,
+                    timezone: true,
+                  }));
+                  timezoneBlurTimeoutRef.current = setTimeout(() => {
+                    setFocusedField((current) =>
+                      current === 'timezone' ? null : current,
+                    );
+                  }, 140);
+                }}
+                onFocus={() => setFocusedField('timezone')}
+                onKeyPress={(event) => {
+                  const pressedKey = event.nativeEvent.key;
+                  const currentSuggestion =
+                    timezoneSuggestions[activeTimezoneOptionIndex] ||
+                    timezoneSuggestions[0];
+
+                  if (
+                    pressedKey === 'ArrowDown' &&
+                    timezoneSuggestions.length > 0
+                  ) {
+                    (
+                      event as unknown as { preventDefault?: () => void }
+                    ).preventDefault?.();
+                    setActiveTimezoneOptionIndex((currentIndex) =>
+                      Math.min(
+                        currentIndex + 1,
+                        timezoneSuggestions.length - 1,
+                      ),
+                    );
+                    return;
+                  }
+
+                  if (
+                    pressedKey === 'ArrowUp' &&
+                    timezoneSuggestions.length > 0
+                  ) {
+                    (
+                      event as unknown as { preventDefault?: () => void }
+                    ).preventDefault?.();
+                    setActiveTimezoneOptionIndex((currentIndex) =>
+                      Math.max(currentIndex - 1, 0),
+                    );
+                    return;
+                  }
+
+                  if (
+                    (pressedKey === 'Tab' || pressedKey === 'Enter') &&
+                    currentSuggestion
+                  ) {
+                    (
+                      event as unknown as { preventDefault?: () => void }
+                    ).preventDefault?.();
+                    applyTimezoneSuggestion(currentSuggestion);
+                  }
+                }}
                 style={[
                   styles.input,
                   {
@@ -264,10 +418,48 @@ export function OrganizationSetupView() {
                   },
                 ]}
                 autoCapitalize="none"
+                autoCorrect={false}
               />
-              {fieldErrors.timezone ? (
+              {focusedField === 'timezone' && timezoneSuggestions.length > 0 ? (
+                <ScrollView
+                  style={[
+                    styles.timezoneSuggestions,
+                    {
+                      borderColor: theme.border,
+                      backgroundColor: theme.backgroundElement,
+                    },
+                  ]}
+                  nestedScrollEnabled
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {timezoneSuggestions.map((timezone, index) => (
+                    <Pressable
+                      key={timezone}
+                      onPress={() => applyTimezoneSuggestion(timezone)}
+                      style={[
+                        styles.timezoneOption,
+                        index === activeTimezoneOptionIndex
+                          ? { backgroundColor: theme.backgroundSelected }
+                          : null,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.timezoneOptionText,
+                          { color: theme.text },
+                        ]}
+                      >
+                        {timezone}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
+              {focusedField !== 'timezone' &&
+              (touchedFields.timezone || fieldErrors.timezone) &&
+              (validationFieldErrors.timezone || fieldErrors.timezone) ? (
                 <Text style={[styles.fieldErrorText, { color: theme.error }]}>
-                  {fieldErrors.timezone}
+                  {validationFieldErrors.timezone || fieldErrors.timezone}
                 </Text>
               ) : null}
 
@@ -431,6 +623,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     marginTop: -2,
+  },
+  timezoneSuggestions: {
+    borderWidth: 1,
+    borderRadius: 12,
+    maxHeight: 180,
+    overflow: 'hidden',
+  },
+  timezoneOption: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.one,
+  },
+  timezoneOptionText: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   secondaryButton: {
     borderWidth: 1,

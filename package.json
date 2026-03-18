@@ -56,5 +56,10 @@
     "husky": "^9.1.7",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "pnpm": {
+    "overrides": {
+      "lightningcss": "1.30.1"
+    }
+  }
 }

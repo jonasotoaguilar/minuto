@@ -1,6 +1,6 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { HeaderUserMenu } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 
@@ -10,6 +10,7 @@ import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const {
@@ -73,7 +74,21 @@ export default function HomeScreen() {
               ]}
             />
           </View>
-          <HeaderUserMenu initials="TO" />
+          <View
+            style={[
+              styles.headerAvatar,
+              {
+                borderColor: theme.primary,
+                backgroundColor: theme.backgroundElement,
+              },
+            ]}
+          >
+            <Text
+              style={[styles.headerAvatarText, { color: theme.textSecondary }]}
+            >
+              TO
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -218,8 +233,13 @@ export default function HomeScreen() {
 
       <View style={styles.quickRow}>
         {['Payroll', 'Benefits', 'Team'].map((label) => (
-          <View
+          <Pressable
             key={label}
+            onPress={
+              label === 'Team'
+                ? () => router.push('/(tabs)/team' as never)
+                : undefined
+            }
             style={[
               styles.quickItem,
               {
@@ -237,7 +257,7 @@ export default function HomeScreen() {
             <Text style={[styles.quickLabel, { color: theme.text }]}>
               {label}
             </Text>
-          </View>
+          </Pressable>
         ))}
       </View>
 
@@ -331,6 +351,19 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  headerAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: Fonts.sans,
   },
   searchCircle: {
     width: 14,

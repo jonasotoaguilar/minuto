@@ -68,15 +68,50 @@ function ClockIcon({ color, isActive }: IconProps) {
   );
 }
 
-function PlusIcon({ color }: IconProps) {
+function TeamIcon({ color, isActive }: IconProps) {
   return (
-    <View style={styles.plusIcon}>
-      <View style={[styles.plusLine, { backgroundColor: color }]} />
+    <View style={styles.teamIcon}>
       <View
         style={[
-          styles.plusLine,
-          styles.plusLineVertical,
-          { backgroundColor: color },
+          styles.teamHeadPrimary,
+          { backgroundColor: color, opacity: isActive ? 1 : 0.7 },
+        ]}
+      />
+      <View
+        style={[
+          styles.teamHeadSecondary,
+          { backgroundColor: color, opacity: isActive ? 0.7 : 0.45 },
+        ]}
+      />
+      <View
+        style={[
+          styles.teamBodyPrimary,
+          { borderColor: color, opacity: isActive ? 1 : 0.7 },
+        ]}
+      />
+      <View
+        style={[
+          styles.teamBodySecondary,
+          { borderColor: color, opacity: isActive ? 0.7 : 0.45 },
+        ]}
+      />
+    </View>
+  );
+}
+
+function ProfileIcon({ color, isActive }: IconProps) {
+  return (
+    <View style={styles.profileIcon}>
+      <View
+        style={[
+          styles.profileHead,
+          { backgroundColor: color, opacity: isActive ? 1 : 0.7 },
+        ]}
+      />
+      <View
+        style={[
+          styles.profileBody,
+          { borderColor: color, opacity: isActive ? 1 : 0.7 },
         ]}
       />
     </View>
@@ -95,15 +130,26 @@ export function BottomTabBar({
   const inactive = theme.textSecondary;
   const routes = state.routes;
 
-  const leftRoute = routes.find((route) => route.name === 'home') ?? routes[0];
-  const rightRoute =
+  const homeRoute = routes.find((route) => route.name === 'home') ?? routes[0];
+  const controlRoute =
     routes.find((route) => route.name === 'control') ??
     routes[routes.length - 1];
-  const leftRouteIndex = routes.findIndex(
-    (route) => route.key === leftRoute.key,
+  const teamRoute = routes.find((route) => route.name === 'team') ?? routes[0];
+  const profileRoute =
+    routes.find((route) => route.name === 'profile') ??
+    routes[routes.length - 1];
+
+  const homeRouteIndex = routes.findIndex(
+    (route) => route.key === homeRoute.key,
   );
-  const rightRouteIndex = routes.findIndex(
-    (route) => route.key === rightRoute.key,
+  const controlRouteIndex = routes.findIndex(
+    (route) => route.key === controlRoute.key,
+  );
+  const teamRouteIndex = routes.findIndex(
+    (route) => route.key === teamRoute.key,
+  );
+  const profileRouteIndex = routes.findIndex(
+    (route) => route.key === profileRoute.key,
   );
 
   const goToRoute = (routeName: string) => {
@@ -116,20 +162,20 @@ export function BottomTabBar({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            descriptors[leftRoute.key]?.options.title ?? 'Home'
+            descriptors[homeRoute.key]?.options.title ?? 'Home'
           }
-          onPress={() => goToRoute(leftRoute.name)}
+          onPress={() => goToRoute(homeRoute.name)}
           style={styles.tabButton}
         >
           <HomeIcon
-            color={state.index === leftRouteIndex ? primary : inactive}
-            isActive={state.index === leftRouteIndex}
+            color={state.index === homeRouteIndex ? primary : inactive}
+            isActive={state.index === homeRouteIndex}
           />
           <Text
             style={[
               styles.tabLabel,
               {
-                color: state.index === leftRouteIndex ? primary : inactive,
+                color: state.index === homeRouteIndex ? primary : inactive,
               },
             ]}
           >
@@ -137,41 +183,75 @@ export function BottomTabBar({
           </Text>
         </Pressable>
 
-        <View style={styles.centerSlot}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Registrar"
-            onPress={() => goToRoute('control')}
-            style={[
-              styles.centerButton,
-              { backgroundColor: primary, shadowColor: theme.shadow },
-            ]}
-          >
-            <PlusIcon color={theme.backgroundElement} />
-          </Pressable>
-        </View>
-
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            descriptors[rightRoute.key]?.options.title ?? 'Control'
+            descriptors[controlRoute.key]?.options.title ?? 'Control'
           }
-          onPress={() => goToRoute(rightRoute.name)}
+          onPress={() => goToRoute(controlRoute.name)}
           style={styles.tabButton}
         >
           <ClockIcon
-            color={state.index === rightRouteIndex ? primary : inactive}
-            isActive={state.index === rightRouteIndex}
+            color={state.index === controlRouteIndex ? primary : inactive}
+            isActive={state.index === controlRouteIndex}
           />
           <Text
             style={[
               styles.tabLabel,
               {
-                color: state.index === rightRouteIndex ? primary : inactive,
+                color: state.index === controlRouteIndex ? primary : inactive,
               },
             ]}
           >
             Control
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            descriptors[teamRoute.key]?.options.title ?? 'Equipo'
+          }
+          onPress={() => goToRoute(teamRoute.name)}
+          style={styles.tabButton}
+        >
+          <TeamIcon
+            color={state.index === teamRouteIndex ? primary : inactive}
+            isActive={state.index === teamRouteIndex}
+          />
+          <Text
+            style={[
+              styles.tabLabel,
+              {
+                color: state.index === teamRouteIndex ? primary : inactive,
+              },
+            ]}
+          >
+            Equipo
+          </Text>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            descriptors[profileRoute.key]?.options.title ?? 'Perfil'
+          }
+          onPress={() => goToRoute(profileRoute.name)}
+          style={styles.tabButton}
+        >
+          <ProfileIcon
+            color={state.index === profileRouteIndex ? primary : inactive}
+            isActive={state.index === profileRouteIndex}
+          />
+          <Text
+            style={[
+              styles.tabLabel,
+              {
+                color: state.index === profileRouteIndex ? primary : inactive,
+              },
+            ]}
+          >
+            Perfil
           </Text>
         </Pressable>
       </View>
@@ -208,37 +288,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontFamily: Fonts.sans,
   },
-  centerSlot: {
-    width: 74,
-    alignItems: 'center',
-  },
-  centerButton: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 12,
-    marginTop: -Spacing.three,
-  },
-  plusIcon: {
-    width: 20,
-    height: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  plusLine: {
-    width: 18,
-    height: 3,
-    borderRadius: 2,
-  },
-  plusLineVertical: {
-    position: 'absolute',
-    transform: [{ rotate: '90deg' }],
-  },
   iconBox: {
     width: 20,
     height: 20,
@@ -265,5 +314,63 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 2,
     position: 'absolute',
+  },
+  teamIcon: {
+    width: 22,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  teamHeadPrimary: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginTop: 1,
+  },
+  teamHeadSecondary: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    position: 'absolute',
+    left: 3,
+    top: 5,
+  },
+  teamBodyPrimary: {
+    width: 12,
+    height: 8,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderRadius: 6,
+    marginTop: 2,
+  },
+  teamBodySecondary: {
+    width: 10,
+    height: 7,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderRadius: 6,
+    position: 'absolute',
+    left: 1,
+    top: 10,
+  },
+  profileIcon: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  profileHead: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    marginTop: 1,
+  },
+  profileBody: {
+    width: 14,
+    height: 8,
+    borderWidth: 2,
+    borderTopWidth: 0,
+    borderRadius: 7,
+    marginTop: 2,
   },
 });

@@ -10,7 +10,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { HeaderUserMenu } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { StatusPill } from '@/components/status-pill';
@@ -30,7 +29,9 @@ import {
   registerClockOut,
 } from '@/lib/attendance';
 
-const LOCATION_UNAVAILABLE_MESSAGE = 'servicio de ubicacion no disponible';
+const LOCATION_UNAVAILABLE_MESSAGE = 'Servicio de ubicación no disponible.';
+const LOCATION_WEB_SECURE_CONTEXT_MESSAGE =
+  'En web, la ubicación requiere HTTPS o localhost.';
 
 export default function ControlScreen() {
   const router = useRouter();
@@ -68,6 +69,24 @@ export default function ControlScreen() {
 
   const refreshLocationAvailability = useCallback(async () => {
     try {
+      if (Platform.OS === 'web') {
+        if (
+          typeof window !== 'undefined' &&
+          'isSecureContext' in window &&
+          !window.isSecureContext
+        ) {
+          setIsLocationAvailable(false);
+          setLocationStatusMessage(LOCATION_WEB_SECURE_CONTEXT_MESSAGE);
+          return false;
+        }
+
+        if (typeof navigator !== 'undefined' && !('geolocation' in navigator)) {
+          setIsLocationAvailable(false);
+          setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
+          return false;
+        }
+      }
+
       if (Platform.OS !== 'web') {
         const servicesEnabled = await Location.hasServicesEnabledAsync();
         if (!servicesEnabled) {
@@ -168,9 +187,15 @@ export default function ControlScreen() {
         throw new Error(LOCATION_UNAVAILABLE_MESSAGE);
       }
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      // El emulador de Android falla con 'Balanced' porque no tiene redes Wi-Fi/celular para triangular.
+      // Usamos Highest (que obliga al GPS) y un getLastKnownPositionAsync como fallback rápido.
+      let location = await Location.getLastKnownPositionAsync();
+
+      if (!location) {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Highest,
+        });
+      }
 
       const locationSnapshot = {
         latitude: location.coords.latitude,
@@ -197,9 +222,9 @@ export default function ControlScreen() {
       await loadAttendance();
     } catch (error) {
       setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : 'No se pudo guardar el registro.',
+        getLocationErrorMessage(error) ??
+          getErrorMessage(error) ??
+          'No se pudo guardar el registro.',
       );
     } finally {
       setIsSubmitting(false);
@@ -274,7 +299,21 @@ export default function ControlScreen() {
           <View
             style={[styles.roundIcon, { backgroundColor: theme.surfaceMuted }]}
           />
-          <HeaderUserMenu initials="TO" />
+          <View
+            style={[
+              styles.headerAvatar,
+              {
+                borderColor: theme.primary,
+                backgroundColor: theme.backgroundElement,
+              },
+            ]}
+          >
+            <Text
+              style={[styles.headerAvatarText, { color: theme.textSecondary }]}
+            >
+              TO
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -494,6 +533,61 @@ function formatMinutes(totalMinutes: number) {
   return `${hours}h ${minutes}m`;
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+
+  return null;
+}
+
+function getLocationErrorMessage(error: unknown) {
+  const message = getErrorMessage(error);
+  if (!message) return null;
+
+  const normalizedMessage = message.toLowerCase();
+  const isWebSecureContext =
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    'isSecureContext' in window &&
+    window.isSecureContext;
+
+  if (
+    normalizedMessage.includes('not allowed') ||
+    normalizedMessage.includes('permission denied')
+  ) {
+    return 'Permiso de ubicación denegado en el navegador.';
+  }
+
+  if (
+    normalizedMessage.includes('unknown error acquiring position') ||
+    normalizedMessage.includes('position unavailable') ||
+    normalizedMessage.includes('location is unavailable')
+  ) {
+    if (Platform.OS === 'web' && !isWebSecureContext) {
+      return LOCATION_WEB_SECURE_CONTEXT_MESSAGE;
+    }
+
+    return 'La ubicación del dispositivo está desactivada. Por favor, activá el GPS para registrar asistencia.';
+  }
+
+  return null;
+}
+
 const styles = StyleSheet.create({
   loaderContainer: {
     flex: 1,
@@ -527,6 +621,19 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
+  },
+  headerAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerAvatarText: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: Fonts.sans,
   },
   heroCard: {
     borderRadius: 32,

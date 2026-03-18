@@ -1,6 +1,16 @@
 import { z } from 'zod';
 
 const DEFAULT_TIMEZONE = 'America/Santiago';
+const FALLBACK_TIMEZONES = [
+  'America/Santiago',
+  'America/Buenos_Aires',
+  'America/Sao_Paulo',
+  'America/New_York',
+  'America/Los_Angeles',
+  'Europe/Madrid',
+  'Europe/London',
+  'UTC',
+] as const;
 
 function isValidTimezone(value: string) {
   try {
@@ -21,14 +31,14 @@ export const createOrganizationInputSchema = z.object({
   location: z
     .string()
     .trim()
-    .min(3, 'La ubicación debe tener al menos 3 caracteres.')
-    .max(180, 'La ubicación no puede superar los 180 caracteres.')
-    .regex(/^[^<>]+$/, 'La ubicación contiene caracteres inválidos.'),
+    .min(3, 'La dirección debe tener al menos 3 caracteres.')
+    .max(180, 'La dirección no puede superar los 180 caracteres.')
+    .regex(/^[^<>]+$/, 'La dirección contiene caracteres inválidos.'),
   timezone: z
     .string()
     .trim()
     .min(1, 'La zona horaria es obligatoria.')
-    .refine(isValidTimezone, 'La zona horaria no es válida.'),
+    .refine(isValidTimezone, 'La ubicación no es válida.'),
 });
 
 export type CreateOrganizationInput = z.infer<
@@ -37,6 +47,18 @@ export type CreateOrganizationInput = z.infer<
 
 export function getDefaultTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIMEZONE;
+}
+
+export function getSupportedTimezones() {
+  const intlWithSupportedValues = Intl as typeof Intl & {
+    supportedValuesOf?: (key: 'timeZone') => string[];
+  };
+
+  if (intlWithSupportedValues.supportedValuesOf) {
+    return intlWithSupportedValues.supportedValuesOf('timeZone');
+  }
+
+  return [...FALLBACK_TIMEZONES];
 }
 
 export function getFirstValidationError(

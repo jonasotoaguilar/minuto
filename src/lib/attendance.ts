@@ -56,6 +56,18 @@ export function getOrganizationWeekRange(timezone: string) {
   };
 }
 
+export function getOrganizationMonthRange(timezone: string) {
+  const today = getZonedDate(new Date(), timezone);
+  const startDate = new Date(
+    Date.UTC(today.utcDate.getUTCFullYear(), today.utcDate.getUTCMonth(), 1),
+  );
+
+  return {
+    start: formatUtcDate(startDate),
+    end: formatUtcDate(today.utcDate),
+  };
+}
+
 export async function getTodayAttendanceRecord(params: {
   organizationId: string;
   membershipId: string;
@@ -253,6 +265,51 @@ export function calculateWeeklyTotals(records: AttendanceRecord[]) {
   };
 }
 
+export function calculateAttendanceDays(records: AttendanceRecord[]) {
+  const attendedDays = new Set(
+    records
+      .filter((record) => Boolean(record.clockInAt))
+      .map((record) => record.workDate),
+  );
+
+  return attendedDays.size;
+}
+
+export function calculateWorkdayStreak(
+  records: AttendanceRecord[],
+  timezone: string,
+) {
+  const attendedDays = new Set(
+    records
+      .filter((record) => Boolean(record.clockInAt))
+      .map((record) => record.workDate),
+  );
+
+  const today = getZonedDate(new Date(), timezone).utcDate;
+  let cursor = new Date(today);
+
+  while (isWeekendUtcDate(cursor)) {
+    cursor = addUtcDays(cursor, -1);
+  }
+
+  const todayKey = formatUtcDate(cursor);
+  if (!attendedDays.has(todayKey)) {
+    return 0;
+  }
+
+  let streak = 0;
+  while (!isWeekendUtcDate(cursor)) {
+    const cursorKey = formatUtcDate(cursor);
+    if (!attendedDays.has(cursorKey)) {
+      break;
+    }
+    streak += 1;
+    cursor = getPreviousWorkday(cursor);
+  }
+
+  return streak;
+}
+
 function mapAttendanceRow(row: AttendanceRow): AttendanceRecord {
   return {
     id: row.id,
@@ -353,4 +410,21 @@ function formatUtcDate(date: Date) {
   const day = String(date.getUTCDate()).padStart(2, '0');
 
   return `${year}-${month}-${day}`;
+}
+
+function addUtcDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * DAY_IN_MS);
+}
+
+function isWeekendUtcDate(date: Date) {
+  const day = date.getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function getPreviousWorkday(date: Date) {
+  let cursor = addUtcDays(date, -1);
+  while (isWeekendUtcDate(cursor)) {
+    cursor = addUtcDays(cursor, -1);
+  }
+  return cursor;
 }

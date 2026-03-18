@@ -13,45 +13,27 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
+import { PhoneCountryDropdown } from '@/components/phone-country-dropdown';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  formatNationalPhone,
+  getPhoneCountry,
+  PHONE_COUNTRIES,
+  type PhoneCountryCode,
+  toE164Phone,
+  validateNationalPhone,
+} from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
 
 const MAX_NAME_LENGTH = 80;
 const MAX_EMAIL_LENGTH = 120;
-const MAX_RUT_LENGTH = 12;
 const MAX_ADDRESS_LENGTH = 160;
 const MAX_PASSWORD_LENGTH = 72;
-
-const RUT_RAW_MAX_LENGTH = 9;
-
-function formatRutInput(rawValue: string) {
-  const normalizedValue = rawValue
-    .toUpperCase()
-    .replace(/[^0-9K]/g, '')
-    .slice(0, RUT_RAW_MAX_LENGTH);
-
-  if (normalizedValue.length <= 1) {
-    return normalizedValue;
-  }
-
-  const body = normalizedValue.slice(0, -1);
-  const verifier = normalizedValue.slice(-1);
-  const reversedGroups = body
-    .split('')
-    .reverse()
-    .join('')
-    .match(/.{1,3}/g);
-
-  const formattedBody = reversedGroups
-    ? reversedGroups
-        .map((group) => group.split('').reverse().join(''))
-        .reverse()
-        .join('.')
-    : body;
-
-  return `${formattedBody}-${verifier}`;
-}
+const PHONE_COUNTRY_CODES = PHONE_COUNTRIES.map((country) => country.code) as [
+  PhoneCountryCode,
+  ...PhoneCountryCode[],
+];
 
 const registerSchema = z
   .object({
@@ -71,17 +53,6 @@ const registerSchema = z
         MAX_EMAIL_LENGTH,
         `El email no puede superar ${MAX_EMAIL_LENGTH} caracteres.`,
       ),
-    rut: z
-      .string()
-      .trim()
-      .max(
-        MAX_RUT_LENGTH,
-        `El RUT no puede superar ${MAX_RUT_LENGTH} caracteres.`,
-      )
-      .regex(
-        /^\d{1,2}\.\d{3}\.\d{3}-[\dK]$/,
-        'Ingresa un RUT válido. Formato: 12.345.678-9 o 1.234.567-K',
-      ),
     address: z
       .string()
       .trim()
@@ -90,6 +61,8 @@ const registerSchema = z
         MAX_ADDRESS_LENGTH,
         `La dirección no puede superar ${MAX_ADDRESS_LENGTH} caracteres.`,
       ),
+    phoneCountry: z.enum(PHONE_COUNTRY_CODES),
+    phone: z.string().trim().min(1, 'Ingresa tu número de teléfono.'),
     password: z
       .string()
       .min(8, 'La contraseña debe tener al menos 8 caracteres.')
@@ -103,6 +76,16 @@ const registerSchema = z
         MAX_PASSWORD_LENGTH,
         `La contraseña no puede superar ${MAX_PASSWORD_LENGTH} caracteres.`,
       ),
+  })
+  .superRefine((data, context) => {
+    if (!validateNationalPhone(data.phoneCountry, data.phone)) {
+      const country = getPhoneCountry(data.phoneCountry);
+      context.addIssue({
+        code: 'custom',
+        path: ['phone'],
+        message: `Ingresa un número válido para ${country.name}.`,
+      });
+    }
   })
   .refine((data) => data.password === data.confirmPassword, {
     path: ['confirmPassword'],
@@ -127,8 +110,9 @@ type FieldAvailability = {
 const initialFormValues: RegisterFormValues = {
   fullName: '',
   email: '',
-  rut: '',
   address: '',
+  phoneCountry: 'CL',
+  phone: '',
   password: '',
   confirmPassword: '',
 };
@@ -152,11 +136,6 @@ export default function RegisterScreen() {
       message: '',
     },
   );
-  const [rutAvailability, setRutAvailability] = useState<FieldAvailability>({
-    state: 'idle',
-    checkedValue: '',
-    message: '',
-  });
   const [focusedField, setFocusedField] = useState<
     keyof RegisterFormValues | null
   >(null);
@@ -166,14 +145,15 @@ export default function RegisterScreen() {
   const isSubmittingRef = useRef(false);
   const lastSubmitAtRef = useRef(0);
   const emailCheckRequestIdRef = useRef(0);
-  const rutCheckRequestIdRef = useRef(0);
 
   const normalizedValues = useMemo(
     () => ({
       fullName: formValues.fullName,
       email: formValues.email.trim().toLowerCase(),
-      rut: formatRutInput(formValues.rut),
       address: formValues.address,
+      phoneCountry: formValues.phoneCountry,
+      phone: formatNationalPhone(formValues.phoneCountry, formValues.phone)
+        .digits,
       password: formValues.password,
       confirmPassword: formValues.confirmPassword,
     }),
@@ -209,8 +189,8 @@ export default function RegisterScreen() {
       Boolean(
         normalizedValues.fullName.trim() &&
           normalizedValues.email &&
-          normalizedValues.rut &&
           normalizedValues.address.trim() &&
+          normalizedValues.phone &&
           normalizedValues.password &&
           normalizedValues.confirmPassword,
       ),
@@ -223,18 +203,11 @@ export default function RegisterScreen() {
     emailAvailability.state === 'available' &&
     emailAvailability.checkedValue === normalizedValues.email;
 
-  const isRutAvailable =
-    Boolean(normalizedValues.rut) &&
-    !validationFieldErrors.rut &&
-    rutAvailability.state === 'available' &&
-    rutAvailability.checkedValue === normalizedValues.rut;
-
   const isSubmitDisabled =
     !isFormComplete ||
     !validationResult.success ||
-    Boolean(availabilityErrors.email || availabilityErrors.rut) ||
+    Boolean(availabilityErrors.email) ||
     !isEmailAvailable ||
-    !isRutAvailable ||
     isSubmitting;
 
   useEffect(() => {
@@ -250,6 +223,24 @@ export default function RegisterScreen() {
   }, [infoMessage, router]);
 
   const setFieldValue = (field: keyof RegisterFormValues, value: string) => {
+    if (field === 'phone') {
+      setFormValues((current) => ({
+        ...current,
+        phone: formatNationalPhone(current.phoneCountry, value).formatted,
+      }));
+      return;
+    }
+
+    if (field === 'phoneCountry') {
+      const nextCountry = value as PhoneCountryCode;
+      setFormValues((current) => ({
+        ...current,
+        phoneCountry: nextCountry,
+        phone: formatNationalPhone(nextCountry, current.phone).formatted,
+      }));
+      return;
+    }
+
     setFormValues((current) => ({ ...current, [field]: value }));
     if (availabilityErrors[field]) {
       setAvailabilityErrors((current) => ({ ...current, [field]: undefined }));
@@ -266,157 +257,86 @@ export default function RegisterScreen() {
             },
       );
     }
-    if (field === 'rut') {
-      const normalizedRut = formatRutInput(value);
-      setRutAvailability((current) =>
-        current.checkedValue === normalizedRut
-          ? current
-          : {
-              state: 'idle',
-              checkedValue: '',
-              message: '',
-            },
-      );
-    }
   };
 
   const setTouched = (field: keyof RegisterFormValues) => {
     setTouchedFields((current) => ({ ...current, [field]: true }));
   };
 
-  const checkAvailability = useCallback(
-    async (field: 'email' | 'rut') => {
-      const targetValue =
-        field === 'email' ? normalizedValues.email : normalizedValues.rut;
-      const requestId =
-        field === 'email'
-          ? ++emailCheckRequestIdRef.current
-          : ++rutCheckRequestIdRef.current;
+  const checkAvailability = useCallback(async () => {
+    const targetValue = normalizedValues.email;
+    const requestId = ++emailCheckRequestIdRef.current;
 
-      if (field === 'email') {
-        if (
-          validationFieldErrors.email ||
-          !normalizedValues.email ||
-          emailAvailability.checkedValue === normalizedValues.email
-        ) {
-          return;
-        }
+    if (
+      validationFieldErrors.email ||
+      !normalizedValues.email ||
+      emailAvailability.checkedValue === normalizedValues.email
+    ) {
+      return;
+    }
+    setEmailAvailability({
+      state: 'checking',
+      checkedValue: normalizedValues.email,
+      message: 'Validando email...',
+    });
+
+    setErrorMessage('');
+
+    try {
+      const { data, error } = await supabase.rpc(
+        'check_registration_availability',
+        {
+          p_email: normalizedValues.email,
+        },
+      );
+
+      if (requestId !== emailCheckRequestIdRef.current) {
+        return;
+      }
+
+      if (error) {
+        setAvailabilityErrors((current) => ({
+          ...current,
+          email: 'No se pudo validar este campo. Intentá de nuevo.',
+        }));
         setEmailAvailability({
-          state: 'checking',
-          checkedValue: normalizedValues.email,
-          message: 'Validando email...',
+          state: 'error',
+          checkedValue: targetValue,
+          message: 'No se pudo validar email.',
         });
-      } else {
-        if (
-          validationFieldErrors.rut ||
-          !normalizedValues.rut ||
-          rutAvailability.checkedValue === normalizedValues.rut
-        ) {
-          return;
-        }
-        setRutAvailability({
-          state: 'checking',
-          checkedValue: normalizedValues.rut,
-          message: 'Validando RUT...',
-        });
+        return;
       }
 
-      setErrorMessage('');
+      const firstResult = Array.isArray(data) ? data[0] : data;
+      const isAlreadyRegistered = Boolean(firstResult?.email_exists);
 
-      try {
-        const { data, error } = await supabase.rpc(
-          'check_registration_availability',
-          {
-            p_email: field === 'email' ? normalizedValues.email : null,
-            p_rut: field === 'rut' ? normalizedValues.rut : null,
-          },
-        );
-
-        const isStaleResponse =
-          (field === 'email' && requestId !== emailCheckRequestIdRef.current) ||
-          (field === 'rut' && requestId !== rutCheckRequestIdRef.current);
-
-        if (isStaleResponse) {
-          return;
-        }
-
-        if (error) {
-          setAvailabilityErrors((current) => ({
-            ...current,
-            [field]: 'No se pudo validar este campo. Intentá de nuevo.',
-          }));
-          if (field === 'email') {
-            setEmailAvailability({
-              state: 'error',
-              checkedValue: targetValue,
-              message: 'No se pudo validar email.',
-            });
-          } else {
-            setRutAvailability({
-              state: 'error',
-              checkedValue: targetValue,
-              message: 'No se pudo validar RUT.',
-            });
-          }
-          return;
-        }
-
-        const firstResult = Array.isArray(data) ? data[0] : data;
-        const isAlreadyRegistered =
-          field === 'email'
-            ? Boolean(firstResult?.email_exists)
-            : Boolean(firstResult?.rut_exists);
-
-        setAvailabilityErrors((current) => ({
-          ...current,
-          [field]: isAlreadyRegistered
-            ? field === 'email'
-              ? 'Este email ya está registrado.'
-              : 'Este RUT ya está registrado.'
-            : undefined,
-        }));
-        if (field === 'email') {
-          setEmailAvailability({
-            state: isAlreadyRegistered ? 'unavailable' : 'available',
-            checkedValue: targetValue,
-            message: isAlreadyRegistered ? 'Email en uso' : 'Email válido',
-          });
-        } else {
-          setRutAvailability({
-            state: isAlreadyRegistered ? 'unavailable' : 'available',
-            checkedValue: targetValue,
-            message: isAlreadyRegistered ? 'RUT en uso' : 'RUT válido',
-          });
-        }
-      } catch {
-        setAvailabilityErrors((current) => ({
-          ...current,
-          [field]: 'No se pudo validar este campo. Intentá de nuevo.',
-        }));
-        if (field === 'email') {
-          setEmailAvailability({
-            state: 'error',
-            checkedValue: targetValue,
-            message: 'No se pudo validar email.',
-          });
-        } else {
-          setRutAvailability({
-            state: 'error',
-            checkedValue: targetValue,
-            message: 'No se pudo validar RUT.',
-          });
-        }
-      }
-    },
-    [
-      emailAvailability.checkedValue,
-      normalizedValues.email,
-      normalizedValues.rut,
-      rutAvailability.checkedValue,
-      validationFieldErrors.email,
-      validationFieldErrors.rut,
-    ],
-  );
+      setAvailabilityErrors((current) => ({
+        ...current,
+        email: isAlreadyRegistered
+          ? 'Este email ya está registrado.'
+          : undefined,
+      }));
+      setEmailAvailability({
+        state: isAlreadyRegistered ? 'unavailable' : 'available',
+        checkedValue: targetValue,
+        message: isAlreadyRegistered ? 'Email en uso' : 'Email válido',
+      });
+    } catch {
+      setAvailabilityErrors((current) => ({
+        ...current,
+        email: 'No se pudo validar este campo. Intentá de nuevo.',
+      }));
+      setEmailAvailability({
+        state: 'error',
+        checkedValue: targetValue,
+        message: 'No se pudo validar email.',
+      });
+    }
+  }, [
+    emailAvailability.checkedValue,
+    normalizedValues.email,
+    validationFieldErrors.email,
+  ]);
 
   useEffect(() => {
     if (
@@ -427,7 +347,7 @@ export default function RegisterScreen() {
       return;
     }
     const timeoutId = setTimeout(() => {
-      void checkAvailability('email');
+      void checkAvailability();
     }, 650);
     return () => clearTimeout(timeoutId);
   }, [
@@ -435,25 +355,6 @@ export default function RegisterScreen() {
     emailAvailability.checkedValue,
     normalizedValues.email,
     validationFieldErrors.email,
-  ]);
-
-  useEffect(() => {
-    if (
-      !normalizedValues.rut ||
-      validationFieldErrors.rut ||
-      rutAvailability.checkedValue === normalizedValues.rut
-    ) {
-      return;
-    }
-    const timeoutId = setTimeout(() => {
-      void checkAvailability('rut');
-    }, 650);
-    return () => clearTimeout(timeoutId);
-  }, [
-    checkAvailability,
-    normalizedValues.rut,
-    rutAvailability.checkedValue,
-    validationFieldErrors.rut,
   ]);
 
   const getSignupErrorMessage = (message: string) => {
@@ -495,8 +396,8 @@ export default function RegisterScreen() {
       setTouchedFields({
         fullName: true,
         email: true,
-        rut: true,
         address: true,
+        phone: true,
         password: true,
         confirmPassword: true,
       });
@@ -505,18 +406,20 @@ export default function RegisterScreen() {
       return;
     }
 
-    const { fullName, email, rut, address, password } = validationResult.data;
+    const { fullName, email, address, phoneCountry, phone, password } =
+      validationResult.data;
+    const e164Phone = toE164Phone(phoneCountry, phone);
 
     try {
       setIsSubmitting(true);
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
             display_name: fullName,
-            rut,
             address,
+            phone: e164Phone,
           },
         },
       });
@@ -524,6 +427,23 @@ export default function RegisterScreen() {
       if (error) {
         setErrorMessage(getSignupErrorMessage(error.message));
         return;
+      }
+
+      let signUpSuccessMessage =
+        'Registro exitoso. Te redirigimos al login para iniciar sesión.';
+
+      if (data.session?.user) {
+        const { error: updatePhoneError } = await supabase.auth.updateUser({
+          phone: e164Phone,
+        });
+
+        if (updatePhoneError) {
+          signUpSuccessMessage =
+            'Registro exitoso. No pudimos guardar tu teléfono en auth.users; podés actualizarlo desde tu perfil.';
+        }
+      } else if (data.user) {
+        signUpSuccessMessage =
+          'Registro exitoso. Verificá tu cuenta y luego completá el teléfono desde tu perfil.';
       }
 
       setFormValues(initialFormValues);
@@ -534,14 +454,7 @@ export default function RegisterScreen() {
         checkedValue: '',
         message: '',
       });
-      setRutAvailability({
-        state: 'idle',
-        checkedValue: '',
-        message: '',
-      });
-      setInfoMessage(
-        'Registro exitoso. Te redirigimos al login para iniciar sesión.',
-      );
+      setInfoMessage(signUpSuccessMessage);
     } catch (error) {
       const message =
         error instanceof Error
@@ -579,33 +492,6 @@ export default function RegisterScreen() {
     emailAvailability.state,
     normalizedValues.email,
     validationFieldErrors.email,
-  ]);
-
-  const rutStatusMessage = useMemo(() => {
-    if (!normalizedValues.rut) {
-      return '';
-    }
-    if (validationFieldErrors.rut) {
-      return 'RUT no válido';
-    }
-    if (rutAvailability.state === 'idle') {
-      return '';
-    }
-    if (rutAvailability.state === 'checking') {
-      return 'Validando RUT...';
-    }
-    if (availabilityErrors.rut) {
-      if (availabilityErrors.rut.includes('registrado')) {
-        return 'RUT en uso';
-      }
-      return availabilityErrors.rut;
-    }
-    return 'RUT válido';
-  }, [
-    availabilityErrors.rut,
-    normalizedValues.rut,
-    rutAvailability.state,
-    validationFieldErrors.rut,
   ]);
 
   return (
@@ -693,44 +579,6 @@ export default function RegisterScreen() {
                 isFocused={focusedField === 'fullName'}
               />
               <Field
-                label="RUT"
-                placeholder="12.345.678-9"
-                theme={theme}
-                icon="ID"
-                value={formValues.rut}
-                onChangeText={(value) =>
-                  setFieldValue('rut', formatRutInput(value))
-                }
-                onFocus={() => setFocusedField('rut')}
-                onBlur={() => {
-                  setFocusedField(null);
-                  setTouched('rut');
-                }}
-                autoCapitalize="none"
-                error={
-                  touchedFields.rut
-                    ? availabilityErrors.rut || validationFieldErrors.rut
-                    : ''
-                }
-                statusMessage={rutStatusMessage}
-                statusTone={
-                  availabilityErrors.rut || validationFieldErrors.rut
-                    ? 'error'
-                    : rutAvailability.state === 'available'
-                      ? 'success'
-                      : 'neutral'
-                }
-                isValid={
-                  Boolean(touchedFields.rut) &&
-                  Boolean(formValues.rut) &&
-                  !validationFieldErrors.rut &&
-                  !availabilityErrors.rut
-                }
-                isDisabled={isSubmitting}
-                maxLength={MAX_RUT_LENGTH}
-                isFocused={focusedField === 'rut'}
-              />
-              <Field
                 label="Dirección"
                 placeholder="Av. Siempre Viva 123"
                 theme={theme}
@@ -790,6 +638,32 @@ export default function RegisterScreen() {
                 isDisabled={isSubmitting}
                 maxLength={MAX_EMAIL_LENGTH}
                 isFocused={focusedField === 'email'}
+              />
+              <PhoneField
+                label="Teléfono"
+                theme={theme}
+                countryCode={formValues.phoneCountry}
+                nationalNumber={formValues.phone}
+                onChangeCountry={(countryCode) => {
+                  setFieldValue('phoneCountry', countryCode);
+                  setTouched('phone');
+                }}
+                onChangeNationalNumber={(value) =>
+                  setFieldValue('phone', value)
+                }
+                onFocus={() => setFocusedField('phone')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched('phone');
+                }}
+                error={touchedFields.phone ? validationFieldErrors.phone : ''}
+                isValid={
+                  Boolean(touchedFields.phone) &&
+                  Boolean(formValues.phone.trim()) &&
+                  !validationFieldErrors.phone
+                }
+                isDisabled={isSubmitting}
+                isFocused={focusedField === 'phone'}
               />
               <Field
                 label="Contraseña"
@@ -909,7 +783,7 @@ type FieldProps = {
   onChangeText?: (value: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
-  keyboardType?: 'default' | 'email-address';
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   error?: string;
   isValid?: boolean;
@@ -1009,6 +883,87 @@ function Field({
   );
 }
 
+type PhoneFieldProps = {
+  label: string;
+  theme: ReturnType<typeof useTheme>;
+  countryCode: PhoneCountryCode;
+  nationalNumber: string;
+  onChangeCountry: (countryCode: PhoneCountryCode) => void;
+  onChangeNationalNumber: (value: string) => void;
+  onFocus?: () => void;
+  onBlur?: () => void;
+  error?: string;
+  isValid?: boolean;
+  isDisabled?: boolean;
+  isFocused?: boolean;
+};
+
+function PhoneField({
+  label,
+  theme,
+  countryCode,
+  nationalNumber,
+  onChangeCountry,
+  onChangeNationalNumber,
+  onFocus,
+  onBlur,
+  error,
+  isValid,
+  isDisabled,
+  isFocused,
+}: PhoneFieldProps) {
+  const selectedCountry = getPhoneCountry(countryCode);
+
+  return (
+    <View style={styles.fieldGroup}>
+      <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
+      <View
+        style={[
+          styles.phoneField,
+          {
+            borderColor: isFocused
+              ? theme.primary
+              : error
+                ? theme.error
+                : isValid
+                  ? theme.primary
+                  : theme.border,
+          },
+        ]}
+      >
+        <PhoneCountryDropdown
+          disabled={isDisabled}
+          countryCode={countryCode}
+          onChangeCountry={onChangeCountry}
+          theme={theme}
+          minWidth={116}
+        />
+
+        <View
+          style={[styles.phoneFieldDivider, { backgroundColor: theme.border }]}
+        />
+
+        <TextInput
+          placeholder={selectedCountry.pattern.replaceAll('X', '0')}
+          placeholderTextColor={theme.textSecondary}
+          style={[styles.phoneFieldInput, { color: theme.text }]}
+          value={nationalNumber}
+          onChangeText={onChangeNationalNumber}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          keyboardType="phone-pad"
+          editable={!isDisabled}
+        />
+      </View>
+      {!isFocused && error ? (
+        <Text style={[styles.fieldErrorText, { color: theme.error }]}>
+          {error}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   page: {
     flex: 1,
@@ -1045,7 +1000,6 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: 28,
-    overflow: 'hidden',
     shadowOpacity: 0.12,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
@@ -1099,6 +1053,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.two,
     paddingVertical: Spacing.one,
     gap: Spacing.one,
+  },
+  phoneField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: Spacing.one,
+    paddingVertical: Spacing.one,
+    gap: Spacing.one,
+  },
+  phoneFieldDivider: {
+    width: 1,
+    height: 20,
+  },
+  phoneFieldInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: Spacing.one,
   },
   fieldIcon: {
     fontSize: 14,
