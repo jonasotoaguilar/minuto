@@ -6,9 +6,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import { Platform } from 'react-native';
+import { z } from 'zod';
+import {
+  type CreateOrganizationInput,
+  createOrganizationInputSchema,
+  getFirstValidationError,
+} from '@/lib/organization-validation';
 import { supabase } from '@/lib/supabase';
 
 type MembershipRole = 'owner' | 'admin' | 'manager' | 'employee';
@@ -16,6 +23,7 @@ type MembershipRole = 'owner' | 'admin' | 'manager' | 'employee';
 export type OrganizationSummary = {
   id: string;
   name: string;
+  location: string | null;
   plan: 'free' | 'pro' | 'enterprise';
   timezone: string;
   ownerUserId: string;
@@ -34,7 +42,7 @@ type OrganizationContextValue = {
   refreshOrganizations: () => Promise<void>;
   openOrganizationSetup: () => void;
   closeOrganizationSetup: () => void;
-  createOrganization: (organizationName: string) => Promise<void>;
+  createOrganization: (input: CreateOrganizationInput) => Promise<void>;
   joinOrganizationByCodeOrLink: (codeOrLink: string) => Promise<void>;
 };
 
@@ -101,6 +109,7 @@ function toOrganizationSummary(row: {
     | {
         id: string;
         name: string;
+        location: string | null;
         plan: 'free' | 'pro' | 'enterprise';
         timezone: string;
         owner_user_id: string;
@@ -108,6 +117,7 @@ function toOrganizationSummary(row: {
     | {
         id: string;
         name: string;
+        location: string | null;
         plan: 'free' | 'pro' | 'enterprise';
         timezone: string;
         owner_user_id: string;
@@ -123,6 +133,7 @@ function toOrganizationSummary(row: {
   return {
     id: relatedOrganization.id,
     name: relatedOrganization.name,
+    location: relatedOrganization.location,
     plan: relatedOrganization.plan,
     timezone: relatedOrganization.timezone,
     ownerUserId: relatedOrganization.owner_user_id,
@@ -140,6 +151,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const [isLoadingOrganizations, setIsLoadingOrganizations] = useState(true);
   const [isOrganizationSetupOpen, setIsOrganizationSetupOpen] = useState(false);
   const [setupErrorMessage, setSetupErrorMessage] = useState('');
+  const isCreatingOrganizationRef = useRef(false);
 
   const requireCurrentUser = useCallback(async () => {
     const { data, error } = await supabase.auth.getUser();
@@ -164,7 +176,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase
       .from('memberships')
       .select(
-        'id, role, organizations(id, name, plan, timezone, owner_user_id)',
+        'id, role, organizations(id, name, location, plan, timezone, owner_user_id)',
       )
       .eq('user_id', sessionUserId)
       .eq('status', 'active');
@@ -255,34 +267,60 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const createOrganization = useCallback(
-    async (organizationName: string) => {
-      const normalizedName = organizationName.trim();
-      if (!normalizedName) {
-        throw new Error('El nombre de la organización es obligatorio.');
+    async (input: CreateOrganizationInput) => {
+      if (isCreatingOrganizationRef.current) {
+        throw new Error('Ya hay una creación en curso.');
       }
-      await requireCurrentUser();
 
-      const timezone =
-        Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Santiago';
-
-      const { data: newOrganizationId, error: createOrganizationError } =
-        await supabase.rpc('create_organization_with_owner', {
-          p_name: normalizedName,
-          p_timezone: timezone,
-        });
-
-      if (createOrganizationError || !newOrganizationId) {
+      const parsedInput = createOrganizationInputSchema.safeParse(input);
+      if (!parsedInput.success) {
+        const fieldErrors = z.flattenError(parsedInput.error).fieldErrors;
         throw new Error(
-          createOrganizationError?.message ||
-            'No se pudo crear la organización.',
+          getFirstValidationError(fieldErrors) || 'Datos inválidos.',
         );
       }
 
-      await refreshOrganizations();
-      await setActiveOrganizationById(newOrganizationId);
-      setIsOrganizationSetupOpen(false);
+      const currentUser = await requireCurrentUser();
+      const normalizedName = parsedInput.data.name.toLowerCase();
+      const duplicateOrganization = organizations.some(
+        (organization) =>
+          organization.ownerUserId === currentUser.id &&
+          organization.name.toLowerCase() === normalizedName,
+      );
+
+      if (duplicateOrganization) {
+        throw new Error('Ya existe una organización con ese nombre.');
+      }
+
+      isCreatingOrganizationRef.current = true;
+      try {
+        const { data: newOrganizationId, error: createOrganizationError } =
+          await supabase.rpc('create_organization_with_owner', {
+            p_name: parsedInput.data.name,
+            p_timezone: parsedInput.data.timezone,
+            p_location: parsedInput.data.location,
+          });
+
+        if (createOrganizationError || !newOrganizationId) {
+          throw new Error(
+            createOrganizationError?.message ||
+              'No se pudo crear la organización.',
+          );
+        }
+
+        await refreshOrganizations();
+        await setActiveOrganizationById(newOrganizationId);
+        setIsOrganizationSetupOpen(false);
+      } finally {
+        isCreatingOrganizationRef.current = false;
+      }
     },
-    [refreshOrganizations, requireCurrentUser, setActiveOrganizationById],
+    [
+      organizations,
+      refreshOrganizations,
+      requireCurrentUser,
+      setActiveOrganizationById,
+    ],
   );
 
   const joinOrganizationByCodeOrLink = useCallback(

@@ -11,10 +11,15 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { z } from 'zod';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  createOrganizationInputSchema,
+  getDefaultTimezone,
+} from '@/lib/organization-validation';
 
 export function OrganizationSetupView() {
   const theme = useTheme();
@@ -30,18 +35,54 @@ export function OrganizationSetupView() {
 
   const [mode, setMode] = useState<'create' | 'join'>('create');
   const [organizationName, setOrganizationName] = useState('');
+  const [organizationLocation, setOrganizationLocation] = useState('');
+  const [organizationTimezone, setOrganizationTimezone] = useState(
+    getDefaultTimezone(),
+  );
   const [inviteCodeOrLink, setInviteCodeOrLink] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<'name' | 'location' | 'timezone', string>>
+  >({});
 
   const hasOrganizations = organizations.length > 0;
+  const createValidationResult = createOrganizationInputSchema.safeParse({
+    name: organizationName,
+    location: organizationLocation,
+    timezone: organizationTimezone,
+  });
+  const isCreateFormValid = createValidationResult.success;
 
   const handleCreateOrganization = async () => {
     if (isSubmitting) return;
     setSetupErrorMessage('');
+
+    const validationResult = createOrganizationInputSchema.safeParse({
+      name: organizationName,
+      location: organizationLocation,
+      timezone: organizationTimezone,
+    });
+
+    if (!validationResult.success) {
+      const nextFieldErrors = z.flattenError(
+        validationResult.error,
+      ).fieldErrors;
+      setFieldErrors({
+        name: nextFieldErrors.name?.[0],
+        location: nextFieldErrors.location?.[0],
+        timezone: nextFieldErrors.timezone?.[0],
+      });
+      return;
+    }
+
+    setFieldErrors({});
+
     try {
       setIsSubmitting(true);
-      await createOrganization(organizationName);
+      await createOrganization(validationResult.data);
       setOrganizationName('');
+      setOrganizationLocation('');
+      setOrganizationTimezone(getDefaultTimezone());
     } catch (error) {
       const message =
         error instanceof Error
@@ -147,7 +188,13 @@ export function OrganizationSetupView() {
               </Text>
               <TextInput
                 value={organizationName}
-                onChangeText={setOrganizationName}
+                onChangeText={(value) => {
+                  setOrganizationName(value);
+                  setFieldErrors((currentErrors) => ({
+                    ...currentErrors,
+                    name: undefined,
+                  }));
+                }}
                 placeholder="Ejemplo: Minuto Labs"
                 placeholderTextColor={theme.textSecondary}
                 style={[
@@ -159,14 +206,79 @@ export function OrganizationSetupView() {
                   },
                 ]}
               />
+              {fieldErrors.name ? (
+                <Text style={[styles.fieldErrorText, { color: theme.error }]}>
+                  {fieldErrors.name}
+                </Text>
+              ) : null}
+
+              <Text style={[styles.label, { color: theme.text }]}>
+                Ubicación de la organización
+              </Text>
+              <TextInput
+                value={organizationLocation}
+                onChangeText={(value) => {
+                  setOrganizationLocation(value);
+                  setFieldErrors((currentErrors) => ({
+                    ...currentErrors,
+                    location: undefined,
+                  }));
+                }}
+                placeholder="Ejemplo: Santiago, Chile"
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.input,
+                  {
+                    borderColor: theme.border,
+                    color: theme.text,
+                    backgroundColor: theme.background,
+                  },
+                ]}
+              />
+              {fieldErrors.location ? (
+                <Text style={[styles.fieldErrorText, { color: theme.error }]}>
+                  {fieldErrors.location}
+                </Text>
+              ) : null}
+
+              <Text style={[styles.label, { color: theme.text }]}>
+                Zona horaria (IANA)
+              </Text>
+              <TextInput
+                value={organizationTimezone}
+                onChangeText={(value) => {
+                  setOrganizationTimezone(value);
+                  setFieldErrors((currentErrors) => ({
+                    ...currentErrors,
+                    timezone: undefined,
+                  }));
+                }}
+                placeholder="Ejemplo: America/Santiago"
+                placeholderTextColor={theme.textSecondary}
+                style={[
+                  styles.input,
+                  {
+                    borderColor: theme.border,
+                    color: theme.text,
+                    backgroundColor: theme.background,
+                  },
+                ]}
+                autoCapitalize="none"
+              />
+              {fieldErrors.timezone ? (
+                <Text style={[styles.fieldErrorText, { color: theme.error }]}>
+                  {fieldErrors.timezone}
+                </Text>
+              ) : null}
+
               <Pressable
                 onPress={handleCreateOrganization}
-                disabled={isSubmitting}
+                disabled={isSubmitting || !isCreateFormValid}
                 style={[
                   styles.primaryButton,
                   {
                     backgroundColor: theme.primary,
-                    opacity: isSubmitting ? 0.7 : 1,
+                    opacity: isSubmitting || !isCreateFormValid ? 0.7 : 1,
                   },
                 ]}
               >
@@ -314,6 +426,11 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: -2,
   },
   secondaryButton: {
     borderWidth: 1,
