@@ -1,5 +1,5 @@
 import { type Href, Link, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,10 +11,38 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { z } from 'zod';
 
 import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
+
+const MAX_EMAIL_LENGTH = 120;
+const MAX_PASSWORD_LENGTH = 72;
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_SECONDS = 30;
+
+const loginSchema = z.object({
+  email: z
+    .string()
+    .trim()
+    .email('Ingresa un email válido.')
+    .max(
+      MAX_EMAIL_LENGTH,
+      `El email no puede superar ${MAX_EMAIL_LENGTH} caracteres.`,
+    ),
+  password: z
+    .string()
+    .min(8, 'La contraseña debe tener al menos 8 caracteres.')
+    .max(
+      MAX_PASSWORD_LENGTH,
+      `La contraseña no puede superar ${MAX_PASSWORD_LENGTH} caracteres.`,
+    ),
+});
+
+type LoginFormValues = z.infer<typeof loginSchema>;
+type LoginFieldErrors = Partial<Record<keyof LoginFormValues, string>>;
+type TouchedFields = Partial<Record<keyof LoginFormValues, boolean>>;
 
 export default function LoginScreen() {
   const theme = useTheme();
@@ -25,29 +53,122 @@ export default function LoginScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutEndsAt, setLockoutEndsAt] = useState<number | null>(null);
+  const [lockoutSecondsLeft, setLockoutSecondsLeft] = useState(0);
+  const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
+  const [focusedField, setFocusedField] = useState<
+    keyof LoginFormValues | null
+  >(null);
+
+  const normalizedValues = useMemo(
+    () => ({
+      email: email.trim().toLowerCase(),
+      password,
+    }),
+    [email, password],
+  );
+
+  const validationResult = useMemo(
+    () => loginSchema.safeParse(normalizedValues),
+    [normalizedValues],
+  );
+
+  const fieldErrors = useMemo<LoginFieldErrors>(() => {
+    if (validationResult.success) {
+      return {};
+    }
+
+    const flattenedError = z.flattenError(validationResult.error);
+    const nextErrors: LoginFieldErrors = {};
+
+    Object.entries(flattenedError.fieldErrors).forEach(([field, errors]) => {
+      if (!errors?.length) {
+        return;
+      }
+      nextErrors[field as keyof LoginFormValues] = errors[0];
+    });
+
+    return nextErrors;
+  }, [validationResult]);
+
+  const isFormComplete = useMemo(
+    () => Boolean(normalizedValues.email && normalizedValues.password),
+    [normalizedValues],
+  );
+
+  const isLockoutActive = lockoutSecondsLeft > 0;
+  const isSubmitDisabled =
+    isSubmitting ||
+    isLockoutActive ||
+    !isFormComplete ||
+    !validationResult.success;
+
+  useEffect(() => {
+    if (!lockoutEndsAt) {
+      return undefined;
+    }
+
+    const updateRemainingTime = () => {
+      const remainingSeconds = Math.max(
+        0,
+        Math.ceil((lockoutEndsAt - Date.now()) / 1000),
+      );
+
+      setLockoutSecondsLeft(remainingSeconds);
+
+      if (remainingSeconds === 0) {
+        setLockoutEndsAt(null);
+      }
+    };
+
+    updateRemainingTime();
+    const intervalId = setInterval(updateRemainingTime, 1000);
+    return () => clearInterval(intervalId);
+  }, [lockoutEndsAt]);
+
+  const registerFailedAttempt = () => {
+    setFailedAttempts((currentAttempts) => {
+      const nextAttempts = currentAttempts + 1;
+      if (nextAttempts < MAX_FAILED_ATTEMPTS) {
+        return nextAttempts;
+      }
+
+      setLockoutEndsAt(Date.now() + LOCKOUT_SECONDS * 1000);
+      setLockoutSecondsLeft(LOCKOUT_SECONDS);
+      return 0;
+    });
+  };
 
   const handleSignIn = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || isLockoutActive) return;
     setErrorMessage('');
     setInfoMessage('');
 
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
-      setErrorMessage('Completa email y contraseña para continuar.');
+    if (!validationResult.success) {
+      setTouchedFields({ email: true, password: true });
+      setFocusedField(null);
+      setErrorMessage(fieldErrors.email ?? fieldErrors.password ?? '');
       return;
     }
 
     try {
       setIsSubmitting(true);
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
-        password,
+        email: validationResult.data.email,
+        password: validationResult.data.password,
       });
 
       if (error) {
-        setErrorMessage(error.message);
+        registerFailedAttempt();
+        setErrorMessage(
+          'Credenciales inválidas o acceso bloqueado temporalmente.',
+        );
         return;
       }
+
+      setFailedAttempts(0);
 
       if (data.session) {
         const redirectTo = '/(tabs)/home' as Href;
@@ -56,12 +177,10 @@ export default function LoginScreen() {
       }
 
       setInfoMessage('Sesión creada. Continuá para ingresar.');
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : 'Error inesperado al ingresar.';
-      setErrorMessage(message);
+    } catch {
+      setErrorMessage(
+        'No se pudo iniciar sesión en este momento. Intentá nuevamente.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -144,6 +263,18 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
+                autoCorrect={false}
+                maxLength={MAX_EMAIL_LENGTH}
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouchedFields((current) => ({ ...current, email: true }));
+                }}
+                error={
+                  touchedFields.email && focusedField !== 'email'
+                    ? fieldErrors.email
+                    : undefined
+                }
               />
               <View style={styles.passwordRow}>
                 <Text style={[styles.fieldLabel, { color: theme.text }]}>
@@ -157,20 +288,45 @@ export default function LoginScreen() {
                 placeholder="********"
                 theme={theme}
                 icon="*"
-                secure
+                secure={!isPasswordVisible}
                 value={password}
                 onChangeText={setPassword}
+                autoCorrect={false}
+                maxLength={MAX_PASSWORD_LENGTH}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouchedFields((current) => ({
+                    ...current,
+                    password: true,
+                  }));
+                }}
+                error={
+                  touchedFields.password && focusedField !== 'password'
+                    ? fieldErrors.password
+                    : undefined
+                }
+                rightElement={
+                  <Pressable
+                    onPress={() => setIsPasswordVisible((current) => !current)}
+                    hitSlop={8}
+                  >
+                    <Text style={[styles.toggleText, { color: theme.primary }]}>
+                      {isPasswordVisible ? 'Ocultar' : 'Ver'}
+                    </Text>
+                  </Pressable>
+                }
               />
             </View>
 
             <Pressable
               onPress={handleSignIn}
-              disabled={isSubmitting}
+              disabled={isSubmitDisabled}
               style={[
                 styles.primaryButton,
                 {
                   backgroundColor: theme.primary,
-                  opacity: isSubmitting ? 0.7 : 1,
+                  opacity: isSubmitDisabled ? 0.6 : 1,
                 },
               ]}
             >
@@ -197,6 +353,16 @@ export default function LoginScreen() {
                 Estamos aquí para ayudarte
               </Text>
             </Text>
+
+            {isLockoutActive ? (
+              <Text style={[styles.errorText, { color: theme.error }]}>
+                Demasiados intentos fallidos. Probá en {lockoutSecondsLeft}s.
+              </Text>
+            ) : failedAttempts > 0 ? (
+              <Text style={[styles.helpText, { color: theme.textSecondary }]}>
+                Intentos fallidos: {failedAttempts}/{MAX_FAILED_ATTEMPTS}
+              </Text>
+            ) : null}
           </View>
         </View>
 
@@ -236,6 +402,12 @@ type FieldProps = {
   onChangeText?: (value: string) => void;
   keyboardType?: 'default' | 'email-address';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoCorrect?: boolean;
+  maxLength?: number;
+  error?: string;
+  rightElement?: ReactNode;
+  onBlur?: () => void;
+  onFocus?: () => void;
 };
 
 function Field({
@@ -248,13 +420,24 @@ function Field({
   onChangeText,
   keyboardType,
   autoCapitalize,
+  autoCorrect,
+  maxLength,
+  error,
+  rightElement,
+  onBlur,
+  onFocus,
 }: FieldProps) {
   return (
     <View style={styles.fieldGroup}>
       {label ? (
         <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
       ) : null}
-      <View style={[styles.field, { borderColor: theme.border }]}>
+      <View
+        style={[
+          styles.field,
+          { borderColor: error ? theme.error : theme.border },
+        ]}
+      >
         <Text style={[styles.fieldIcon, { color: theme.primary }]}>{icon}</Text>
         <TextInput
           placeholder={placeholder}
@@ -265,8 +448,16 @@ function Field({
           onChangeText={onChangeText}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
+          autoCorrect={autoCorrect}
+          maxLength={maxLength}
+          onBlur={onBlur}
+          onFocus={onFocus}
         />
+        {rightElement}
       </View>
+      {error ? (
+        <Text style={[styles.fieldError, { color: theme.error }]}>{error}</Text>
+      ) : null}
     </View>
   );
 }
@@ -389,10 +580,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  toggleText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   primaryButton: {
     paddingVertical: Spacing.two,
     borderRadius: 999,
     alignItems: 'center',
+  },
+  fieldError: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   primaryButtonText: {
     color: '#FFFFFF',

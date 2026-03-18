@@ -1,5 +1,5 @@
 import { type Href, Link, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -112,6 +112,17 @@ const registerSchema = z
 type RegisterFormValues = z.infer<typeof registerSchema>;
 type RegisterFieldErrors = Partial<Record<keyof RegisterFormValues, string>>;
 type TouchedFields = Partial<Record<keyof RegisterFormValues, boolean>>;
+type AvailabilityState =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'unavailable'
+  | 'error';
+type FieldAvailability = {
+  state: AvailabilityState;
+  checkedValue: string;
+  message: string;
+};
 
 const initialFormValues: RegisterFormValues = {
   fullName: '',
@@ -134,16 +145,28 @@ export default function RegisterScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
-  const [isCheckingRut, setIsCheckingRut] = useState(false);
-  const [availabilityChecked, setAvailabilityChecked] = useState({
-    email: false,
-    rut: false,
+  const [emailAvailability, setEmailAvailability] = useState<FieldAvailability>(
+    {
+      state: 'idle',
+      checkedValue: '',
+      message: '',
+    },
+  );
+  const [rutAvailability, setRutAvailability] = useState<FieldAvailability>({
+    state: 'idle',
+    checkedValue: '',
+    message: '',
   });
+  const [focusedField, setFocusedField] = useState<
+    keyof RegisterFormValues | null
+  >(null);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] =
     useState(false);
   const isSubmittingRef = useRef(false);
+  const lastSubmitAtRef = useRef(0);
+  const emailCheckRequestIdRef = useRef(0);
+  const rutCheckRequestIdRef = useRef(0);
 
   const normalizedValues = useMemo(
     () => ({
@@ -194,14 +217,24 @@ export default function RegisterScreen() {
     [normalizedValues],
   );
 
+  const isEmailAvailable =
+    Boolean(normalizedValues.email) &&
+    !validationFieldErrors.email &&
+    emailAvailability.state === 'available' &&
+    emailAvailability.checkedValue === normalizedValues.email;
+
+  const isRutAvailable =
+    Boolean(normalizedValues.rut) &&
+    !validationFieldErrors.rut &&
+    rutAvailability.state === 'available' &&
+    rutAvailability.checkedValue === normalizedValues.rut;
+
   const isSubmitDisabled =
     !isFormComplete ||
     !validationResult.success ||
     Boolean(availabilityErrors.email || availabilityErrors.rut) ||
-    !availabilityChecked.email ||
-    !availabilityChecked.rut ||
-    isCheckingEmail ||
-    isCheckingRut ||
+    !isEmailAvailable ||
+    !isRutAvailable ||
     isSubmitting;
 
   useEffect(() => {
@@ -221,11 +254,29 @@ export default function RegisterScreen() {
     if (availabilityErrors[field]) {
       setAvailabilityErrors((current) => ({ ...current, [field]: undefined }));
     }
-    if (field === 'email' || field === 'rut') {
-      setAvailabilityChecked((current) => ({
-        ...current,
-        [field]: false,
-      }));
+    if (field === 'email') {
+      const normalizedEmail = value.trim().toLowerCase();
+      setEmailAvailability((current) =>
+        current.checkedValue === normalizedEmail
+          ? current
+          : {
+              state: 'idle',
+              checkedValue: '',
+              message: '',
+            },
+      );
+    }
+    if (field === 'rut') {
+      const normalizedRut = formatRutInput(value);
+      setRutAvailability((current) =>
+        current.checkedValue === normalizedRut
+          ? current
+          : {
+              state: 'idle',
+              checkedValue: '',
+              message: '',
+            },
+      );
     }
   };
 
@@ -233,69 +284,177 @@ export default function RegisterScreen() {
     setTouchedFields((current) => ({ ...current, [field]: true }));
   };
 
-  const checkAvailability = async (field: 'email' | 'rut') => {
-    if (field === 'email') {
-      if (validationFieldErrors.email || !normalizedValues.email) {
-        return;
+  const checkAvailability = useCallback(
+    async (field: 'email' | 'rut') => {
+      const targetValue =
+        field === 'email' ? normalizedValues.email : normalizedValues.rut;
+      const requestId =
+        field === 'email'
+          ? ++emailCheckRequestIdRef.current
+          : ++rutCheckRequestIdRef.current;
+
+      if (field === 'email') {
+        if (
+          validationFieldErrors.email ||
+          !normalizedValues.email ||
+          emailAvailability.checkedValue === normalizedValues.email
+        ) {
+          return;
+        }
+        setEmailAvailability({
+          state: 'checking',
+          checkedValue: normalizedValues.email,
+          message: 'Validando email...',
+        });
+      } else {
+        if (
+          validationFieldErrors.rut ||
+          !normalizedValues.rut ||
+          rutAvailability.checkedValue === normalizedValues.rut
+        ) {
+          return;
+        }
+        setRutAvailability({
+          state: 'checking',
+          checkedValue: normalizedValues.rut,
+          message: 'Validando RUT...',
+        });
       }
-      setIsCheckingEmail(true);
-    } else {
-      if (validationFieldErrors.rut || !normalizedValues.rut) {
-        return;
-      }
-      setIsCheckingRut(true);
-    }
 
-    setErrorMessage('');
+      setErrorMessage('');
 
-    try {
-      const { data, error } = await supabase.rpc(
-        'check_registration_availability',
-        {
-          p_email: field === 'email' ? normalizedValues.email : null,
-          p_rut: field === 'rut' ? normalizedValues.rut : null,
-        },
-      );
+      try {
+        const { data, error } = await supabase.rpc(
+          'check_registration_availability',
+          {
+            p_email: field === 'email' ? normalizedValues.email : null,
+            p_rut: field === 'rut' ? normalizedValues.rut : null,
+          },
+        );
 
-      if (error) {
+        const isStaleResponse =
+          (field === 'email' && requestId !== emailCheckRequestIdRef.current) ||
+          (field === 'rut' && requestId !== rutCheckRequestIdRef.current);
+
+        if (isStaleResponse) {
+          return;
+        }
+
+        if (error) {
+          setAvailabilityErrors((current) => ({
+            ...current,
+            [field]: 'No se pudo validar este campo. Intentá de nuevo.',
+          }));
+          if (field === 'email') {
+            setEmailAvailability({
+              state: 'error',
+              checkedValue: targetValue,
+              message: 'No se pudo validar email.',
+            });
+          } else {
+            setRutAvailability({
+              state: 'error',
+              checkedValue: targetValue,
+              message: 'No se pudo validar RUT.',
+            });
+          }
+          return;
+        }
+
+        const firstResult = Array.isArray(data) ? data[0] : data;
+        const isAlreadyRegistered =
+          field === 'email'
+            ? Boolean(firstResult?.email_exists)
+            : Boolean(firstResult?.rut_exists);
+
+        setAvailabilityErrors((current) => ({
+          ...current,
+          [field]: isAlreadyRegistered
+            ? field === 'email'
+              ? 'Este email ya está registrado.'
+              : 'Este RUT ya está registrado.'
+            : undefined,
+        }));
+        if (field === 'email') {
+          setEmailAvailability({
+            state: isAlreadyRegistered ? 'unavailable' : 'available',
+            checkedValue: targetValue,
+            message: isAlreadyRegistered ? 'Email en uso' : 'Email válido',
+          });
+        } else {
+          setRutAvailability({
+            state: isAlreadyRegistered ? 'unavailable' : 'available',
+            checkedValue: targetValue,
+            message: isAlreadyRegistered ? 'RUT en uso' : 'RUT válido',
+          });
+        }
+      } catch {
         setAvailabilityErrors((current) => ({
           ...current,
           [field]: 'No se pudo validar este campo. Intentá de nuevo.',
         }));
-        return;
+        if (field === 'email') {
+          setEmailAvailability({
+            state: 'error',
+            checkedValue: targetValue,
+            message: 'No se pudo validar email.',
+          });
+        } else {
+          setRutAvailability({
+            state: 'error',
+            checkedValue: targetValue,
+            message: 'No se pudo validar RUT.',
+          });
+        }
       }
+    },
+    [
+      emailAvailability.checkedValue,
+      normalizedValues.email,
+      normalizedValues.rut,
+      rutAvailability.checkedValue,
+      validationFieldErrors.email,
+      validationFieldErrors.rut,
+    ],
+  );
 
-      const firstResult = Array.isArray(data) ? data[0] : data;
-      const isAlreadyRegistered =
-        field === 'email'
-          ? Boolean(firstResult?.email_exists)
-          : Boolean(firstResult?.rut_exists);
-
-      setAvailabilityErrors((current) => ({
-        ...current,
-        [field]: isAlreadyRegistered
-          ? field === 'email'
-            ? 'Este email ya está registrado.'
-            : 'Este RUT ya está registrado.'
-          : undefined,
-      }));
-    } catch {
-      setAvailabilityErrors((current) => ({
-        ...current,
-        [field]: 'No se pudo validar este campo. Intentá de nuevo.',
-      }));
-    } finally {
-      setAvailabilityChecked((current) => ({
-        ...current,
-        [field]: true,
-      }));
-      if (field === 'email') {
-        setIsCheckingEmail(false);
-      } else {
-        setIsCheckingRut(false);
-      }
+  useEffect(() => {
+    if (
+      !normalizedValues.email ||
+      validationFieldErrors.email ||
+      emailAvailability.checkedValue === normalizedValues.email
+    ) {
+      return;
     }
-  };
+    const timeoutId = setTimeout(() => {
+      void checkAvailability('email');
+    }, 650);
+    return () => clearTimeout(timeoutId);
+  }, [
+    checkAvailability,
+    emailAvailability.checkedValue,
+    normalizedValues.email,
+    validationFieldErrors.email,
+  ]);
+
+  useEffect(() => {
+    if (
+      !normalizedValues.rut ||
+      validationFieldErrors.rut ||
+      rutAvailability.checkedValue === normalizedValues.rut
+    ) {
+      return;
+    }
+    const timeoutId = setTimeout(() => {
+      void checkAvailability('rut');
+    }, 650);
+    return () => clearTimeout(timeoutId);
+  }, [
+    checkAvailability,
+    normalizedValues.rut,
+    rutAvailability.checkedValue,
+    validationFieldErrors.rut,
+  ]);
 
   const getSignupErrorMessage = (message: string) => {
     const normalizedMessage = message.toLowerCase();
@@ -321,6 +480,14 @@ export default function RegisterScreen() {
 
   const handleSignUp = async () => {
     if (isSubmittingRef.current || isSubmitDisabled) return;
+
+    const now = Date.now();
+    if (now - lastSubmitAtRef.current < 1500) {
+      setErrorMessage('Esperá un momento antes de volver a intentar.');
+      return;
+    }
+
+    lastSubmitAtRef.current = now;
     isSubmittingRef.current = true;
     setErrorMessage('');
     setInfoMessage('');
@@ -362,7 +529,16 @@ export default function RegisterScreen() {
       setFormValues(initialFormValues);
       setTouchedFields({});
       setAvailabilityErrors({});
-      setAvailabilityChecked({ email: false, rut: false });
+      setEmailAvailability({
+        state: 'idle',
+        checkedValue: '',
+        message: '',
+      });
+      setRutAvailability({
+        state: 'idle',
+        checkedValue: '',
+        message: '',
+      });
       setInfoMessage(
         'Registro exitoso. Te redirigimos al login para iniciar sesión.',
       );
@@ -377,6 +553,60 @@ export default function RegisterScreen() {
       isSubmittingRef.current = false;
     }
   };
+
+  const emailStatusMessage = useMemo(() => {
+    if (!normalizedValues.email) {
+      return '';
+    }
+    if (validationFieldErrors.email) {
+      return 'Email no válido';
+    }
+    if (emailAvailability.state === 'idle') {
+      return '';
+    }
+    if (emailAvailability.state === 'checking') {
+      return 'Validando email...';
+    }
+    if (availabilityErrors.email) {
+      if (availabilityErrors.email.includes('registrado')) {
+        return 'Email en uso';
+      }
+      return availabilityErrors.email;
+    }
+    return 'Email válido';
+  }, [
+    availabilityErrors.email,
+    emailAvailability.state,
+    normalizedValues.email,
+    validationFieldErrors.email,
+  ]);
+
+  const rutStatusMessage = useMemo(() => {
+    if (!normalizedValues.rut) {
+      return '';
+    }
+    if (validationFieldErrors.rut) {
+      return 'RUT no válido';
+    }
+    if (rutAvailability.state === 'idle') {
+      return '';
+    }
+    if (rutAvailability.state === 'checking') {
+      return 'Validando RUT...';
+    }
+    if (availabilityErrors.rut) {
+      if (availabilityErrors.rut.includes('registrado')) {
+        return 'RUT en uso';
+      }
+      return availabilityErrors.rut;
+    }
+    return 'RUT válido';
+  }, [
+    availabilityErrors.rut,
+    normalizedValues.rut,
+    rutAvailability.state,
+    validationFieldErrors.rut,
+  ]);
 
   return (
     <KeyboardAvoidingView
@@ -445,7 +675,11 @@ export default function RegisterScreen() {
                 icon="A"
                 value={formValues.fullName}
                 onChangeText={(value) => setFieldValue('fullName', value)}
-                onBlur={() => setTouched('fullName')}
+                onFocus={() => setFocusedField('fullName')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched('fullName');
+                }}
                 error={
                   touchedFields.fullName ? validationFieldErrors.fullName : ''
                 }
@@ -456,6 +690,7 @@ export default function RegisterScreen() {
                 }
                 isDisabled={isSubmitting}
                 maxLength={MAX_NAME_LENGTH}
+                isFocused={focusedField === 'fullName'}
               />
               <Field
                 label="RUT"
@@ -466,15 +701,24 @@ export default function RegisterScreen() {
                 onChangeText={(value) =>
                   setFieldValue('rut', formatRutInput(value))
                 }
+                onFocus={() => setFocusedField('rut')}
                 onBlur={() => {
+                  setFocusedField(null);
                   setTouched('rut');
-                  void checkAvailability('rut');
                 }}
                 autoCapitalize="none"
                 error={
                   touchedFields.rut
                     ? availabilityErrors.rut || validationFieldErrors.rut
                     : ''
+                }
+                statusMessage={rutStatusMessage}
+                statusTone={
+                  availabilityErrors.rut || validationFieldErrors.rut
+                    ? 'error'
+                    : rutAvailability.state === 'available'
+                      ? 'success'
+                      : 'neutral'
                 }
                 isValid={
                   Boolean(touchedFields.rut) &&
@@ -484,6 +728,7 @@ export default function RegisterScreen() {
                 }
                 isDisabled={isSubmitting}
                 maxLength={MAX_RUT_LENGTH}
+                isFocused={focusedField === 'rut'}
               />
               <Field
                 label="Dirección"
@@ -492,7 +737,11 @@ export default function RegisterScreen() {
                 icon="D"
                 value={formValues.address}
                 onChangeText={(value) => setFieldValue('address', value)}
-                onBlur={() => setTouched('address')}
+                onFocus={() => setFocusedField('address')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched('address');
+                }}
                 error={
                   touchedFields.address ? validationFieldErrors.address : ''
                 }
@@ -503,6 +752,7 @@ export default function RegisterScreen() {
                 }
                 isDisabled={isSubmitting}
                 maxLength={MAX_ADDRESS_LENGTH}
+                isFocused={focusedField === 'address'}
               />
               <Field
                 label="Email"
@@ -511,9 +761,10 @@ export default function RegisterScreen() {
                 icon="@"
                 value={formValues.email}
                 onChangeText={(value) => setFieldValue('email', value)}
+                onFocus={() => setFocusedField('email')}
                 onBlur={() => {
+                  setFocusedField(null);
                   setTouched('email');
-                  void checkAvailability('email');
                 }}
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -521,6 +772,14 @@ export default function RegisterScreen() {
                   touchedFields.email
                     ? availabilityErrors.email || validationFieldErrors.email
                     : ''
+                }
+                statusMessage={emailStatusMessage}
+                statusTone={
+                  availabilityErrors.email || validationFieldErrors.email
+                    ? 'error'
+                    : emailAvailability.state === 'available'
+                      ? 'success'
+                      : 'neutral'
                 }
                 isValid={
                   Boolean(touchedFields.email) &&
@@ -530,6 +789,7 @@ export default function RegisterScreen() {
                 }
                 isDisabled={isSubmitting}
                 maxLength={MAX_EMAIL_LENGTH}
+                isFocused={focusedField === 'email'}
               />
               <Field
                 label="Contraseña"
@@ -539,7 +799,11 @@ export default function RegisterScreen() {
                 secure={!isPasswordVisible}
                 value={formValues.password}
                 onChangeText={(value) => setFieldValue('password', value)}
-                onBlur={() => setTouched('password')}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched('password');
+                }}
                 error={
                   touchedFields.password ? validationFieldErrors.password : ''
                 }
@@ -554,6 +818,7 @@ export default function RegisterScreen() {
                 }
                 isDisabled={isSubmitting}
                 maxLength={MAX_PASSWORD_LENGTH}
+                isFocused={focusedField === 'password'}
               />
               <Field
                 label="Confirmar contraseña"
@@ -565,7 +830,11 @@ export default function RegisterScreen() {
                 onChangeText={(value) =>
                   setFieldValue('confirmPassword', value)
                 }
-                onBlur={() => setTouched('confirmPassword')}
+                onFocus={() => setFocusedField('confirmPassword')}
+                onBlur={() => {
+                  setFocusedField(null);
+                  setTouched('confirmPassword');
+                }}
                 error={
                   touchedFields.confirmPassword
                     ? validationFieldErrors.confirmPassword
@@ -582,6 +851,7 @@ export default function RegisterScreen() {
                 }
                 isDisabled={isSubmitting}
                 maxLength={MAX_PASSWORD_LENGTH}
+                isFocused={focusedField === 'confirmPassword'}
               />
             </View>
 
@@ -637,15 +907,19 @@ type FieldProps = {
   secure?: boolean;
   value?: string;
   onChangeText?: (value: string) => void;
+  onFocus?: () => void;
   onBlur?: () => void;
   keyboardType?: 'default' | 'email-address';
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   error?: string;
   isValid?: boolean;
+  statusMessage?: string;
+  statusTone?: 'neutral' | 'success' | 'error';
   actionLabel?: string;
   onPressAction?: () => void;
   isDisabled?: boolean;
   maxLength?: number;
+  isFocused?: boolean;
 };
 
 function Field({
@@ -656,15 +930,19 @@ function Field({
   secure,
   value,
   onChangeText,
+  onFocus,
   onBlur,
   keyboardType,
   autoCapitalize,
   error,
   isValid,
+  statusMessage,
+  statusTone,
   actionLabel,
   onPressAction,
   isDisabled,
   maxLength,
+  isFocused,
 }: FieldProps) {
   return (
     <View style={styles.fieldGroup}>
@@ -673,11 +951,13 @@ function Field({
         style={[
           styles.field,
           {
-            borderColor: error
-              ? theme.error
-              : isValid
-                ? theme.primary
-                : theme.border,
+            borderColor: isFocused
+              ? theme.primary
+              : error
+                ? theme.error
+                : isValid
+                  ? theme.primary
+                  : theme.border,
           },
         ]}
       >
@@ -689,6 +969,7 @@ function Field({
           secureTextEntry={secure}
           value={value}
           onChangeText={onChangeText}
+          onFocus={onFocus}
           onBlur={onBlur}
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
@@ -703,9 +984,25 @@ function Field({
           </Pressable>
         ) : null}
       </View>
-      {error ? (
+      {!isFocused && error ? (
         <Text style={[styles.fieldErrorText, { color: theme.error }]}>
           {error}
+        </Text>
+      ) : !isFocused && statusMessage ? (
+        <Text
+          style={[
+            styles.fieldStatusText,
+            {
+              color:
+                statusTone === 'error'
+                  ? theme.error
+                  : statusTone === 'success'
+                    ? theme.primary
+                    : theme.textSecondary,
+            },
+          ]}
+        >
+          {statusMessage}
         </Text>
       ) : null}
     </View>
@@ -819,6 +1116,10 @@ const styles = StyleSheet.create({
   fieldErrorText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+  fieldStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   primaryButton: {
     paddingVertical: Spacing.two,
