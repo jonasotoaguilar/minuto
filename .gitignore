@@ -45,3 +45,5 @@ app-example
 /android
 .vscode
 .pnpm-store
+.agents
+skills-lock.json
