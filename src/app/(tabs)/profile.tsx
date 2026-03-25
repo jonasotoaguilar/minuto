@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
@@ -167,14 +168,7 @@ export default function ProfileTabScreen() {
         },
       ]}
     >
-      <View style={styles.headerRow}>
-        <Text style={[styles.brandText, { color: theme.primary }]}>Minuto</Text>
-        <View style={[styles.avatarRing, { borderColor: theme.primary }]}>
-          <Text style={[styles.avatarText, { color: theme.textSecondary }]}>
-            {profileSnapshot.initials}
-          </Text>
-        </View>
-      </View>
+      <AppHeader />
 
       <View
         style={[
@@ -398,32 +392,6 @@ const styles = StyleSheet.create({
   loaderText: {
     fontSize: 14,
     fontWeight: '600',
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(12, 40, 24, 0.08)',
-    paddingBottom: Spacing.two,
-  },
-  brandText: {
-    fontSize: 42,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
-    lineHeight: 48,
-  },
-  avatarRing: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 12,
-    fontWeight: '700',
   },
   profileCard: {
     borderWidth: 1,

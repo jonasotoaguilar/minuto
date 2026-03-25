@@ -62,19 +62,6 @@ function getMetadataPhone(user: {
   return typeof metadataPhone === 'string' ? metadataPhone : '';
 }
 
-function mapAuthUpdatePhoneError(message: string) {
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes('phone provider is disabled') ||
-    normalized.includes('sms provider is disabled') ||
-    normalized.includes('unsupported phone provider')
-  ) {
-    return 'Supabase no permite actualizar auth.users.phone porque el proveedor SMS/Phone está deshabilitado.';
-  }
-
-  return `No se pudo actualizar auth.users.phone (${message}).`;
-}
-
 const profileSchema = z
   .object({
     fullName: z
@@ -251,10 +238,6 @@ export default function EditProfileScreen() {
 
     try {
       const nextData = validationResult.data;
-      const currentPhone = toE164Phone(
-        savedValues.phoneCountry,
-        savedValues.phone,
-      );
       const nextPhone = toE164Phone(nextData.phoneCountry, nextData.phone);
 
       const metadataPayload = {
@@ -275,17 +258,6 @@ export default function EditProfileScreen() {
         return;
       }
 
-      let phoneWarningMessage = '';
-      if (currentPhone !== nextPhone) {
-        const { error: phoneError } = await supabase.auth.updateUser({
-          phone: nextPhone,
-        });
-
-        if (phoneError) {
-          phoneWarningMessage = mapAuthUpdatePhoneError(phoneError.message);
-        }
-      }
-
       const nextSavedValues = {
         ...formValues,
         phoneCountry: nextData.phoneCountry,
@@ -295,11 +267,7 @@ export default function EditProfileScreen() {
 
       setFormValues(nextSavedValues);
       setSavedValues(nextSavedValues);
-      setSuccessMessage(
-        phoneWarningMessage
-          ? `Perfil actualizado. ${phoneWarningMessage}`
-          : 'Perfil actualizado correctamente.',
-      );
+      setSuccessMessage('Perfil actualizado correctamente.');
     } catch {
       setErrorMessage('Error inesperado al actualizar el perfil.');
     } finally {

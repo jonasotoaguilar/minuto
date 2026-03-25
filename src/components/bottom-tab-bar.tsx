@@ -1,5 +1,6 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Fonts, Spacing } from '@/constants/theme';
@@ -42,15 +43,31 @@ function HomeIcon({ color, isActive }: IconProps) {
 }
 
 function ClockIcon({ color, isActive }: IconProps) {
+  if (Platform.OS === 'ios') {
+    return (
+      <SymbolView
+        name="clock"
+        size={22}
+        tintColor={color}
+        style={{ opacity: isActive ? 1 : 0.6 }}
+      />
+    );
+  }
+
+  // Android + Web fallback: simple circle + hands
   return (
-    <View style={[styles.clockShell, { borderColor: color }]}>
+    <View
+      style={[
+        styles.clockShell,
+        { borderColor: color, opacity: isActive ? 1 : 0.6 },
+      ]}
+    >
       <View
         style={[
           styles.clockHand,
           {
             backgroundColor: color,
             transform: [{ translateY: -5 }, { rotate: '90deg' }],
-            opacity: isActive ? 1 : 0.6,
           },
         ]}
       />
@@ -60,7 +77,6 @@ function ClockIcon({ color, isActive }: IconProps) {
           {
             backgroundColor: color,
             transform: [{ translateY: -7 }],
-            opacity: isActive ? 0.9 : 0.5,
           },
         ]}
       />
@@ -157,7 +173,18 @@ export function BottomTabBar({
   };
 
   return (
-    <View style={[styles.wrapper, { paddingBottom: insets.bottom }]}>
+    <View
+      style={[
+        styles.wrapper,
+        {
+          paddingBottom: insets.bottom,
+          bottom: 0,
+          left: 0,
+          right: 0,
+        },
+      ]}
+      pointerEvents="box-none"
+    >
       <View style={[styles.bar, { backgroundColor: theme.backgroundElement }]}>
         <Pressable
           accessibilityRole="button"
@@ -261,6 +288,7 @@ export function BottomTabBar({
 
 const styles = StyleSheet.create({
   wrapper: {
+    position: 'absolute',
     backgroundColor: 'transparent',
   },
   bar: {

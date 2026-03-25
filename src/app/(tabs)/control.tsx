@@ -10,8 +10,8 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
-import { OrganizationSwitcher } from '@/components/organization-switcher';
 import { StatusPill } from '@/components/status-pill';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
@@ -39,11 +39,8 @@ export default function ControlScreen() {
   const insets = useSafeAreaInsets();
   const {
     activeOrganization,
-    organizations,
     isLoadingOrganizations,
     isOrganizationSetupOpen,
-    setActiveOrganizationById,
-    openOrganizationSetup,
   } = useOrganization();
 
   const [now, setNow] = useState(() => new Date());
@@ -288,34 +285,7 @@ export default function ControlScreen() {
         },
       ]}
     >
-      <View style={styles.header}>
-        <OrganizationSwitcher
-          activeOrganization={activeOrganization}
-          organizations={organizations}
-          onSelectOrganization={setActiveOrganizationById}
-          onOpenOrganizationSetup={openOrganizationSetup}
-        />
-        <View style={styles.headerActions}>
-          <View
-            style={[styles.roundIcon, { backgroundColor: theme.surfaceMuted }]}
-          />
-          <View
-            style={[
-              styles.headerAvatar,
-              {
-                borderColor: theme.primary,
-                backgroundColor: theme.backgroundElement,
-              },
-            ]}
-          >
-            <Text
-              style={[styles.headerAvatarText, { color: theme.textSecondary }]}
-            >
-              TO
-            </Text>
-          </View>
-        </View>
-      </View>
+      <AppHeader />
 
       <View
         style={[
@@ -604,36 +574,6 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.three,
     gap: Spacing.three,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 120,
-    elevation: 120,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  roundIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  headerAvatar: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerAvatarText: {
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: Fonts.sans,
   },
   heroCard: {
     borderRadius: 32,

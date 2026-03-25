@@ -412,7 +412,7 @@ export default function RegisterScreen() {
 
     try {
       setIsSubmitting(true);
-      const { data, error } = await supabase.auth.signUp({
+      const { error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -429,22 +429,8 @@ export default function RegisterScreen() {
         return;
       }
 
-      let signUpSuccessMessage =
+      const signUpSuccessMessage =
         'Registro exitoso. Te redirigimos al login para iniciar sesión.';
-
-      if (data.session?.user) {
-        const { error: updatePhoneError } = await supabase.auth.updateUser({
-          phone: e164Phone,
-        });
-
-        if (updatePhoneError) {
-          signUpSuccessMessage =
-            'Registro exitoso. No pudimos guardar tu teléfono en auth.users; podés actualizarlo desde tu perfil.';
-        }
-      } else if (data.user) {
-        signUpSuccessMessage =
-          'Registro exitoso. Verificá tu cuenta y luego completá el teléfono desde tu perfil.';
-      }
 
       setFormValues(initialFormValues);
       setTouchedFields({});

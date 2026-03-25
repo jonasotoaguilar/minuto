@@ -1,123 +1,46 @@
-import { type Href, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
-import { Fonts, Spacing } from '@/constants/theme';
+import { Fonts } from '@/constants/theme';
+import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
-import { supabase } from '@/lib/supabase';
+import { OrganizationSwitcher } from './organization-switcher';
 
-type HeaderUserMenuProps = {
-  initials?: string;
-};
-
-export function HeaderUserMenu({ initials = 'TU' }: HeaderUserMenuProps) {
+export function AppHeader() {
   const theme = useTheme();
-  const router = useRouter();
-  const [isOpen, setIsOpen] = useState(false);
-
-  const handleProfile = () => {
-    setIsOpen(false);
-    const profileRoute = '/profile' as Href;
-    router.push(profileRoute);
-  };
-
-  const handleSignOut = async () => {
-    setIsOpen(false);
-    await supabase.auth.signOut();
-    router.replace('/(auth)/login');
-  };
+  const {
+    activeOrganization,
+    organizations,
+    setActiveOrganizationById,
+    openOrganizationSetup,
+  } = useOrganization();
 
   return (
-    <View style={styles.wrapper}>
-      <Pressable
-        onPress={() => setIsOpen((currentValue) => !currentValue)}
-        style={[styles.avatarShell, { borderColor: theme.primary }]}
-      >
-        <Text style={[styles.avatarText, { color: theme.textSecondary }]}>
-          {initials}
-        </Text>
-      </Pressable>
+    <View style={styles.header}>
+      <Text style={[styles.appName, { color: theme.text }]}>Minuto</Text>
 
-      {isOpen ? (
-        <View
-          style={[
-            styles.menu,
-            {
-              backgroundColor: theme.backgroundElement,
-              borderColor: theme.border,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <Pressable
-            onPress={handleProfile}
-            style={({ pressed }) => [
-              styles.menuItem,
-              pressed ? { backgroundColor: theme.backgroundSelected } : null,
-            ]}
-          >
-            <Text style={[styles.menuItemText, { color: theme.text }]}>
-              Perfil
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={handleSignOut}
-            style={({ pressed }) => [
-              styles.menuItem,
-              pressed ? { backgroundColor: theme.backgroundSelected } : null,
-            ]}
-          >
-            <Text style={[styles.menuItemText, { color: theme.error }]}>
-              Cerrar sesión
-            </Text>
-          </Pressable>
-        </View>
+      {activeOrganization ? (
+        <OrganizationSwitcher
+          activeOrganization={activeOrganization}
+          organizations={organizations}
+          onSelectOrganization={setActiveOrganizationById}
+          onOpenOrganizationSetup={openOrganizationSetup}
+        />
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    position: 'relative',
-    zIndex: 140,
-    elevation: 140,
-  },
-  avatarShell: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    borderWidth: 2,
+  header: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    justifyContent: 'space-between',
+    zIndex: 120,
+    elevation: 120,
   },
-  avatarText: {
-    fontSize: 12,
+  appName: {
+    fontSize: 18,
     fontWeight: '700',
-    fontFamily: Fonts.sans,
-  },
-  menu: {
-    position: 'absolute',
-    top: 48,
-    right: 0,
-    minWidth: 160,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: Spacing.one,
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 140,
-    zIndex: 140,
-  },
-  menuItem: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
-  menuItemText: {
-    fontSize: 14,
-    fontWeight: '600',
     fontFamily: Fonts.sans,
   },
 });

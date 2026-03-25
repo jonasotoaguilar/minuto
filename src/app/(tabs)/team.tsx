@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { Fonts, Spacing } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
@@ -244,15 +245,7 @@ export default function TeamScreen() {
         },
       ]}
     >
-      <View style={styles.titleRow}>
-        <Text style={[styles.title, { color: theme.text }]}>Equipo</Text>
-        <View style={styles.searchIconWrap}>
-          <View style={[styles.searchCircle, { borderColor: theme.primary }]} />
-          <View
-            style={[styles.searchHandle, { backgroundColor: theme.primary }]}
-          />
-        </View>
-      </View>
+      <AppHeader />
 
       <View
         style={[
@@ -497,22 +490,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     gap: Spacing.three,
   },
-  titleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   title: {
     fontSize: 36,
     fontFamily: Fonts.serif,
     fontWeight: '700',
     letterSpacing: -0.6,
-  },
-  searchIconWrap: {
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   searchCircle: {
     width: 12,
