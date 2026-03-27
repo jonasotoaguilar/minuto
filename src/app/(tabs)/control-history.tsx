@@ -13,6 +13,7 @@ import {
   getAllAttendanceRecords,
   getAttendanceMonthOptions,
 } from '@/lib/attendance';
+import { supabase } from '@/lib/supabase';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
   Chip,
@@ -39,6 +40,14 @@ type YearFilterOption = {
   label: string;
 };
 
+type HistoryDisplayRow = {
+  key: string;
+  type: 'Entrada' | 'Salida';
+  datetime: string;
+  officeName: string;
+  officeIsRemote: boolean;
+};
+
 export default function ControlHistoryScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -54,6 +63,8 @@ export default function ControlHistoryScreen() {
   const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  const [weeklyHours, setWeeklyHours] = useState(40);
 
   const [page, setPage] = useState(0);
   const [selectedMonthKey, setSelectedMonthKey] = useState(
@@ -88,6 +99,24 @@ export default function ControlHistoryScreen() {
   useEffect(() => {
     void loadRecords();
   }, [loadRecords]);
+
+  useEffect(() => {
+    if (!activeOrganization) return;
+
+    const fetchWeeklyHours = async () => {
+      const { data } = await supabase
+        .from('employee_profiles')
+        .select('weekly_hours')
+        .eq('membership_id', activeOrganization.membershipId)
+        .maybeSingle();
+
+      if (data?.weekly_hours != null) {
+        setWeeklyHours(Number(data.weekly_hours));
+      }
+    };
+
+    void fetchWeeklyHours();
+  }, [activeOrganization]);
 
   const monthOptions = useMemo(
     () => getAttendanceMonthOptions(allRecords),
@@ -159,15 +188,41 @@ export default function ControlHistoryScreen() {
   }, [allRecords, selectedMonthKey]);
 
   const summary = useMemo(
-    () => calculateAttendanceSummary(filteredRecords),
-    [filteredRecords],
+    () => calculateAttendanceSummary(filteredRecords, weeklyHours),
+    [filteredRecords, weeklyHours],
   );
 
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
-  const paginatedRecords = useMemo(() => {
+  const displayRows = useMemo(() => {
+    const rows: HistoryDisplayRow[] = [];
+
+    for (const record of filteredRecords) {
+      rows.push({
+        key: `${record.id}-in`,
+        type: 'Entrada',
+        datetime: record.clockInAt,
+        officeName: formatOfficeLabel(record),
+        officeIsRemote: record.officeIsRemote,
+      });
+
+      if (record.clockOutAt) {
+        rows.push({
+          key: `${record.id}-out`,
+          type: 'Salida',
+          datetime: record.clockOutAt,
+          officeName: formatOfficeLabel(record),
+          officeIsRemote: record.officeIsRemote,
+        });
+      }
+    }
+
+    return rows;
+  }, [filteredRecords]);
+
+  const totalPages = Math.max(1, Math.ceil(displayRows.length / PAGE_SIZE));
+  const paginatedRows = useMemo(() => {
     const from = page * PAGE_SIZE;
-    return filteredRecords.slice(from, from + PAGE_SIZE);
-  }, [filteredRecords, page]);
+    return displayRows.slice(from, from + PAGE_SIZE);
+  }, [displayRows, page]);
 
   useEffect(() => {
     if (page < totalPages) {
@@ -249,7 +304,7 @@ export default function ControlHistoryScreen() {
           variant={SUMMARY_CARD_VARIANT.featured}
         />
         <SummaryCard
-          hint="+40 h por semana"
+          hint={`+${weeklyHours} h por semana`}
           label="Horas extras"
           value={formatMinutes(summary.overtimeMinutes)}
           variant={SUMMARY_CARD_VARIANT.accent}
@@ -341,25 +396,25 @@ export default function ControlHistoryScreen() {
             style={styles.headerCell}
             variant="label"
           >
-            Entrada
+            Hora
           </ThemedText>
           <ThemedText
             colorToken="secondary"
             style={styles.headerCell}
             variant="label"
           >
-            Salida
+            Tipo
           </ThemedText>
           <ThemedText
             colorToken="secondary"
-            style={[styles.headerCell, styles.statusColumn]}
+            style={[styles.headerCell, styles.officeColumn]}
             variant="label"
           >
-            Estado
+            Sucursal
           </ThemedText>
         </View>
 
-        {paginatedRecords.length === 0 ? (
+        {paginatedRows.length === 0 ? (
           <ThemedText
             colorToken="secondary"
             style={styles.emptyText}
@@ -372,44 +427,40 @@ export default function ControlHistoryScreen() {
                 : 'No hay registros para el mes seleccionado.'}
           </ThemedText>
         ) : (
-          paginatedRecords.map((record, index) => {
-            const isCompleted = Boolean(record.clockOutAt);
-
-            return (
-              <View
-                key={record.id}
-                style={[
-                  styles.tableRow,
-                  index > 0 && {
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderTopColor: theme.colors.border.default,
-                  },
-                ]}
+          paginatedRows.map((row, index) => (
+            <View
+              key={row.key}
+              style={[
+                styles.tableRow,
+                index > 0 && {
+                  borderTopWidth: StyleSheet.hairlineWidth,
+                  borderTopColor: theme.colors.border.default,
+                },
+              ]}
+            >
+              <ThemedText
+                style={[styles.bodyCell, styles.dateColumn]}
+                variant="bodySmall"
               >
-                <ThemedText
-                  style={[styles.bodyCell, styles.dateColumn]}
-                  variant="bodySmall"
-                >
-                  {record.workDate}
-                </ThemedText>
-                <ThemedText style={styles.bodyCell} variant="bodySmall">
-                  {formatTime(record.clockInAt, currentTimezone)}
-                </ThemedText>
-                <ThemedText style={styles.bodyCell} variant="bodySmall">
-                  {record.clockOutAt
-                    ? formatTime(record.clockOutAt, currentTimezone)
-                    : '--:--'}
-                </ThemedText>
-                <View style={[styles.statusColumn, styles.statusCell]}>
-                  <Chip
-                    label={isCompleted ? 'Completo' : 'Abierto'}
-                    selected={isCompleted}
-                    tone={isCompleted ? 'success' : 'neutral'}
-                  />
-                </View>
+                {formatDateTime(row.datetime, currentTimezone)}
+              </ThemedText>
+              <ThemedText style={styles.bodyCell} variant="bodySmall">
+                {formatTime(row.datetime, currentTimezone)}
+              </ThemedText>
+              <View style={styles.bodyCell}>
+                <Chip
+                  label={row.type}
+                  tone={row.type === 'Entrada' ? 'success' : 'neutral'}
+                />
               </View>
-            );
-          })
+              <ThemedText
+                style={[styles.bodyCell, styles.officeColumn]}
+                variant="bodySmall"
+              >
+                {row.officeName}
+              </ThemedText>
+            </View>
+          ))
         )}
 
         <View style={styles.paginationRow}>
@@ -499,6 +550,15 @@ function FilterChip({
   );
 }
 
+function formatDateTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(value));
+}
+
 function formatTime(value: string, timezone: string) {
   return new Intl.DateTimeFormat('es-CL', {
     timeZone: timezone,
@@ -513,6 +573,14 @@ function formatMinutes(totalMinutes: number) {
   const minutes = totalMinutes % 60;
 
   return `${hours}h ${minutes}m`;
+}
+
+function formatOfficeLabel(record: AttendanceRecord) {
+  if (record.officeIsRemote) {
+    return 'Remoto';
+  }
+
+  return record.officeName?.trim() || 'Sin sucursal';
 }
 
 function getSummaryCardStyle(
@@ -601,6 +669,9 @@ const styles = StyleSheet.create({
   },
   dateColumn: {
     flex: 1.2,
+  },
+  officeColumn: {
+    flex: 1.1,
   },
   statusColumn: {
     flex: 1,
