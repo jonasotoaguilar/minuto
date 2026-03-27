@@ -69,6 +69,7 @@ type TeamMember = {
   initials: string;
   name: string;
   position: string;
+  role: MembershipRole;
   roleLabel: string;
   shiftDurationHours: number;
   weeklyHours: number;
@@ -79,6 +80,7 @@ interface EditEmployeeFormValues {
   department: string;
   hireDate: string;
   position: string;
+  role: string;
   shiftDurationHours: string;
   weeklyHours: string;
 }
@@ -88,6 +90,7 @@ interface EditEmployeeFormErrors {
   department?: string;
   hireDate?: string;
   position?: string;
+  role?: string;
   shiftDurationHours?: string;
   weeklyHours?: string;
 }
@@ -234,6 +237,7 @@ export default function TeamScreen() {
         initials: deriveInitials(name),
         name,
         position: employeeProfile?.position?.trim() ?? '',
+        role: membership.role,
         roleLabel:
           employeeProfile?.position?.trim() ||
           mapMembershipRole(membership.role),
@@ -386,6 +390,28 @@ export default function TeamScreen() {
 
       if (!result.success) {
         throw new Error(mapProfileUpdateError(result.errorCode));
+      }
+
+      if (editFormValues.role !== selectedMember.role) {
+        const { data: roleData, error: roleError } = await supabase.rpc(
+          'update_membership_role',
+          {
+            p_membership_id: selectedMember.id,
+            p_new_role: editFormValues.role,
+          },
+        );
+
+        if (roleError) {
+          throw new Error('No se pudo actualizar el rol del colaborador.');
+        }
+
+        const roleResult = roleData as {
+          success?: boolean;
+          error_code?: string;
+        } | null;
+        if (!roleResult?.success) {
+          throw new Error(mapRoleUpdateError(roleResult?.error_code));
+        }
       }
 
       await loadMembers();
@@ -550,7 +576,10 @@ export default function TeamScreen() {
               </ThemedText>
             </View>
 
-            <Chip label={member.department} tone="neutral" />
+            <View style={styles.memberChipsRow}>
+              <Chip label={member.department} tone="neutral" />
+              <Chip label={getRoleLabel(member.role)} tone="brand" />
+            </View>
           </View>
 
           <View style={styles.memberCopy}>
@@ -696,6 +725,45 @@ export default function TeamScreen() {
               placeholder="Ej: Operaciones"
               value={editFormValues.department}
             />
+
+            {(() => {
+              const allowedRoles = getAllowedRolesForCaller(
+                activeOrganization?.membershipRole ?? 'employee',
+                selectedMember?.role ?? 'employee',
+              );
+
+              if (allowedRoles.length === 0) return null;
+
+              return (
+                <View style={styles.fieldGroup}>
+                  <ThemedText variant="label">Rol (permisos)</ThemedText>
+                  <View style={styles.roleChipsRow}>
+                    {allowedRoles.map((roleOption) => (
+                      <Chip
+                        key={roleOption}
+                        label={getRoleLabel(roleOption)}
+                        onPress={() =>
+                          setEditFormValues((current) => ({
+                            ...current,
+                            role: roleOption,
+                          }))
+                        }
+                        selected={editFormValues.role === roleOption}
+                        tone="brand"
+                      />
+                    ))}
+                  </View>
+                  {editFormErrors.role ? (
+                    <ThemedText colorToken="error" variant="caption">
+                      {editFormErrors.role}
+                    </ThemedText>
+                  ) : null}
+                  <ThemedText colorToken="secondary" variant="caption">
+                    Seleccioná el nivel de permisos del colaborador.
+                  </ThemedText>
+                </View>
+              );
+            })()}
 
             {process.env.EXPO_OS === 'web' ? (
               <TextField
@@ -890,6 +958,7 @@ function getEmptyEditFormValues(): EditEmployeeFormValues {
     department: '',
     hireDate: '',
     position: '',
+    role: 'employee',
     shiftDurationHours: decimalToHHMM(DEFAULT_SHIFT_DURATION_HOURS),
     weeklyHours: String(DEFAULT_WEEKLY_HOURS),
   };
@@ -902,6 +971,7 @@ function createEditFormValues(member: TeamMember): EditEmployeeFormValues {
       member.department === DEFAULT_DEPARTMENT ? '' : member.department,
     hireDate: formatDateForDisplay(member.hireDate),
     position: member.position,
+    role: member.role,
     shiftDurationHours: decimalToHHMM(member.shiftDurationHours),
     weeklyHours: String(member.weeklyHours),
   };
@@ -1171,6 +1241,49 @@ function mapMembershipRole(role: MembershipRole) {
   return 'Employee';
 }
 
+function getAllowedRolesForCaller(
+  callerRole: string,
+  targetRole: string,
+): string[] {
+  if (targetRole === 'owner') return [];
+  if (callerRole === 'owner') return ['admin', 'manager', 'employee'];
+  if (callerRole === 'admin' && targetRole !== 'admin')
+    return ['manager', 'employee'];
+  return [];
+}
+
+function getRoleLabel(role: string): string {
+  switch (role) {
+    case 'owner':
+      return 'Owner';
+    case 'admin':
+      return 'Administrador';
+    case 'manager':
+      return 'Manager';
+    case 'employee':
+      return 'Empleado';
+    default:
+      return role;
+  }
+}
+
+function mapRoleUpdateError(errorCode?: string) {
+  switch (errorCode) {
+    case 'MEMBERSHIP_NOT_FOUND':
+      return 'No encontramos al colaborador.';
+    case 'CANNOT_CHANGE_OWN_ROLE':
+      return 'No podés cambiar tu propio rol.';
+    case 'CANNOT_CHANGE_OWNER_ROLE':
+      return 'El rol de owner no puede modificarse.';
+    case 'UNAUTHORIZED':
+      return 'No tenés permisos para asignar ese rol.';
+    case 'INVALID_ROLE':
+      return 'El rol seleccionado no es válido.';
+    default:
+      return 'No se pudo actualizar el rol del colaborador.';
+  }
+}
+
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
@@ -1281,5 +1394,18 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 16,
+  },
+  fieldGroup: {
+    gap: 8,
+  },
+  memberChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  roleChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
 });

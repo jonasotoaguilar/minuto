@@ -26,7 +26,12 @@ import {
   ThemedText,
 } from '@/theme/primitives';
 
-const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
+const SETTINGS_ROLES: readonly string[] = ['owner', 'admin'];
+const OFFICE_MANAGEMENT_ROLES: readonly string[] = [
+  'owner',
+  'admin',
+  'manager',
+];
 const SETTINGS_SUCCESS_MESSAGE = 'Organización actualizada.';
 const OFFICE_SUCCESS_MESSAGE = 'Oficina agregada.';
 
@@ -39,7 +44,10 @@ export default function OrganizationSettingsScreen() {
     isOrganizationSetupOpen,
     refreshOrganizations,
   } = useOrganization();
-  const canManageOrganization = MANAGEMENT_ROLES.includes(
+  const canEditSettings = SETTINGS_ROLES.includes(
+    activeOrganization?.membershipRole ?? 'employee',
+  );
+  const canManageOffices = OFFICE_MANAGEMENT_ROLES.includes(
     activeOrganization?.membershipRole ?? 'employee',
   );
   const {
@@ -73,8 +81,11 @@ export default function OrganizationSettingsScreen() {
 
   const pageSubtitle = useMemo(() => {
     if (!activeOrganization) return '';
-    return `Ajustá el nombre, la zona horaria y las oficinas de ${activeOrganization.name}.`;
-  }, [activeOrganization]);
+    if (canEditSettings) {
+      return `Ajustá el nombre, la zona horaria y las oficinas de ${activeOrganization.name}.`;
+    }
+    return `Administrá las oficinas de ${activeOrganization.name}.`;
+  }, [activeOrganization, canEditSettings]);
 
   const isSettingsDirty = useMemo(() => {
     if (!activeOrganization) return false;
@@ -210,7 +221,7 @@ export default function OrganizationSettingsScreen() {
     return <OrganizationSetupView />;
   }
 
-  if (!canManageOrganization) {
+  if (!canEditSettings && !canManageOffices) {
     return (
       <Screen
         scroll
@@ -233,7 +244,7 @@ export default function OrganizationSettingsScreen() {
           <SectionHeader
             eyebrow="Sin permisos"
             subtitle="Esta configuración queda reservada para quienes administran la organización."
-            title="Solo owners y admins pueden editar la organización."
+            title="No tenés permisos para esta sección."
           />
 
           <PrimaryButton
@@ -265,125 +276,129 @@ export default function OrganizationSettingsScreen() {
         onBack={() => router.back()}
       />
 
-      <GlassCard style={styles.card}>
-        <SectionHeader
-          eyebrow="Configuración editorial"
-          subtitle={pageSubtitle}
-          title="Ajustes de organización"
-        />
-
-        <TextField
-          autoCapitalize="words"
-          label="Nombre de la organización"
-          onChangeText={setOrganizationName}
-          placeholder="Nombre de la organización"
-          value={organizationName}
-        />
-
-        <View style={styles.fieldGroup}>
-          <ThemedText variant="label">Zona horaria por defecto</ThemedText>
-          <TimezonePicker
-            onValueChange={setDefaultTimezone}
-            value={defaultTimezone}
+      {canEditSettings ? (
+        <GlassCard style={styles.card}>
+          <SectionHeader
+            eyebrow="Configuración editorial"
+            subtitle={pageSubtitle}
+            title="Ajustes de organización"
           />
-        </View>
 
-        {settingsMessage ? (
-          <FeedbackCard
-            message={settingsMessage}
-            tone={
-              settingsMessage === SETTINGS_SUCCESS_MESSAGE
-                ? 'success'
-                : 'neutral'
-            }
+          <TextField
+            autoCapitalize="words"
+            label="Nombre de la organización"
+            onChangeText={setOrganizationName}
+            placeholder="Nombre de la organización"
+            value={organizationName}
           />
-        ) : null}
 
-        <PrimaryButton
-          label={isSavingSettings ? 'Guardando...' : 'Guardar cambios'}
-          disabled={!isSettingsDirty}
-          loading={isSavingSettings}
-          onPress={() => void handleSaveSettings()}
-        />
-      </GlassCard>
-
-      <GlassCard style={styles.card}>
-        <SectionHeader
-          eyebrow="Sucursales y oficinas"
-          title="Oficinas físicas"
-          subtitle="La opción de trabajo remoto está disponible automáticamente para todos los empleados."
-        />
-
-        {officesErrorMessage ? (
-          <FeedbackCard message={officesErrorMessage} tone="neutral" />
-        ) : null}
-
-        {officeErrorMessage ? (
-          <FeedbackCard message={officeErrorMessage} tone="neutral" />
-        ) : null}
-
-        {officeSuccessMessage ? (
-          <FeedbackCard message={officeSuccessMessage} tone="success" />
-        ) : null}
-
-        {isLoadingOffices ? (
-          <GlassCard style={styles.loadingCard} variant="soft">
-            <ActivityIndicator
-              color={theme.colors.brand.primary}
-              size="small"
+          <View style={styles.fieldGroup}>
+            <ThemedText variant="label">Zona horaria por defecto</ThemedText>
+            <TimezonePicker
+              onValueChange={setDefaultTimezone}
+              value={defaultTimezone}
             />
-            <ThemedText colorToken="secondary" variant="body">
-              Cargando oficinas...
-            </ThemedText>
-          </GlassCard>
-        ) : (
-          <View style={styles.officeList}>
-            {offices.map((office) => (
-              <OfficeCard key={office.id} office={office} />
-            ))}
           </View>
-        )}
 
-        <SecondaryButton
-          fullWidth={false}
-          label={isOfficeFormOpen ? 'Cerrar formulario' : 'Agregar oficina'}
-          onPress={() => {
-            setIsOfficeFormOpen((currentValue) => !currentValue);
-            setOfficeErrorMessage('');
-            setOfficeSuccessMessage('');
-          }}
-          style={styles.inlineAction}
-        />
-
-        {isOfficeFormOpen ? (
-          <GlassCard style={styles.officeFormCard} variant="soft">
-            <SectionHeader
-              eyebrow="Nueva oficina"
-              subtitle="Usá Mapbox para definir la ubicación exacta antes de guardar."
-              title="Alta de oficina"
+          {settingsMessage ? (
+            <FeedbackCard
+              message={settingsMessage}
+              tone={
+                settingsMessage === SETTINGS_SUCCESS_MESSAGE
+                  ? 'success'
+                  : 'neutral'
+              }
             />
+          ) : null}
 
-            <TextField
-              autoCapitalize="words"
-              label="Nombre de la oficina"
-              onChangeText={setOfficeName}
-              placeholder="Casa matriz, Palermo, Providencia..."
-              value={officeName}
-            />
+          <PrimaryButton
+            label={isSavingSettings ? 'Guardando...' : 'Guardar cambios'}
+            disabled={!isSettingsDirty}
+            loading={isSavingSettings}
+            onPress={() => void handleSaveSettings()}
+          />
+        </GlassCard>
+      ) : null}
 
-            <OfficeLocationSearch
-              onSelectionChange={setOfficeLocation}
-              selectedLocation={officeLocation}
-            />
+      {canManageOffices ? (
+        <GlassCard style={styles.card}>
+          <SectionHeader
+            eyebrow="Sucursales y oficinas"
+            title="Oficinas físicas"
+            subtitle="La opción de trabajo remoto está disponible automáticamente para todos los empleados."
+          />
 
-            <PrimaryButton
-              label={isCreatingOffice ? 'Guardando...' : 'Guardar oficina'}
-              loading={isCreatingOffice}
-              onPress={() => void handleCreateOffice()}
-            />
-          </GlassCard>
-        ) : null}
-      </GlassCard>
+          {officesErrorMessage ? (
+            <FeedbackCard message={officesErrorMessage} tone="neutral" />
+          ) : null}
+
+          {officeErrorMessage ? (
+            <FeedbackCard message={officeErrorMessage} tone="neutral" />
+          ) : null}
+
+          {officeSuccessMessage ? (
+            <FeedbackCard message={officeSuccessMessage} tone="success" />
+          ) : null}
+
+          {isLoadingOffices ? (
+            <GlassCard style={styles.loadingCard} variant="soft">
+              <ActivityIndicator
+                color={theme.colors.brand.primary}
+                size="small"
+              />
+              <ThemedText colorToken="secondary" variant="body">
+                Cargando oficinas...
+              </ThemedText>
+            </GlassCard>
+          ) : (
+            <View style={styles.officeList}>
+              {offices.map((office) => (
+                <OfficeCard key={office.id} office={office} />
+              ))}
+            </View>
+          )}
+
+          <SecondaryButton
+            fullWidth={false}
+            label={isOfficeFormOpen ? 'Cerrar formulario' : 'Agregar oficina'}
+            onPress={() => {
+              setIsOfficeFormOpen((currentValue) => !currentValue);
+              setOfficeErrorMessage('');
+              setOfficeSuccessMessage('');
+            }}
+            style={styles.inlineAction}
+          />
+
+          {isOfficeFormOpen ? (
+            <GlassCard style={styles.officeFormCard} variant="soft">
+              <SectionHeader
+                eyebrow="Nueva oficina"
+                subtitle="Usá Mapbox para definir la ubicación exacta antes de guardar."
+                title="Alta de oficina"
+              />
+
+              <TextField
+                autoCapitalize="words"
+                label="Nombre de la oficina"
+                onChangeText={setOfficeName}
+                placeholder="Casa matriz, Palermo, Providencia..."
+                value={officeName}
+              />
+
+              <OfficeLocationSearch
+                onSelectionChange={setOfficeLocation}
+                selectedLocation={officeLocation}
+              />
+
+              <PrimaryButton
+                label={isCreatingOffice ? 'Guardando...' : 'Guardar oficina'}
+                loading={isCreatingOffice}
+                onPress={() => void handleCreateOffice()}
+              />
+            </GlassCard>
+          ) : null}
+        </GlassCard>
+      ) : null}
     </Screen>
   );
 }
