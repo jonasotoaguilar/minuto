@@ -76,6 +76,24 @@ export default function OrganizationSettingsScreen() {
     return `Ajustá el nombre, la zona horaria y las oficinas de ${activeOrganization.name}.`;
   }, [activeOrganization]);
 
+  const isSettingsDirty = useMemo(() => {
+    if (!activeOrganization) return false;
+
+    const normalizedCurrentName = organizationName.trim().replace(/\s+/g, ' ');
+    const normalizedCurrentTimezone = defaultTimezone.trim();
+    const normalizedInitialName = activeOrganization.name
+      .trim()
+      .replace(/\s+/g, ' ');
+    const normalizedInitialTimezone = resolveOrganizationTimezone(
+      activeOrganization.defaultTimezone,
+    ).trim();
+
+    return (
+      normalizedCurrentName !== normalizedInitialName ||
+      normalizedCurrentTimezone !== normalizedInitialTimezone
+    );
+  }, [activeOrganization, defaultTimezone, organizationName]);
+
   const handleSaveSettings = async () => {
     if (!activeOrganization || isSavingSettings) {
       return;
@@ -283,6 +301,7 @@ export default function OrganizationSettingsScreen() {
 
         <PrimaryButton
           label={isSavingSettings ? 'Guardando...' : 'Guardar cambios'}
+          disabled={!isSettingsDirty}
           loading={isSavingSettings}
           onPress={() => void handleSaveSettings()}
         />
