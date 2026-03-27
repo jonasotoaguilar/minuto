@@ -377,43 +377,6 @@ export default function ControlHistoryScreen() {
       </GlassCard>
 
       <GlassCard style={styles.tableCard} variant="soft">
-        <View
-          style={[
-            styles.tableRow,
-            styles.tableHeader,
-            { borderBottomColor: theme.colors.border.default },
-          ]}
-        >
-          <ThemedText
-            colorToken="secondary"
-            style={[styles.headerCell, styles.dateColumn]}
-            variant="label"
-          >
-            Fecha
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            style={styles.headerCell}
-            variant="label"
-          >
-            Hora
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            style={[styles.headerCell, styles.typeColumnHeader]}
-            variant="label"
-          >
-            Tipo
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            style={[styles.headerCell, styles.officeColumn]}
-            variant="label"
-          >
-            Sucursal
-          </ThemedText>
-        </View>
-
         {paginatedRows.length === 0 ? (
           <ThemedText
             colorToken="secondary"
@@ -427,38 +390,38 @@ export default function ControlHistoryScreen() {
                 : 'No hay registros para el mes seleccionado.'}
           </ThemedText>
         ) : (
-          paginatedRows.map((row, index) => (
+          paginatedRows.map((row) => (
             <View
               key={row.key}
               style={[
-                styles.tableRow,
-                index > 0 && {
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                  borderTopColor: theme.colors.border.default,
+                styles.historyRow,
+                {
+                  backgroundColor: theme.surface.glass.soft,
+                  borderColor: theme.surface.glass.border,
                 },
               ]}
             >
-              <ThemedText
-                style={[styles.bodyCell, styles.dateColumn]}
-                variant="bodySmall"
-              >
-                {formatDateTime(row.datetime, currentTimezone)}
-              </ThemedText>
-              <ThemedText style={styles.bodyCell} variant="bodySmall">
-                {formatTime(row.datetime, currentTimezone)}
-              </ThemedText>
-              <View style={[styles.bodyCell, styles.typeColumnCell]}>
-                <Chip
-                  label={row.type}
-                  tone={row.type === 'Entrada' ? 'success' : 'neutral'}
-                />
+              <AttendanceTypeIcon tone={row.type} />
+
+              <View style={styles.historyInfo}>
+                <ThemedText variant="subtitle">{row.type}</ThemedText>
+                <ThemedText colorToken="secondary" variant="bodySmall">
+                  {row.officeName}
+                </ThemedText>
               </View>
-              <ThemedText
-                style={[styles.bodyCell, styles.officeColumn]}
-                variant="bodySmall"
-              >
-                {row.officeName}
-              </ThemedText>
+
+              <View style={styles.historyMeta}>
+                <ThemedText style={styles.historyTime} variant="subtitle">
+                  {formatTime(row.datetime, currentTimezone)}
+                </ThemedText>
+                <ThemedText
+                  colorToken="secondary"
+                  style={styles.historyDate}
+                  variant="bodySmall"
+                >
+                  {formatDateTime(row.datetime, currentTimezone)}
+                </ThemedText>
+              </View>
             </View>
           ))
         )}
@@ -492,6 +455,79 @@ export default function ControlHistoryScreen() {
         </View>
       </GlassCard>
     </Screen>
+  );
+}
+
+type AttendanceTypeIconProps = {
+  tone: 'Entrada' | 'Salida';
+};
+
+function AttendanceTypeIcon({ tone }: AttendanceTypeIconProps) {
+  const theme = useTheme();
+  const isEntry = tone === 'Entrada';
+  const color = isEntry
+    ? theme.colors.status.success
+    : theme.colors.status.error;
+
+  return (
+    <View
+      style={[
+        styles.typeIconShell,
+        {
+          backgroundColor: isEntry
+            ? theme.surface.glass.tint
+            : theme.surface.glass.soft,
+          borderColor: color,
+          transform: [{ scaleX: isEntry ? -1 : 1 }],
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.typeIconFrameVertical,
+          { left: 11, backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.typeIconFrameHorizontal,
+          {
+            left: 11,
+            top: 12,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          styles.typeIconFrameHorizontal,
+          {
+            left: 11,
+            bottom: 12,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          styles.typeIconArrowShaft,
+          {
+            backgroundColor: color,
+            left: 18,
+          },
+        ]}
+      />
+      <View
+        style={[
+          styles.typeIconArrowHead,
+          {
+            borderLeftColor: 'transparent',
+            borderRightColor: color,
+            left: 10,
+          },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -649,45 +685,70 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   tableCard: {
-    gap: 16,
+    gap: 12,
   },
-  tableHeader: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 12,
-  },
-  tableRow: {
+  historyRow: {
     alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
     flexDirection: 'row',
-    minHeight: 52,
-    width: '100%',
+    gap: 14,
+    minHeight: 88,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  headerCell: {
+  historyInfo: {
     flex: 1,
+    gap: 4,
   },
-  bodyCell: {
-    flex: 1,
-  },
-  typeColumnHeader: {
-    flex: 1.2,
-    textAlign: 'center',
-  },
-  typeColumnCell: {
-    alignItems: 'center',
-    flex: 1.2,
-    justifyContent: 'center',
-  },
-  dateColumn: {
-    flex: 1.2,
-  },
-  officeColumn: {
-    flex: 1.1,
-  },
-  statusColumn: {
-    flex: 1,
+  historyMeta: {
     alignItems: 'flex-end',
+    gap: 4,
   },
-  statusCell: {
+  historyTime: {
+    textAlign: 'right',
+  },
+  historyDate: {
+    textAlign: 'right',
+  },
+  typeIconShell: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
     justifyContent: 'center',
+    position: 'relative',
+    width: 40,
+  },
+  typeIconFrameVertical: {
+    borderRadius: 999,
+    height: 16,
+    position: 'absolute',
+    top: 12,
+    width: 2,
+  },
+  typeIconFrameHorizontal: {
+    borderRadius: 999,
+    height: 2,
+    position: 'absolute',
+    width: 10,
+  },
+  typeIconArrowShaft: {
+    borderRadius: 999,
+    height: 2,
+    position: 'absolute',
+    top: 19,
+    width: 12,
+  },
+  typeIconArrowHead: {
+    borderBottomColor: 'transparent',
+    borderBottomWidth: 5,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopColor: 'transparent',
+    borderTopWidth: 5,
+    position: 'absolute',
+    top: 14,
   },
   emptyText: {
     paddingVertical: 8,

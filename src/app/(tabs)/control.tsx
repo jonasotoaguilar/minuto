@@ -15,7 +15,6 @@ import { useOrganization } from '@/hooks/use-organization';
 import { useProximityValidation } from '@/hooks/use-proximity-validation';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  type AttendanceEvent,
   type AttendanceLocation,
   type AttendanceRecord,
   calculateWeeklyTotals,
@@ -23,7 +22,6 @@ import {
   getOpenShift,
   getOrganizationToday,
   getOrganizationWeekRange,
-  getRecentAttendanceEvents,
   getTodayAttendanceRecord,
   type OpenShift,
   ProximityError,
@@ -55,6 +53,15 @@ const CONTROL_MODE = {
 
 type ControlMode = (typeof CONTROL_MODE)[keyof typeof CONTROL_MODE];
 
+type RecentHistoryItem = {
+  id: string;
+  type: 'clock_in' | 'clock_out';
+  occurredAt: string;
+  workDate: string;
+  officeName: string;
+  officeIsRemote: boolean;
+};
+
 const VALIDATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export default function ControlScreen() {
@@ -82,7 +89,7 @@ export default function ControlScreen() {
   const [isOvertimeModalVisible, setIsOvertimeModalVisible] = useState(false);
   const [weeklyMinutes, setWeeklyMinutes] = useState(0);
   const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
-  const [recentEvents, setRecentEvents] = useState<AttendanceEvent[]>([]);
+  const [recentEvents, setRecentEvents] = useState<RecentHistoryItem[]>([]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -102,26 +109,29 @@ export default function ControlScreen() {
     const week = getOrganizationWeekRange(currentTimezone);
 
     try {
-      const [today, weeklyRecords, events, openShift] = await Promise.all([
-        getTodayAttendanceRecord({
-          organizationId: activeOrganization.id,
-          membershipId: activeOrganization.membershipId,
-          workDate: currentDate,
-        }),
-        getAttendanceRecordsForRange({
-          organizationId: activeOrganization.id,
-          membershipId: activeOrganization.membershipId,
-          startDate: week.start,
-          endDate: week.end,
-        }),
-        getRecentAttendanceEvents({
-          organizationId: activeOrganization.id,
-          membershipId: activeOrganization.membershipId,
-          recordLimit: 12,
-          eventLimit: 6,
-        }),
-        getOpenShift(activeOrganization.membershipId),
-      ]);
+      const recentRange = getRecentHistoryRange(currentTimezone);
+
+      const [today, weeklyRecords, recentRecords, openShift] =
+        await Promise.all([
+          getTodayAttendanceRecord({
+            organizationId: activeOrganization.id,
+            membershipId: activeOrganization.membershipId,
+            workDate: currentDate,
+          }),
+          getAttendanceRecordsForRange({
+            organizationId: activeOrganization.id,
+            membershipId: activeOrganization.membershipId,
+            startDate: week.start,
+            endDate: week.end,
+          }),
+          getAttendanceRecordsForRange({
+            organizationId: activeOrganization.id,
+            membershipId: activeOrganization.membershipId,
+            startDate: recentRange.startDate,
+            endDate: recentRange.endDate,
+          }),
+          getOpenShift(activeOrganization.membershipId),
+        ]);
 
       const totals = calculateWeeklyTotals(weeklyRecords);
 
@@ -129,7 +139,7 @@ export default function ControlScreen() {
       setOpenShiftRecord(openShift);
       setWeeklyMinutes(totals.totalMinutes);
       setWeeklyAttendedDays(totals.attendedDays);
-      setRecentEvents(events);
+      setRecentEvents(buildRecentHistoryItems(recentRecords).slice(0, 6));
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -709,44 +719,39 @@ export default function ControlScreen() {
           </ThemedText>
         ) : (
           recentEvents.map((event) => (
-            <View key={event.id} style={styles.historyRow}>
-              <View
-                style={[
-                  styles.historyIcon,
-                  {
-                    backgroundColor:
-                      event.type === 'clock_in'
-                        ? theme.surface.glass.tint
-                        : theme.surface.glass.soft,
-                    borderColor: theme.surface.glass.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.historyIconDot,
-                    {
-                      backgroundColor:
-                        event.type === 'clock_in'
-                          ? theme.colors.status.success
-                          : theme.colors.brand.accent,
-                    },
-                  ]}
-                />
-              </View>
+            <View
+              key={event.id}
+              style={[
+                styles.historyRow,
+                {
+                  backgroundColor: theme.surface.glass.soft,
+                  borderColor: theme.surface.glass.border,
+                },
+              ]}
+            >
+              <AttendanceEventIcon type={event.type} />
 
               <View style={styles.historyInfo}>
                 <ThemedText variant="subtitle">
                   {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
                 </ThemedText>
                 <ThemedText colorToken="secondary" variant="bodySmall">
-                  {formatCompactDate(event.occurredAt, currentTimezone)}
+                  {event.officeName}
                 </ThemedText>
               </View>
 
-              <ThemedText colorToken="secondary" variant="label">
-                {formatTime(event.occurredAt, currentTimezone)}
-              </ThemedText>
+              <View style={styles.historyMeta}>
+                <ThemedText style={styles.historyTime} variant="subtitle">
+                  {formatTime(event.occurredAt, currentTimezone)}
+                </ThemedText>
+                <ThemedText
+                  colorToken="secondary"
+                  style={styles.historyDate}
+                  variant="bodySmall"
+                >
+                  {formatCompactDate(event.occurredAt, currentTimezone)}
+                </ThemedText>
+              </View>
             </View>
           ))
         )}
@@ -795,6 +800,79 @@ export default function ControlScreen() {
         </View>
       </Modal>
     </Screen>
+  );
+}
+
+type AttendanceEventIconProps = {
+  type: RecentHistoryItem['type'];
+};
+
+function AttendanceEventIcon({ type }: AttendanceEventIconProps) {
+  const theme = useTheme();
+  const isEntry = type === 'clock_in';
+  const color = isEntry
+    ? theme.colors.status.success
+    : theme.colors.status.error;
+
+  return (
+    <View
+      style={[
+        styles.historyIcon,
+        {
+          backgroundColor: isEntry
+            ? theme.surface.glass.tint
+            : theme.surface.glass.soft,
+          borderColor: color,
+          transform: [{ scaleX: isEntry ? -1 : 1 }],
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.attendanceIconFrameVertical,
+          { left: 11, backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconFrameHorizontal,
+          {
+            left: 11,
+            top: 12,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconFrameHorizontal,
+          {
+            left: 11,
+            bottom: 12,
+            backgroundColor: color,
+          },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconArrowShaft,
+          {
+            backgroundColor: color,
+            left: 18,
+          },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconArrowHead,
+          {
+            borderLeftColor: 'transparent',
+            borderRightColor: color,
+            left: 10,
+          },
+        ]}
+      />
+    </View>
   );
 }
 
@@ -875,6 +953,60 @@ function formatCompactDate(value: string, timezone: string) {
     month: '2-digit',
     year: 'numeric',
   }).format(new Date(value));
+}
+
+function buildRecentHistoryItems(records: AttendanceRecord[]) {
+  return records
+    .flatMap((record) => {
+      const officeName = formatHistoryOfficeLabel(record);
+      const items: RecentHistoryItem[] = [
+        {
+          id: `${record.id}-in`,
+          type: 'clock_in',
+          occurredAt: record.clockInAt,
+          workDate: record.workDate,
+          officeName,
+          officeIsRemote: record.officeIsRemote,
+        },
+      ];
+
+      if (record.clockOutAt) {
+        items.push({
+          id: `${record.id}-out`,
+          type: 'clock_out',
+          occurredAt: record.clockOutAt,
+          workDate: record.workDate,
+          officeName,
+          officeIsRemote: record.officeIsRemote,
+        });
+      }
+
+      return items;
+    })
+    .sort(
+      (left, right) =>
+        new Date(right.occurredAt).getTime() -
+        new Date(left.occurredAt).getTime(),
+    );
+}
+
+function formatHistoryOfficeLabel(record: AttendanceRecord) {
+  if (record.officeIsRemote) {
+    return 'Remoto';
+  }
+
+  return record.officeName?.trim() || 'Sin sucursal';
+}
+
+function getRecentHistoryRange(timezone: string) {
+  const endDate = getOrganizationToday(timezone);
+  const start = new Date(`${endDate}T12:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - 45);
+
+  return {
+    startDate: start.toISOString().slice(0, 10),
+    endDate,
+  };
 }
 
 function formatTime(value: string, timezone: string) {
@@ -1045,8 +1177,13 @@ const styles = StyleSheet.create({
   },
   historyRow: {
     alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
     flexDirection: 'row',
-    gap: 12,
+    gap: 14,
+    minHeight: 88,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
   historyIcon: {
     alignItems: 'center',
@@ -1056,13 +1193,48 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 40,
   },
-  historyIconDot: {
+  attendanceIconFrameVertical: {
     borderRadius: 999,
-    height: 14,
-    width: 14,
+    height: 16,
+    position: 'absolute',
+    top: 12,
+    width: 2,
+  },
+  attendanceIconFrameHorizontal: {
+    borderRadius: 999,
+    height: 2,
+    position: 'absolute',
+    width: 10,
+  },
+  attendanceIconArrowShaft: {
+    borderRadius: 999,
+    height: 2,
+    position: 'absolute',
+    top: 19,
+    width: 12,
+  },
+  attendanceIconArrowHead: {
+    borderBottomColor: 'transparent',
+    borderBottomWidth: 5,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopColor: 'transparent',
+    borderTopWidth: 5,
+    position: 'absolute',
+    top: 14,
   },
   historyInfo: {
     flex: 1,
-    gap: 2,
+    gap: 4,
+  },
+  historyMeta: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  historyTime: {
+    textAlign: 'right',
+  },
+  historyDate: {
+    textAlign: 'right',
   },
 });
