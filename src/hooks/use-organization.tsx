@@ -18,14 +18,27 @@ import {
 } from '@/lib/organization-validation';
 import { supabase } from '@/lib/supabase';
 
+interface OrganizationMembershipRow {
+  id: string;
+  role: MembershipRole;
+  organizations: OrganizationSummaryRow | OrganizationSummaryRow[] | null;
+}
+
+interface OrganizationSummaryRow {
+  default_timezone: string;
+  id: string;
+  name: string;
+  owner_user_id: string;
+  plan: 'free' | 'pro' | 'enterprise';
+}
+
 type MembershipRole = 'owner' | 'admin' | 'manager' | 'employee';
 
 export type OrganizationSummary = {
+  defaultTimezone: string;
   id: string;
   name: string;
-  location: string | null;
   plan: 'free' | 'pro' | 'enterprise';
-  timezone: string;
   ownerUserId: string;
   membershipId: string;
   membershipRole: MembershipRole;
@@ -76,6 +89,13 @@ async function writeStoredActiveOrganizationId(organizationId: string) {
   await AsyncStorage.setItem(ACTIVE_ORGANIZATION_STORAGE_KEY, organizationId);
 }
 
+function getDeprecatedOrganizationLocation(
+  input: CreateOrganizationInput,
+): string | null {
+  const trimmedLocation = input.location?.trim();
+  return trimmedLocation ? trimmedLocation : null;
+}
+
 function normalizeInvitationCode(rawValue: string) {
   const trimmed = rawValue.trim();
   if (!trimmed) return '';
@@ -102,28 +122,7 @@ function normalizeInvitationCode(rawValue: string) {
   return candidate.replace(/[^A-Za-z0-9_-]/g, '').toUpperCase();
 }
 
-function toOrganizationSummary(row: {
-  id: string;
-  role: MembershipRole;
-  organizations:
-    | {
-        id: string;
-        name: string;
-        location: string | null;
-        plan: 'free' | 'pro' | 'enterprise';
-        timezone: string;
-        owner_user_id: string;
-      }
-    | {
-        id: string;
-        name: string;
-        location: string | null;
-        plan: 'free' | 'pro' | 'enterprise';
-        timezone: string;
-        owner_user_id: string;
-      }[]
-    | null;
-}) {
+function toOrganizationSummary(row: OrganizationMembershipRow) {
   const relatedOrganization = Array.isArray(row.organizations)
     ? row.organizations[0]
     : row.organizations;
@@ -131,11 +130,10 @@ function toOrganizationSummary(row: {
   if (!relatedOrganization) return null;
 
   return {
+    defaultTimezone: relatedOrganization.default_timezone,
     id: relatedOrganization.id,
     name: relatedOrganization.name,
-    location: relatedOrganization.location,
     plan: relatedOrganization.plan,
-    timezone: relatedOrganization.timezone,
     ownerUserId: relatedOrganization.owner_user_id,
     membershipId: row.id,
     membershipRole: row.role,
@@ -176,7 +174,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase
       .from('memberships')
       .select(
-        'id, role, organizations(id, name, location, plan, timezone, owner_user_id)',
+        'id, role, organizations(id, name, plan, owner_user_id, default_timezone)',
       )
       .eq('user_id', sessionUserId)
       .eq('status', 'active');
@@ -294,11 +292,20 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
 
       isCreatingOrganizationRef.current = true;
       try {
+        const compatibilityLocation = getDeprecatedOrganizationLocation(
+          parsedInput.data,
+        );
+        const office = parsedInput.data.office ?? null;
+
         const { data: newOrganizationId, error: createOrganizationError } =
           await supabase.rpc('create_organization_with_owner', {
             p_name: parsedInput.data.name,
-            p_timezone: parsedInput.data.timezone,
-            p_location: parsedInput.data.location,
+            p_default_timezone: parsedInput.data.defaultTimezone,
+            p_location: compatibilityLocation,
+            p_office_name: office?.name ?? null,
+            p_office_address_label: office?.addressLabel ?? null,
+            p_office_latitude: office?.latitude ?? null,
+            p_office_longitude: office?.longitude ?? null,
           });
 
         if (createOrganizationError || !newOrganizationId) {

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { Fonts, Spacing } from '@/constants/theme';
 import type { OrganizationSummary } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -37,15 +36,37 @@ export function OrganizationSwitcher({
         style={[
           styles.trigger,
           {
-            borderColor: theme.border,
-            backgroundColor: theme.backgroundElement,
+            borderColor: theme.colors.border.default,
+            backgroundColor: theme.colors.background.card,
+            borderRadius: theme.radius.pill,
+            paddingVertical: theme.spacing.xs,
+            paddingHorizontal: theme.spacing.sm,
+            gap: theme.spacing.xs,
           },
         ]}
       >
-        <Text style={[styles.triggerText, { color: theme.text }]}>
+        <Text
+          style={[
+            styles.triggerText,
+            {
+              color: theme.colors.text.primary,
+              fontFamily: theme.typography.label.fontFamily,
+              fontSize: theme.typography.label.fontSize,
+              fontWeight: theme.typography.label.fontWeight,
+            },
+          ]}
+        >
           {activeOrganization.name}
         </Text>
-        <Text style={[styles.triggerCaret, { color: theme.textSecondary }]}>
+        <Text
+          style={[
+            styles.triggerCaret,
+            {
+              color: theme.colors.text.secondary,
+              marginLeft: theme.spacing.xs,
+            },
+          ]}
+        >
           {isOpen ? '^' : 'v'}
         </Text>
       </Pressable>
@@ -55,9 +76,11 @@ export function OrganizationSwitcher({
           style={[
             styles.menu,
             {
-              backgroundColor: theme.backgroundElement,
-              borderColor: theme.border,
-              shadowColor: theme.shadow,
+              backgroundColor: theme.colors.background.card,
+              borderColor: theme.colors.border.default,
+              shadowColor: theme.colors.shadow.color,
+              borderRadius: theme.radius.lg,
+              paddingVertical: theme.spacing.xs,
             },
           ]}
         >
@@ -67,16 +90,38 @@ export function OrganizationSwitcher({
               onPress={() => handleSelect(organization.id)}
               style={[
                 styles.menuItem,
+                {
+                  paddingHorizontal: theme.spacing.sm,
+                  paddingVertical: theme.spacing.xs,
+                  borderRadius: theme.radius.md,
+                  marginHorizontal: theme.spacing.xs,
+                },
                 organization.id === activeOrganization.id
-                  ? { backgroundColor: theme.backgroundSelected }
+                  ? { backgroundColor: theme.colors.background.selected }
                   : null,
               ]}
             >
-              <Text style={[styles.menuItemText, { color: theme.text }]}>
+              <Text
+                style={[
+                  styles.menuItemText,
+                  {
+                    color: theme.colors.text.primary,
+                    fontFamily: theme.typography.label.fontFamily,
+                    fontSize: theme.typography.label.fontSize,
+                    fontWeight: theme.typography.label.fontWeight,
+                  },
+                ]}
+              >
                 {organization.name}
               </Text>
               <Text
-                style={[styles.menuItemRole, { color: theme.textSecondary }]}
+                style={[
+                  styles.menuItemRole,
+                  {
+                    color: theme.colors.text.secondary,
+                    fontSize: theme.typography.caption.fontSize,
+                  },
+                ]}
               >
                 {organization.membershipRole}
               </Text>
@@ -85,9 +130,28 @@ export function OrganizationSwitcher({
 
           <Pressable
             onPress={handleOpenSetup}
-            style={[styles.menuAction, { borderTopColor: theme.border }]}
+            style={[
+              styles.menuAction,
+              {
+                borderTopColor: theme.colors.border.default,
+                marginTop: theme.spacing.xs,
+                paddingTop: theme.spacing.sm,
+                paddingHorizontal: theme.spacing.sm,
+                paddingBottom: theme.spacing.xs,
+              },
+            ]}
           >
-            <Text style={[styles.menuActionText, { color: theme.primary }]}>
+            <Text
+              style={[
+                styles.menuActionText,
+                {
+                  color: theme.colors.brand.primary,
+                  fontFamily: theme.typography.label.fontFamily,
+                  fontSize: theme.typography.bodySmall.fontSize,
+                  fontWeight: theme.typography.label.fontWeight,
+                },
+              ]}
+            >
               Crear o unirme a otra organización
             </Text>
           </Pressable>
@@ -107,61 +171,35 @@ const styles = StyleSheet.create({
   },
   trigger: {
     borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: Spacing.one,
   },
   triggerText: {
-    fontSize: 14,
-    fontWeight: '700',
-    fontFamily: Fonts.sans,
     flex: 1,
   },
   triggerCaret: {
     fontSize: 12,
     fontWeight: '700',
-    marginLeft: Spacing.one,
   },
   menu: {
     position: 'absolute',
     top: 44,
     width: '100%',
-    borderRadius: 16,
     borderWidth: 1,
-    paddingVertical: Spacing.one,
     shadowOpacity: 0.12,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 8 },
     elevation: 140,
     zIndex: 140,
   },
-  menuItem: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    borderRadius: 10,
-    marginHorizontal: Spacing.one,
-  },
-  menuItemText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  menuItem: {},
+  menuItemText: {},
   menuItemRole: {
-    fontSize: 12,
     textTransform: 'capitalize',
   },
   menuAction: {
     borderTopWidth: 1,
-    marginTop: Spacing.one,
-    paddingTop: Spacing.two,
-    paddingHorizontal: Spacing.two,
-    paddingBottom: Spacing.one,
   },
-  menuActionText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
+  menuActionText: {},
 });

@@ -1,26 +1,63 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
-import { Fonts, Spacing } from '@/constants/theme';
+import { OfficeLocationSearch } from '@/components/office-location-search';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import type { SelectedOfficeLocation } from '@/lib/mapbox-search';
 import {
+  type CreateOrganizationInput,
   createOrganizationInputSchema,
-  getDefaultTimezone,
-  getSupportedTimezones,
 } from '@/lib/organization-validation';
+import { getRuntimeTimezone } from '@/lib/timezone';
+import {
+  GlassCard,
+  PrimaryButton,
+  SecondaryButton,
+  TextField,
+  ThemedText,
+} from '@/theme/primitives';
+
+const CREATE_FIELD = {
+  NAME: 'name',
+  OFFICE_LOCATION: 'officeLocation',
+  OFFICE_NAME: 'officeName',
+} as const;
+
+const ORGANIZATION_SETUP_MODE = {
+  CREATE: 'create',
+  JOIN: 'join',
+} as const;
+
+type CreateField = (typeof CREATE_FIELD)[keyof typeof CREATE_FIELD];
+type OrganizationSetupMode =
+  (typeof ORGANIZATION_SETUP_MODE)[keyof typeof ORGANIZATION_SETUP_MODE];
+
+function getCreateFieldErrors(error: z.ZodError<CreateOrganizationInput>) {
+  const nextFieldErrors: Partial<Record<CreateField, string>> = {};
+
+  for (const issue of error.issues) {
+    const path = issue.path.join('.');
+
+    if (path === 'name' && !nextFieldErrors[CREATE_FIELD.NAME]) {
+      nextFieldErrors[CREATE_FIELD.NAME] = issue.message;
+    }
+    if (path === 'office.name' && !nextFieldErrors[CREATE_FIELD.OFFICE_NAME]) {
+      nextFieldErrors[CREATE_FIELD.OFFICE_NAME] = issue.message;
+    }
+  }
+
+  return nextFieldErrors;
+}
 
 export function OrganizationSetupView() {
   const theme = useTheme();
@@ -34,119 +71,136 @@ export function OrganizationSetupView() {
     closeOrganizationSetup,
   } = useOrganization();
 
-  const [mode, setMode] = useState<'create' | 'join'>('create');
-  const [organizationName, setOrganizationName] = useState('');
-  const [organizationLocation, setOrganizationLocation] = useState('');
-  const [organizationTimezone, setOrganizationTimezone] = useState(
-    getDefaultTimezone(),
+  const [mode, setMode] = useState<OrganizationSetupMode>(
+    ORGANIZATION_SETUP_MODE.CREATE,
   );
+  const [organizationName, setOrganizationName] = useState('');
+  const [isPhysicalOfficeEnabled, setIsPhysicalOfficeEnabled] = useState(false);
+  const [officeName, setOfficeName] = useState('');
+  const [selectedOfficeLocation, setSelectedOfficeLocation] =
+    useState<SelectedOfficeLocation | null>(null);
   const [inviteCodeOrLink, setInviteCodeOrLink] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [touchedFields, setTouchedFields] = useState<
-    Partial<Record<'name' | 'location' | 'timezone', boolean>>
+    Partial<Record<CreateField, boolean>>
   >({});
-  const [focusedField, setFocusedField] = useState<
-    'name' | 'location' | 'timezone' | null
-  >(null);
+  const [focusedField, setFocusedField] = useState<CreateField | null>(null);
   const [fieldErrors, setFieldErrors] = useState<
-    Partial<Record<'name' | 'location' | 'timezone', string>>
+    Partial<Record<CreateField, string>>
   >({});
-  const [activeTimezoneOptionIndex, setActiveTimezoneOptionIndex] = useState(0);
-  const timezoneBlurTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
 
   const hasOrganizations = organizations.length > 0;
-  const supportedTimezones = useMemo(() => getSupportedTimezones(), []);
-  const createValidationResult = createOrganizationInputSchema.safeParse({
-    name: organizationName,
-    location: organizationLocation,
-    timezone: organizationTimezone,
-  });
+  const runtimeTimezone = useMemo(() => getRuntimeTimezone(), []);
+  const trimmedOfficeName = officeName.trim();
+  const hasOfficeName = trimmedOfficeName.length > 0;
+  const hasSelectedOfficeLocation = selectedOfficeLocation !== null;
+  const shouldIncludePhysicalOffice =
+    isPhysicalOfficeEnabled && hasOfficeName && hasSelectedOfficeLocation;
+
+  const createInput = useMemo(() => {
+    const baseInput: CreateOrganizationInput = {
+      defaultTimezone: runtimeTimezone,
+      name: organizationName,
+    };
+
+    if (!shouldIncludePhysicalOffice || !selectedOfficeLocation) {
+      return baseInput;
+    }
+
+    return {
+      ...baseInput,
+      office: {
+        addressLabel: selectedOfficeLocation.addressLabel,
+        latitude: selectedOfficeLocation.latitude,
+        longitude: selectedOfficeLocation.longitude,
+        name: officeName,
+      },
+    } satisfies CreateOrganizationInput;
+  }, [
+    officeName,
+    organizationName,
+    runtimeTimezone,
+    selectedOfficeLocation,
+    shouldIncludePhysicalOffice,
+  ]);
+
+  const createValidationResult =
+    createOrganizationInputSchema.safeParse(createInput);
+
   const validationFieldErrors = useMemo(() => {
     if (createValidationResult.success) {
       return {};
     }
 
-    const nextFieldErrors = z.flattenError(
-      createValidationResult.error,
-    ).fieldErrors;
-    return {
-      name: nextFieldErrors.name?.[0],
-      location: nextFieldErrors.location?.[0],
-      timezone: nextFieldErrors.timezone?.[0],
-    };
+    return getCreateFieldErrors(createValidationResult.error);
   }, [createValidationResult]);
-  const timezoneSuggestions = useMemo(() => {
-    const normalizedQuery = organizationTimezone.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return supportedTimezones;
+
+  const officeFieldErrors = useMemo(() => {
+    const nextFieldErrors: Partial<Record<CreateField, string>> = {};
+
+    if (!isPhysicalOfficeEnabled) {
+      return nextFieldErrors;
     }
 
-    return supportedTimezones.filter((timezone) =>
-      timezone.toLowerCase().includes(normalizedQuery),
+    if (hasOfficeName && !hasSelectedOfficeLocation) {
+      nextFieldErrors[CREATE_FIELD.OFFICE_LOCATION] =
+        'Seleccioná una ubicación válida desde la búsqueda.';
+    }
+
+    if (!hasOfficeName && hasSelectedOfficeLocation) {
+      nextFieldErrors[CREATE_FIELD.OFFICE_NAME] =
+        'Poné un nombre para la oficina física.';
+    }
+
+    return nextFieldErrors;
+  }, [hasOfficeName, hasSelectedOfficeLocation, isPhysicalOfficeEnabled]);
+
+  const isCreateFormValid =
+    createValidationResult.success &&
+    Object.keys(officeFieldErrors).length === 0;
+
+  const resetPhysicalOfficeFields = () => {
+    setIsPhysicalOfficeEnabled(false);
+    setOfficeName('');
+    setSelectedOfficeLocation(null);
+    setTouchedFields((current) => {
+      const nextTouchedFields = { ...current };
+      delete nextTouchedFields[CREATE_FIELD.OFFICE_NAME];
+      delete nextTouchedFields[CREATE_FIELD.OFFICE_LOCATION];
+      return nextTouchedFields;
+    });
+    setFieldErrors((current) => {
+      const nextFieldErrors = { ...current };
+      delete nextFieldErrors[CREATE_FIELD.OFFICE_NAME];
+      delete nextFieldErrors[CREATE_FIELD.OFFICE_LOCATION];
+      return nextFieldErrors;
+    });
+    setFocusedField((current) =>
+      current === CREATE_FIELD.OFFICE_NAME ? null : current,
     );
-  }, [organizationTimezone, supportedTimezones]);
-  const isCreateFormValid = createValidationResult.success;
-
-  useEffect(
-    () => () => {
-      if (timezoneBlurTimeoutRef.current) {
-        clearTimeout(timezoneBlurTimeoutRef.current);
-      }
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (timezoneSuggestions.length === 0) {
-      setActiveTimezoneOptionIndex(0);
-      return;
-    }
-
-    setActiveTimezoneOptionIndex((currentIndex) =>
-      Math.min(currentIndex, timezoneSuggestions.length - 1),
-    );
-  }, [timezoneSuggestions]);
-
-  const applyTimezoneSuggestion = (timezone: string) => {
-    if (timezoneBlurTimeoutRef.current) {
-      clearTimeout(timezoneBlurTimeoutRef.current);
-      timezoneBlurTimeoutRef.current = null;
-    }
-
-    setOrganizationTimezone(timezone);
-    setTouchedFields((current) => ({
-      ...current,
-      timezone: true,
-    }));
-    setFocusedField(null);
-    setFieldErrors((currentErrors) => ({
-      ...currentErrors,
-      timezone: undefined,
-    }));
-    setActiveTimezoneOptionIndex(0);
   };
 
   const handleCreateOrganization = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting) {
+      return;
+    }
+
     setSetupErrorMessage('');
 
-    const validationResult = createOrganizationInputSchema.safeParse({
-      name: organizationName,
-      location: organizationLocation,
-      timezone: organizationTimezone,
-    });
+    const validationResult =
+      createOrganizationInputSchema.safeParse(createInput);
+    const nextFieldErrors = {
+      ...(validationResult.success
+        ? {}
+        : getCreateFieldErrors(validationResult.error)),
+      ...officeFieldErrors,
+    } satisfies Partial<Record<CreateField, string>>;
 
-    if (!validationResult.success) {
-      const nextFieldErrors = z.flattenError(
-        validationResult.error,
-      ).fieldErrors;
-      setFieldErrors({
-        name: nextFieldErrors.name?.[0],
-        location: nextFieldErrors.location?.[0],
-        timezone: nextFieldErrors.timezone?.[0],
-      });
+    if (
+      !validationResult.success ||
+      Object.keys(officeFieldErrors).length > 0
+    ) {
+      setFieldErrors(nextFieldErrors);
       return;
     }
 
@@ -156,8 +210,7 @@ export function OrganizationSetupView() {
       setIsSubmitting(true);
       await createOrganization(validationResult.data);
       setOrganizationName('');
-      setOrganizationLocation('');
-      setOrganizationTimezone(getDefaultTimezone());
+      resetPhysicalOfficeFields();
     } catch (error) {
       const message =
         error instanceof Error
@@ -170,8 +223,12 @@ export function OrganizationSetupView() {
   };
 
   const handleJoinOrganization = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting) {
+      return;
+    }
+
     setSetupErrorMessage('');
+
     try {
       setIsSubmitting(true);
       await joinOrganizationByCodeOrLink(inviteCodeOrLink);
@@ -193,353 +250,261 @@ export function OrganizationSetupView() {
       behavior={Platform.select({ ios: 'padding', android: undefined })}
     >
       <ScrollView
-        style={[styles.page, { backgroundColor: theme.background }]}
+        style={[
+          styles.page,
+          { backgroundColor: theme.colors.background.screen },
+        ]}
+        contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[
           styles.container,
           {
-            paddingTop: insets.top + Spacing.four,
+            paddingTop: insets.top + 24,
             paddingBottom: insets.bottom + 120,
           },
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View
+        <GlassCard
           style={[
             styles.card,
             {
-              backgroundColor: theme.backgroundElement,
-              borderColor: theme.border,
-              shadowColor: theme.shadow,
+              backgroundColor: theme.surface.glass.strong,
             },
           ]}
         >
-          <Text style={[styles.title, { color: theme.text }]}>
+          <ThemedText selectable style={styles.title} variant="title">
             Organización requerida
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
+          </ThemedText>
+          <ThemedText
+            colorToken="secondary"
+            selectable
+            style={styles.subtitle}
+            variant="bodySmall"
+          >
             Para continuar, crea una organización o únete con un código/link de
             invitación.
-          </Text>
+          </ThemedText>
 
           <View
             style={[
               styles.tabContainer,
               {
-                borderColor: theme.border,
-                backgroundColor: theme.surfaceMuted,
+                borderColor: theme.colors.border.default,
+                backgroundColor: theme.colors.background.muted,
               },
             ]}
           >
             <Pressable
-              onPress={() => setMode('create')}
+              onPress={() => setMode(ORGANIZATION_SETUP_MODE.CREATE)}
               style={[
                 styles.tabButton,
-                mode === 'create'
-                  ? { backgroundColor: theme.backgroundElement }
+                mode === ORGANIZATION_SETUP_MODE.CREATE
+                  ? { backgroundColor: theme.colors.background.card }
                   : null,
               ]}
             >
-              <Text style={[styles.tabText, { color: theme.text }]}>Crear</Text>
+              <ThemedText style={styles.tabText} variant="label">
+                Crear
+              </ThemedText>
             </Pressable>
             <Pressable
-              onPress={() => setMode('join')}
+              onPress={() => setMode(ORGANIZATION_SETUP_MODE.JOIN)}
               style={[
                 styles.tabButton,
-                mode === 'join'
-                  ? { backgroundColor: theme.backgroundElement }
+                mode === ORGANIZATION_SETUP_MODE.JOIN
+                  ? { backgroundColor: theme.colors.background.card }
                   : null,
               ]}
             >
-              <Text style={[styles.tabText, { color: theme.text }]}>
+              <ThemedText style={styles.tabText} variant="label">
                 Unirme
-              </Text>
+              </ThemedText>
             </Pressable>
           </View>
 
-          {mode === 'create' ? (
+          {mode === ORGANIZATION_SETUP_MODE.CREATE ? (
             <View style={styles.form}>
-              <Text style={[styles.label, { color: theme.text }]}>
-                Nombre de la organización
-              </Text>
-              <TextInput
+              <TextField
+                label="Nombre de la organización"
                 value={organizationName}
                 onChangeText={(value) => {
                   setOrganizationName(value);
                   setFieldErrors((currentErrors) => ({
                     ...currentErrors,
-                    name: undefined,
+                    [CREATE_FIELD.NAME]: undefined,
                   }));
                 }}
                 placeholder="Ejemplo: Minuto Labs"
-                placeholderTextColor={theme.textSecondary}
-                onBlur={() => {
-                  setTouchedFields((current) => ({ ...current, name: true }));
-                  setFocusedField((current) =>
-                    current === 'name' ? null : current,
-                  );
-                }}
-                onFocus={() => setFocusedField('name')}
-                style={[
-                  styles.input,
-                  {
-                    borderColor: theme.border,
-                    color: theme.text,
-                    backgroundColor: theme.background,
-                  },
-                ]}
-              />
-              {focusedField !== 'name' &&
-              (touchedFields.name || fieldErrors.name) &&
-              (validationFieldErrors.name || fieldErrors.name) ? (
-                <Text style={[styles.fieldErrorText, { color: theme.error }]}>
-                  {validationFieldErrors.name || fieldErrors.name}
-                </Text>
-              ) : null}
-
-              <Text style={[styles.label, { color: theme.text }]}>
-                Dirección de la organización
-              </Text>
-              <TextInput
-                value={organizationLocation}
-                onChangeText={(value) => {
-                  setOrganizationLocation(value);
-                  setFieldErrors((currentErrors) => ({
-                    ...currentErrors,
-                    location: undefined,
-                  }));
-                }}
-                placeholder="Ejemplo: Av. Providencia 1234, Santiago"
-                placeholderTextColor={theme.textSecondary}
                 onBlur={() => {
                   setTouchedFields((current) => ({
                     ...current,
-                    location: true,
+                    [CREATE_FIELD.NAME]: true,
                   }));
                   setFocusedField((current) =>
-                    current === 'location' ? null : current,
+                    current === CREATE_FIELD.NAME ? null : current,
                   );
                 }}
-                onFocus={() => setFocusedField('location')}
+                onFocus={() => setFocusedField(CREATE_FIELD.NAME)}
+                containerStyle={styles.input}
+                errorMessage={
+                  focusedField !== CREATE_FIELD.NAME &&
+                  (touchedFields[CREATE_FIELD.NAME] ||
+                    fieldErrors[CREATE_FIELD.NAME])
+                    ? validationFieldErrors[CREATE_FIELD.NAME] ||
+                      fieldErrors[CREATE_FIELD.NAME]
+                    : undefined
+                }
+              />
+
+              <GlassCard
                 style={[
-                  styles.input,
+                  styles.optionalSection,
                   {
-                    borderColor: theme.border,
-                    color: theme.text,
-                    backgroundColor: theme.background,
+                    backgroundColor: theme.surface.glass.soft,
+                    borderColor: theme.surface.glass.border,
                   },
                 ]}
-              />
-              {focusedField !== 'location' &&
-              (touchedFields.location || fieldErrors.location) &&
-              (validationFieldErrors.location || fieldErrors.location) ? (
-                <Text style={[styles.fieldErrorText, { color: theme.error }]}>
-                  {validationFieldErrors.location || fieldErrors.location}
-                </Text>
-              ) : null}
-
-              <Text style={[styles.label, { color: theme.text }]}>
-                Ubicación
-              </Text>
-              <TextInput
-                value={organizationTimezone}
-                onChangeText={(value) => {
-                  setOrganizationTimezone(value);
-                  setFocusedField('timezone');
-                  setFieldErrors((currentErrors) => ({
-                    ...currentErrors,
-                    timezone: undefined,
-                  }));
-                }}
-                placeholder="Ejemplo: America/Santiago"
-                placeholderTextColor={theme.textSecondary}
-                onBlur={() => {
-                  setTouchedFields((current) => ({
-                    ...current,
-                    timezone: true,
-                  }));
-                  timezoneBlurTimeoutRef.current = setTimeout(() => {
-                    setFocusedField((current) =>
-                      current === 'timezone' ? null : current,
-                    );
-                  }, 140);
-                }}
-                onFocus={() => setFocusedField('timezone')}
-                onKeyPress={(event) => {
-                  const pressedKey = event.nativeEvent.key;
-                  const currentSuggestion =
-                    timezoneSuggestions[activeTimezoneOptionIndex] ||
-                    timezoneSuggestions[0];
-
-                  if (
-                    pressedKey === 'ArrowDown' &&
-                    timezoneSuggestions.length > 0
-                  ) {
-                    (
-                      event as unknown as { preventDefault?: () => void }
-                    ).preventDefault?.();
-                    setActiveTimezoneOptionIndex((currentIndex) =>
-                      Math.min(
-                        currentIndex + 1,
-                        timezoneSuggestions.length - 1,
-                      ),
-                    );
-                    return;
-                  }
-
-                  if (
-                    pressedKey === 'ArrowUp' &&
-                    timezoneSuggestions.length > 0
-                  ) {
-                    (
-                      event as unknown as { preventDefault?: () => void }
-                    ).preventDefault?.();
-                    setActiveTimezoneOptionIndex((currentIndex) =>
-                      Math.max(currentIndex - 1, 0),
-                    );
-                    return;
-                  }
-
-                  if (
-                    (pressedKey === 'Tab' || pressedKey === 'Enter') &&
-                    currentSuggestion
-                  ) {
-                    (
-                      event as unknown as { preventDefault?: () => void }
-                    ).preventDefault?.();
-                    applyTimezoneSuggestion(currentSuggestion);
-                  }
-                }}
-                style={[
-                  styles.input,
-                  {
-                    borderColor: theme.border,
-                    color: theme.text,
-                    backgroundColor: theme.background,
-                  },
-                ]}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {focusedField === 'timezone' && timezoneSuggestions.length > 0 ? (
-                <ScrollView
-                  style={[
-                    styles.timezoneSuggestions,
-                    {
-                      borderColor: theme.border,
-                      backgroundColor: theme.backgroundElement,
-                    },
-                  ]}
-                  nestedScrollEnabled
-                  keyboardShouldPersistTaps="handled"
+                variant="soft"
+              >
+                <ThemedText
+                  selectable
+                  style={styles.sectionTitle}
+                  variant="label"
                 >
-                  {timezoneSuggestions.map((timezone, index) => (
-                    <Pressable
-                      key={timezone}
-                      onPress={() => applyTimezoneSuggestion(timezone)}
-                      style={[
-                        styles.timezoneOption,
-                        index === activeTimezoneOptionIndex
-                          ? { backgroundColor: theme.backgroundSelected }
-                          : null,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.timezoneOptionText,
-                          { color: theme.text },
-                        ]}
-                      >
-                        {timezone}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              ) : null}
-              {focusedField !== 'timezone' &&
-              (touchedFields.timezone || fieldErrors.timezone) &&
-              (validationFieldErrors.timezone || fieldErrors.timezone) ? (
-                <Text style={[styles.fieldErrorText, { color: theme.error }]}>
-                  {validationFieldErrors.timezone || fieldErrors.timezone}
-                </Text>
-              ) : null}
+                  Oficina física (opcional)
+                </ThemedText>
+                <ThemedText
+                  colorToken="secondary"
+                  selectable
+                  style={styles.sectionText}
+                  variant="bodySmall"
+                >
+                  Si completás esta sección, guardamos una dirección elegida.
+                </ThemedText>
 
-              <Pressable
+                {isPhysicalOfficeEnabled ? (
+                  <>
+                    <TextField
+                      label="Nombre de la oficina"
+                      value={officeName}
+                      onChangeText={(value) => {
+                        setOfficeName(value);
+                        setFieldErrors((currentErrors) => ({
+                          ...currentErrors,
+                          [CREATE_FIELD.OFFICE_NAME]: undefined,
+                        }));
+                      }}
+                      placeholder="Ejemplo: Casa matriz"
+                      onBlur={() => {
+                        setTouchedFields((current) => ({
+                          ...current,
+                          [CREATE_FIELD.OFFICE_NAME]: true,
+                        }));
+                        setFocusedField((current) =>
+                          current === CREATE_FIELD.OFFICE_NAME ? null : current,
+                        );
+                      }}
+                      onFocus={() => setFocusedField(CREATE_FIELD.OFFICE_NAME)}
+                      containerStyle={styles.input}
+                      errorMessage={
+                        focusedField !== CREATE_FIELD.OFFICE_NAME &&
+                        (touchedFields[CREATE_FIELD.OFFICE_NAME] ||
+                          fieldErrors[CREATE_FIELD.OFFICE_NAME])
+                          ? officeFieldErrors[CREATE_FIELD.OFFICE_NAME] ||
+                            validationFieldErrors[CREATE_FIELD.OFFICE_NAME] ||
+                            fieldErrors[CREATE_FIELD.OFFICE_NAME]
+                          : undefined
+                      }
+                    />
+
+                    <OfficeLocationSearch
+                      selectedLocation={selectedOfficeLocation}
+                      onSelectionChange={(value) => {
+                        setSelectedOfficeLocation(value);
+                        setFieldErrors((currentErrors) => ({
+                          ...currentErrors,
+                          [CREATE_FIELD.OFFICE_LOCATION]: undefined,
+                        }));
+                      }}
+                      onTouched={() => {
+                        setTouchedFields((current) => ({
+                          ...current,
+                          [CREATE_FIELD.OFFICE_LOCATION]: true,
+                        }));
+                      }}
+                      validationMessage={
+                        touchedFields[CREATE_FIELD.OFFICE_LOCATION] ||
+                        fieldErrors[CREATE_FIELD.OFFICE_LOCATION]
+                          ? officeFieldErrors[CREATE_FIELD.OFFICE_LOCATION] ||
+                            fieldErrors[CREATE_FIELD.OFFICE_LOCATION]
+                          : undefined
+                      }
+                    />
+
+                    <SecondaryButton
+                      fullWidth={false}
+                      label="No agregar oficina física"
+                      onPress={resetPhysicalOfficeFields}
+                      style={styles.secondaryInlineButton}
+                    />
+                  </>
+                ) : (
+                  <SecondaryButton
+                    fullWidth={false}
+                    label="Agregar oficina física ahora"
+                    onPress={() => setIsPhysicalOfficeEnabled(true)}
+                    style={styles.secondaryInlineButton}
+                  />
+                )}
+              </GlassCard>
+
+              <PrimaryButton
+                label="Crear organización"
+                loading={isSubmitting}
                 onPress={handleCreateOrganization}
                 disabled={isSubmitting || !isCreateFormValid}
-                style={[
-                  styles.primaryButton,
-                  {
-                    backgroundColor: theme.primary,
-                    opacity: isSubmitting || !isCreateFormValid ? 0.7 : 1,
-                  },
-                ]}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>
-                    Crear organización
-                  </Text>
-                )}
-              </Pressable>
+                style={styles.primaryButton}
+              />
             </View>
           ) : (
             <View style={styles.form}>
-              <Text style={[styles.label, { color: theme.text }]}>
-                Código o link de invitación
-              </Text>
-              <TextInput
+              <TextField
+                autoCapitalize="none"
+                label="Código o link de invitación"
                 value={inviteCodeOrLink}
                 onChangeText={setInviteCodeOrLink}
                 placeholder="Pega el código o link"
-                placeholderTextColor={theme.textSecondary}
-                style={[
-                  styles.input,
-                  {
-                    borderColor: theme.border,
-                    color: theme.text,
-                    backgroundColor: theme.background,
-                  },
-                ]}
-                autoCapitalize="none"
+                containerStyle={styles.input}
               />
-              <Pressable
+              <PrimaryButton
+                label="Unirme"
+                loading={isSubmitting}
                 onPress={handleJoinOrganization}
                 disabled={isSubmitting}
-                style={[
-                  styles.primaryButton,
-                  {
-                    backgroundColor: theme.primary,
-                    opacity: isSubmitting ? 0.7 : 1,
-                  },
-                ]}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={styles.primaryButtonText}>Unirme</Text>
-                )}
-              </Pressable>
+                style={styles.primaryButton}
+              />
             </View>
           )}
 
           {setupErrorMessage ? (
-            <Text style={[styles.errorText, { color: theme.error }]}>
+            <ThemedText
+              colorToken="error"
+              selectable
+              style={styles.errorText}
+              variant="caption"
+            >
               {setupErrorMessage}
-            </Text>
+            </ThemedText>
           ) : null}
 
           {hasOrganizations ? (
-            <Pressable
+            <SecondaryButton
+              label="Volver a mis organizaciones"
               onPress={closeOrganizationSetup}
-              style={[styles.secondaryButton, { borderColor: theme.border }]}
-            >
-              <Text style={[styles.secondaryButtonText, { color: theme.text }]}>
-                Volver a mis organizaciones
-              </Text>
-            </Pressable>
+              style={styles.secondaryButton}
+            />
           ) : null}
-        </View>
+        </GlassCard>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -550,22 +515,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {
-    paddingHorizontal: Spacing.three,
+    paddingHorizontal: 16,
   },
   card: {
-    borderWidth: 1,
     borderRadius: 24,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
+    padding: 16,
+    gap: 8,
   },
   title: {
     fontSize: 24,
     fontWeight: '700',
-    fontFamily: Fonts.serif,
+    // TODO: Move to inline style with theme.typography.heading.fontFamily
   },
   subtitle: {
     fontSize: 14,
@@ -574,14 +534,14 @@ const styles = StyleSheet.create({
   tabContainer: {
     borderWidth: 1,
     borderRadius: 999,
-    padding: Spacing.half,
+    padding: 2,
     flexDirection: 'row',
-    gap: Spacing.half,
+    gap: 2,
   },
   tabButton: {
     flex: 1,
     borderRadius: 999,
-    paddingVertical: Spacing.one,
+    paddingVertical: 4,
     alignItems: 'center',
   },
   tabText: {
@@ -589,63 +549,63 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   form: {
-    gap: Spacing.one,
+    gap: 4,
   },
-  label: {
+  helperCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 8,
+    gap: 2,
+  },
+  helperTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  helperText: {
     fontSize: 13,
-    fontWeight: '600',
+    lineHeight: 18,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  sectionText: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   input: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-    fontSize: 14,
+    gap: 0,
   },
   primaryButton: {
-    marginTop: Spacing.one,
+    marginTop: 4,
     borderRadius: 999,
-    paddingVertical: Spacing.two,
+    paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 44,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
   },
   errorText: {
     fontSize: 12,
     fontWeight: '600',
   },
-  fieldErrorText: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: -2,
-  },
-  timezoneSuggestions: {
+  optionalSection: {
     borderWidth: 1,
-    borderRadius: 12,
-    maxHeight: 180,
-    overflow: 'hidden',
+    borderRadius: 20,
+    padding: 8,
+    gap: 4,
   },
-  timezoneOption: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-  },
-  timezoneOptionText: {
-    fontSize: 13,
-    fontWeight: '500',
+  secondaryInlineButton: {
+    borderWidth: 1,
+    borderRadius: 14,
+    minHeight: 42,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   secondaryButton: {
     borderWidth: 1,
     borderRadius: 999,
-    paddingVertical: Spacing.two,
+    paddingVertical: 8,
     alignItems: 'center',
-  },
-  secondaryButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
   },
 });

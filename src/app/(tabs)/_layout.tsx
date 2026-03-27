@@ -1,10 +1,7 @@
 import { Tabs } from 'expo-router';
 
 import { BottomTabBar } from '@/components/bottom-tab-bar';
-import {
-  OrganizationProvider,
-  useOrganization,
-} from '@/hooks/use-organization';
+import { useOrganization } from '@/hooks/use-organization';
 
 function TabsNavigator() {
   const { isOrganizationSetupOpen, isLoadingOrganizations } = useOrganization();
@@ -14,9 +11,15 @@ function TabsNavigator() {
   return (
     <Tabs
       screenOptions={{ headerShown: false }}
-      tabBar={(props) =>
-        shouldHideTabBar ? null : <BottomTabBar {...props} />
-      }
+      tabBar={(props) => {
+        const activeRoute = props.state.routes[props.state.index]?.name;
+
+        if (shouldHideTabBar || activeRoute === 'control-history') {
+          return null;
+        }
+
+        return <BottomTabBar {...props} />;
+      }}
     >
       <Tabs.Screen name="home" options={{ title: 'Home' }} />
       <Tabs.Screen name="control" options={{ title: 'Control' }} />
@@ -31,9 +34,5 @@ function TabsNavigator() {
 }
 
 export default function TabsLayout() {
-  return (
-    <OrganizationProvider>
-      <TabsNavigator />
-    </OrganizationProvider>
-  );
+  return <TabsNavigator />;
 }

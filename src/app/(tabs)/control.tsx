@@ -1,60 +1,88 @@
-import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Platform,
+  ActivityIndicator,
+  Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
-import { StatusPill } from '@/components/status-pill';
-import { Fonts, Spacing } from '@/constants/theme';
+import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
+import { useProximityValidation } from '@/hooks/use-proximity-validation';
 import { useTheme } from '@/hooks/use-theme';
 import {
   type AttendanceEvent,
+  type AttendanceLocation,
   type AttendanceRecord,
   calculateWeeklyTotals,
   getAttendanceRecordsForRange,
+  getOpenShift,
   getOrganizationToday,
   getOrganizationWeekRange,
   getRecentAttendanceEvents,
   getTodayAttendanceRecord,
+  type OpenShift,
+  ProximityError,
   registerClockIn,
   registerClockOut,
+  validateProximity,
 } from '@/lib/attendance';
+import { resolveOrganizationTimezone } from '@/lib/timezone';
+import {
+  Chip,
+  GlassCard,
+  PrimaryButton,
+  Screen,
+  SecondaryButton,
+  SectionHeader,
+  ThemedText,
+} from '@/theme/primitives';
 
-const LOCATION_UNAVAILABLE_MESSAGE = 'Servicio de ubicación no disponible.';
-const LOCATION_WEB_SECURE_CONTEXT_MESSAGE =
-  'En web, la ubicación requiere HTTPS o localhost.';
+const CONTROL_MODE = {
+  IDLE: 'idle',
+  VALIDATING: 'validating',
+  VALID: 'valid',
+  OUT_OF_RANGE: 'out_of_range',
+  GPS_ERROR: 'gps_error',
+  REMOTE: 'remote',
+  CLOCKED_IN: 'clocked_in',
+  COMPLETED: 'completed',
+} as const;
+
+type ControlMode = (typeof CONTROL_MODE)[keyof typeof CONTROL_MODE];
+
+const VALIDATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export default function ControlScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const {
     activeOrganization,
     isLoadingOrganizations,
     isOrganizationSetupOpen,
   } = useOrganization();
+  const currentTimezone = resolveOrganizationTimezone(
+    activeOrganization?.defaultTimezone,
+  );
+
+  const proximity = useProximityValidation();
 
   const [now, setNow] = useState(() => new Date());
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
+  const [openShiftRecord, setOpenShiftRecord] = useState<OpenShift | null>(
+    null,
+  );
+  const [isOvertimeModalVisible, setIsOvertimeModalVisible] = useState(false);
   const [weeklyMinutes, setWeeklyMinutes] = useState(0);
   const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
   const [recentEvents, setRecentEvents] = useState<AttendanceEvent[]>([]);
-  const [isLocationAvailable, setIsLocationAvailable] = useState(false);
-  const [locationStatusMessage, setLocationStatusMessage] = useState(
-    'Verificando servicio de ubicacion...',
-  );
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -64,71 +92,17 @@ export default function ControlScreen() {
     return () => clearInterval(timer);
   }, []);
 
-  const refreshLocationAvailability = useCallback(async () => {
-    try {
-      if (Platform.OS === 'web') {
-        if (
-          typeof window !== 'undefined' &&
-          'isSecureContext' in window &&
-          !window.isSecureContext
-        ) {
-          setIsLocationAvailable(false);
-          setLocationStatusMessage(LOCATION_WEB_SECURE_CONTEXT_MESSAGE);
-          return false;
-        }
-
-        if (typeof navigator !== 'undefined' && !('geolocation' in navigator)) {
-          setIsLocationAvailable(false);
-          setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
-          return false;
-        }
-      }
-
-      if (Platform.OS !== 'web') {
-        const servicesEnabled = await Location.hasServicesEnabledAsync();
-        if (!servicesEnabled) {
-          setIsLocationAvailable(false);
-          setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
-          return false;
-        }
-      }
-
-      let permission = await Location.getForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        permission = await Location.requestForegroundPermissionsAsync();
-      }
-
-      if (permission.status !== 'granted') {
-        setIsLocationAvailable(false);
-        setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
-        return false;
-      }
-
-      setIsLocationAvailable(true);
-      setLocationStatusMessage('');
-      return true;
-    } catch {
-      setIsLocationAvailable(false);
-      setLocationStatusMessage(LOCATION_UNAVAILABLE_MESSAGE);
-      return false;
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshLocationAvailability();
-  }, [refreshLocationAvailability]);
-
   const loadAttendance = useCallback(async () => {
     if (!activeOrganization) return;
 
     setIsLoadingAttendance(true);
     setErrorMessage('');
 
-    const currentDate = getOrganizationToday(activeOrganization.timezone);
-    const week = getOrganizationWeekRange(activeOrganization.timezone);
+    const currentDate = getOrganizationToday(currentTimezone);
+    const week = getOrganizationWeekRange(currentTimezone);
 
     try {
-      const [today, weeklyRecords, events] = await Promise.all([
+      const [today, weeklyRecords, events, openShift] = await Promise.all([
         getTodayAttendanceRecord({
           organizationId: activeOrganization.id,
           membershipId: activeOrganization.membershipId,
@@ -146,11 +120,13 @@ export default function ControlScreen() {
           recordLimit: 12,
           eventLimit: 6,
         }),
+        getOpenShift(activeOrganization.membershipId),
       ]);
 
       const totals = calculateWeeklyTotals(weeklyRecords);
 
       setTodayRecord(today);
+      setOpenShiftRecord(openShift);
       setWeeklyMinutes(totals.totalMinutes);
       setWeeklyAttendedDays(totals.attendedDays);
       setRecentEvents(events);
@@ -163,110 +139,397 @@ export default function ControlScreen() {
     } finally {
       setIsLoadingAttendance(false);
     }
-  }, [activeOrganization]);
+  }, [activeOrganization, currentTimezone]);
 
   useEffect(() => {
-    loadAttendance();
+    void loadAttendance();
   }, [loadAttendance]);
 
-  const onRegisterAction = useCallback(async () => {
-    if (!activeOrganization) return;
+  const hasActiveClockIn = Boolean(openShiftRecord?.clockInAt);
 
-    const workDate = getOrganizationToday(activeOrganization.timezone);
+  const organizationToday = getOrganizationToday(currentTimezone);
+
+  const isCrossDateOpenShift = Boolean(
+    openShiftRecord && openShiftRecord.workDate !== organizationToday,
+  );
+
+  const hasCompletedDay = Boolean(
+    todayRecord?.clockInAt && todayRecord.clockOutAt,
+  );
+
+  const controlMode = useMemo<ControlMode>(() => {
+    if (hasActiveClockIn) {
+      return CONTROL_MODE.CLOCKED_IN;
+    }
+
+    if (hasCompletedDay) {
+      return CONTROL_MODE.COMPLETED;
+    }
+
+    switch (proximity.state.status) {
+      case 'loading':
+        return CONTROL_MODE.VALIDATING;
+      case 'valid':
+        return CONTROL_MODE.VALID;
+      case 'out_of_range':
+        return CONTROL_MODE.OUT_OF_RANGE;
+      case 'blocked':
+        return CONTROL_MODE.GPS_ERROR;
+      case 'remote':
+        return CONTROL_MODE.REMOTE;
+      case 'idle':
+      default:
+        return CONTROL_MODE.IDLE;
+    }
+  }, [hasActiveClockIn, hasCompletedDay, proximity.state.status]);
+
+  useEffect(() => {
+    if (controlMode !== CONTROL_MODE.VALID) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      proximity.reset();
+      setErrorMessage('La validación expiró. Volvé a validar tu ubicación.');
+    }, VALIDATION_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [controlMode, proximity.reset]);
+
+  useEffect(() => {
+    if (!openShiftRecord) {
+      setIsOvertimeModalVisible(false);
+      return;
+    }
+
+    const syncOvertimeVisibility = () => {
+      setIsOvertimeModalVisible(isOvertimeThresholdExceeded(openShiftRecord));
+    };
+
+    syncOvertimeVisibility();
+
+    const intervalId = setInterval(syncOvertimeVisibility, 60_000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [openShiftRecord]);
+
+  const onValidateLocation = useCallback(async () => {
+    if (!activeOrganization || hasActiveClockIn || hasCompletedDay) {
+      return;
+    }
+
+    setErrorMessage('');
+
+    const location = await proximity.validateLocation();
+
+    if (!location) {
+      return;
+    }
+
+    try {
+      const result = await validateProximity({
+        organizationId: activeOrganization.id,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        accuracy: location.accuracy,
+      });
+
+      proximity.setValidationResult({
+        success: result.valid,
+        officeId: result.officeId,
+        officeName: result.officeName,
+        errorCode: result.errorCode,
+      });
+    } catch (error) {
+      setErrorMessage(
+        getErrorMessage(error) ?? 'No se pudo validar tu ubicación.',
+      );
+      proximity.reset();
+    }
+  }, [activeOrganization, hasActiveClockIn, hasCompletedDay, proximity]);
+
+  const submitClockOut = useCallback(
+    async (options: {
+      attendanceId: string;
+      autoClosed?: boolean;
+      customCloseAt?: string;
+    }) => {
+      const clockOutLocation = {
+        latitude: 0,
+        longitude: 0,
+        accuracy: null,
+        isRemote: true,
+      } satisfies AttendanceLocation;
+
+      await registerClockOut({
+        attendanceId: options.attendanceId,
+        autoClosed: options.autoClosed,
+        clockOutAt: new Date().toISOString(),
+        clockOutLocation,
+        customCloseAt: options.customCloseAt,
+      });
+
+      setIsOvertimeModalVisible(false);
+    },
+    [],
+  );
+
+  const onRegisterAction = useCallback(async () => {
+    if (!activeOrganization) {
+      return;
+    }
+
+    const workDate = getOrganizationToday(currentTimezone);
     const occurredAt = new Date().toISOString();
 
     setIsSubmitting(true);
     setErrorMessage('');
 
     try {
-      const canUseLocation = await refreshLocationAvailability();
-      if (!canUseLocation) {
-        throw new Error(LOCATION_UNAVAILABLE_MESSAGE);
-      }
+      if (!openShiftRecord?.clockInAt) {
+        const isRemote = controlMode === CONTROL_MODE.REMOTE;
+        const validatedLocation = proximity.state.location;
 
-      // El emulador de Android falla con 'Balanced' porque no tiene redes Wi-Fi/celular para triangular.
-      // Usamos Highest (que obliga al GPS) y un getLastKnownPositionAsync como fallback rápido.
-      let location = await Location.getLastKnownPositionAsync();
+        if (!isRemote) {
+          if (controlMode !== CONTROL_MODE.VALID) {
+            setErrorMessage(
+              'Primero validá tu ubicación antes de registrar la entrada.',
+            );
+            return;
+          }
 
-      if (!location) {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Highest,
-        });
-      }
+          if (!validatedLocation || !proximity.state.officeId) {
+            setErrorMessage(
+              'La validación no está completa. Volvé a intentarlo.',
+            );
+            proximity.reset();
+            return;
+          }
+        }
 
-      const locationSnapshot = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        accuracy: location.coords.accuracy ?? null,
-      };
+        const locationSnapshot = isRemote
+          ? {
+              latitude: 0,
+              longitude: 0,
+              accuracy: null,
+              isRemote: true,
+            }
+          : {
+              latitude: validatedLocation!.latitude,
+              longitude: validatedLocation!.longitude,
+              accuracy: validatedLocation!.accuracy,
+              isRemote: false,
+            };
 
-      if (!todayRecord?.clockInAt) {
-        await registerClockIn({
+        const result = await registerClockIn({
           organizationId: activeOrganization.id,
           membershipId: activeOrganization.membershipId,
           workDate,
           clockInAt: occurredAt,
           clockInLocation: locationSnapshot,
+          officeId: isRemote ? undefined : proximity.state.officeId,
         });
-      } else if (!todayRecord.clockOutAt) {
-        await registerClockOut({
-          attendanceId: todayRecord.id,
-          clockOutAt: occurredAt,
-          clockOutLocation: locationSnapshot,
-        });
+
+        if (!isRemote) {
+          proximity.setValidationResult({
+            success: true,
+            officeId: result?.officeId,
+            officeName: result?.officeName,
+          });
+        }
+      } else if (openShiftRecord) {
+        await submitClockOut({ attendanceId: openShiftRecord.recordId });
       }
 
       await loadAttendance();
+      proximity.reset();
     } catch (error) {
-      setErrorMessage(
-        getLocationErrorMessage(error) ??
-          getErrorMessage(error) ??
-          'No se pudo guardar el registro.',
-      );
+      if (error instanceof ProximityError) {
+        if (error.code === 'GPS_ACCURACY_TOO_LOW') {
+          proximity.setValidationResult({
+            success: false,
+            errorCode: 'GPS_ACCURACY_TOO_LOW',
+          });
+          setErrorMessage(error.message);
+        } else if (error.code === 'OUT_OF_RANGE') {
+          proximity.setValidationResult({
+            success: false,
+            errorCode: 'OUT_OF_RANGE',
+          });
+          setErrorMessage(error.message);
+        } else {
+          setErrorMessage(error.message);
+        }
+      } else {
+        setErrorMessage(
+          getErrorMessage(error) ?? 'No se pudo guardar el registro.',
+        );
+      }
     } finally {
       setIsSubmitting(false);
     }
   }, [
     activeOrganization,
+    controlMode,
+    currentTimezone,
     loadAttendance,
-    refreshLocationAvailability,
-    todayRecord,
+    openShiftRecord,
+    proximity,
+    submitClockOut,
+  ]);
+
+  const proximityStatus = useMemo(() => {
+    switch (controlMode) {
+      case CONTROL_MODE.VALIDATING:
+        return {
+          chipLabel: 'Obteniendo ubicación...',
+          chipTone: 'brand' as const,
+        };
+      case CONTROL_MODE.VALID: {
+        return {
+          chipLabel: 'Ubicación validada',
+          chipTone: 'success' as const,
+          helper: proximity.state.officeName
+            ? `✓ ${proximity.state.officeName}`
+            : 'Ubicación validada.',
+        };
+      }
+      case CONTROL_MODE.OUT_OF_RANGE:
+        return {
+          chipLabel: 'Fuera de rango',
+          chipTone: 'warning' as const,
+          helper: '⚠ Fuera de rango. Reintentá o registrate como remoto.',
+        };
+      case CONTROL_MODE.GPS_ERROR:
+        return {
+          chipLabel: 'Error de GPS',
+          chipTone: 'danger' as const,
+          helper: getBlockedMessage(proximity.state.errorReason),
+        };
+      case CONTROL_MODE.REMOTE:
+        return {
+          chipLabel: 'Trabajo Remoto',
+          chipTone: 'brand' as const,
+          helper: '📍 Remoto',
+        };
+      case CONTROL_MODE.CLOCKED_IN:
+        return {
+          chipLabel: isCrossDateOpenShift
+            ? 'Jornada pendiente'
+            : 'Jornada activa',
+          chipTone: isCrossDateOpenShift
+            ? ('warning' as const)
+            : ('success' as const),
+          helper: openShiftRecord?.officeIsRemote
+            ? '📍 Remoto'
+            : openShiftRecord?.officeName
+              ? `✓ ${openShiftRecord.officeName}`
+              : 'Tu jornada está activa.',
+        };
+      case CONTROL_MODE.COMPLETED:
+        return {
+          chipLabel: 'Jornada completada',
+          chipTone: 'neutral' as const,
+          helper: 'Ya registraste la entrada y la salida de hoy.',
+        };
+      case CONTROL_MODE.IDLE:
+      default:
+        return {
+          chipLabel: 'Sin validar',
+          chipTone: 'neutral' as const,
+          helper: 'Validá tu ubicación antes de registrar la entrada.',
+        };
+    }
+  }, [
+    controlMode,
+    proximity.state.errorReason,
+    proximity.state.officeName,
+    isCrossDateOpenShift,
+    openShiftRecord?.officeIsRemote,
+    openShiftRecord?.officeName,
   ]);
 
   const buttonState = useMemo(() => {
-    if (!todayRecord?.clockInAt) {
+    if (controlMode === CONTROL_MODE.CLOCKED_IN) {
       return {
-        label: 'Registrar entrada del dia',
-        helper: 'Registra tu entrada para habilitar el control de la jornada.',
+        label: isCrossDateOpenShift
+          ? 'Registrar salida de la jornada pendiente'
+          : 'Registrar salida',
+        helper: isCrossDateOpenShift
+          ? 'Primero cerrá la jornada pendiente para volver al estado normal.'
+          : 'Tu entrada ya está registrada. Cerrá la jornada con tu salida.',
         disabled: false,
       };
     }
 
-    if (!todayRecord.clockOutAt) {
+    if (controlMode === CONTROL_MODE.COMPLETED) {
       return {
-        label: 'Registrar salida del dia',
+        label: 'Jornada completada',
+        helper: 'Ya registraste entrada y salida para hoy.',
+        disabled: true,
+      };
+    }
+
+    if (
+      controlMode === CONTROL_MODE.VALID ||
+      controlMode === CONTROL_MODE.REMOTE
+    ) {
+      return {
+        label: 'Registrar entrada del dia',
         helper:
-          'Tu entrada ya está registrada. Cerrá la jornada con tu salida.',
+          controlMode === CONTROL_MODE.REMOTE
+            ? 'Vas a registrar tu entrada en modo remoto.'
+            : 'Tu ubicación ya fue validada. Registrá la entrada ahora.',
         disabled: false,
       };
     }
 
     return {
-      label: 'Jornada completada',
-      helper: 'Ya registraste entrada y salida para hoy.',
+      label: 'Validá o elegí remoto',
+      helper: 'Primero validá tu ubicación o elegí trabajo remoto.',
       disabled: true,
     };
-  }, [todayRecord]);
+  }, [controlMode, isCrossDateOpenShift]);
+
+  const overtimeTitle = openShiftRecord
+    ? formatOvertimeTitle(openShiftRecord, currentTimezone)
+    : '';
+
+  const overtimeStandardCloseAt = openShiftRecord
+    ? getStandardCloseAt(openShiftRecord)
+    : null;
+
+  const onCloseWithCurrentTime = useCallback(async () => {
+    if (!openShiftRecord) {
+      return;
+    }
+
+    await submitClockOut({ attendanceId: openShiftRecord.recordId });
+  }, [openShiftRecord, submitClockOut]);
+
+  const onCloseAtStandardTime = useCallback(async () => {
+    if (!openShiftRecord || !overtimeStandardCloseAt) {
+      return;
+    }
+
+    await submitClockOut({
+      attendanceId: openShiftRecord.recordId,
+      autoClosed: true,
+      customCloseAt: overtimeStandardCloseAt.toISOString(),
+    });
+  }, [openShiftRecord, overtimeStandardCloseAt, submitClockOut]);
 
   if (isLoadingOrganizations) {
     return (
-      <View
-        style={[styles.loaderContainer, { backgroundColor: theme.background }]}
-      >
-        <Text style={[styles.loaderText, { color: theme.textSecondary }]}>
+      <Screen contentContainerStyle={styles.loaderContainer}>
+        <ThemedText colorToken="secondary" variant="label">
           Cargando organizaciones...
-        </Text>
-      </View>
+        </ThemedText>
+      </Screen>
     );
   }
 
@@ -275,149 +538,175 @@ export default function ControlScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.page, { backgroundColor: theme.background }]}
+    <Screen
+      scroll
       contentContainerStyle={[
         styles.container,
         {
-          paddingTop: insets.top + Spacing.three,
-          paddingBottom: insets.bottom + 110,
+          paddingTop: theme.spacing.lg,
+          paddingBottom: BottomTabInset + theme.spacing['2xl'],
         },
       ]}
+      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
     >
       <AppHeader />
 
-      <View
-        style={[
-          styles.heroCard,
-          {
-            backgroundColor: theme.backgroundElement,
-            shadowColor: theme.shadow,
-          },
-        ]}
-      >
-        <StatusPill label="ZONA DE TRABAJO VALIDADA" />
-        <Text style={[styles.clock, { color: theme.text }]}>
-          {formatClock(now, activeOrganization.timezone)}
-        </Text>
-        <Text style={[styles.date, { color: theme.textSecondary }]}>
-          {formatLongDate(now, activeOrganization.timezone)}
-        </Text>
+      <GlassCard style={styles.heroCard}>
+        <Chip
+          label={proximityStatus.chipLabel}
+          selected={controlMode !== CONTROL_MODE.VALIDATING}
+          style={styles.statusChip}
+          tone={proximityStatus.chipTone}
+        />
+        <ThemedText style={styles.clock} variant="display">
+          {formatClock(now, currentTimezone)}
+        </ThemedText>
+        <ThemedText colorToken="secondary" style={styles.date} variant="body">
+          {formatLongDate(now, currentTimezone)}
+        </ThemedText>
 
-        <Pressable
-          onPress={onRegisterAction}
-          disabled={
-            isSubmitting ||
-            buttonState.disabled ||
-            isLoadingAttendance ||
-            !isLocationAvailable
-          }
-          style={[
-            styles.primaryButton,
-            {
-              backgroundColor: buttonState.disabled
-                ? theme.surfaceMuted
-                : theme.primary,
-              opacity: isSubmitting || isLoadingAttendance ? 0.6 : 1,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.primaryButtonText,
-              { color: buttonState.disabled ? theme.textSecondary : '#FFFFFF' },
-            ]}
+        <View style={styles.statusContainer}>
+          {controlMode === CONTROL_MODE.VALIDATING ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator
+                color={theme.colors.brand.primary}
+                size="small"
+              />
+              <ThemedText variant="body">Obteniendo ubicación...</ThemedText>
+            </View>
+          ) : null}
+
+          <ThemedText
+            colorToken={
+              controlMode === CONTROL_MODE.VALID ||
+              controlMode === CONTROL_MODE.CLOCKED_IN
+                ? 'success'
+                : controlMode === CONTROL_MODE.OUT_OF_RANGE
+                  ? 'warning'
+                  : controlMode === CONTROL_MODE.GPS_ERROR
+                    ? 'error'
+                    : controlMode === CONTROL_MODE.REMOTE
+                      ? 'accent'
+                      : 'secondary'
+            }
+            style={styles.helper}
+            variant="bodySmall"
           >
-            {buttonState.label}
-          </Text>
-        </Pressable>
+            {proximityStatus.helper}
+          </ThemedText>
 
-        <Text style={[styles.helper, { color: theme.textSecondary }]}>
-          {isLocationAvailable
-            ? buttonState.helper
-            : LOCATION_UNAVAILABLE_MESSAGE}
-        </Text>
+          {isCrossDateOpenShift && openShiftRecord ? (
+            <ThemedText
+              colorToken="warning"
+              style={styles.helper}
+              variant="body"
+            >
+              {`Tenés una jornada abierta del ${formatDisplayDate(openShiftRecord.workDate, currentTimezone)}.`}
+            </ThemedText>
+          ) : null}
 
-        {locationStatusMessage ? (
-          <Text style={[styles.errorText, { color: theme.error }]}>
-            {locationStatusMessage}
-          </Text>
+          {controlMode === CONTROL_MODE.IDLE ? (
+            <View style={styles.actionButtonsRow}>
+              <PrimaryButton
+                label="Validar ubicación"
+                loading={isSubmitting || isLoadingAttendance}
+                onPress={onValidateLocation}
+                style={styles.flexButton}
+              />
+              <SecondaryButton
+                label="Trabajo Remoto"
+                onPress={proximity.selectRemote}
+                style={styles.flexButton}
+              />
+            </View>
+          ) : null}
+
+          {controlMode === CONTROL_MODE.OUT_OF_RANGE ||
+          controlMode === CONTROL_MODE.GPS_ERROR ? (
+            <View style={styles.actionButtonsRow}>
+              <PrimaryButton
+                label="Reintentar"
+                loading={isSubmitting || isLoadingAttendance}
+                onPress={onValidateLocation}
+                style={styles.flexButton}
+              />
+              <SecondaryButton
+                label="Trabajo Remoto"
+                onPress={proximity.selectRemote}
+                style={styles.flexButton}
+              />
+            </View>
+          ) : null}
+        </View>
+
+        {controlMode === CONTROL_MODE.VALID ||
+        controlMode === CONTROL_MODE.REMOTE ? (
+          <>
+            <PrimaryButton
+              disabled={buttonState.disabled}
+              label={buttonState.label}
+              loading={isSubmitting || isLoadingAttendance}
+              onPress={onRegisterAction}
+            />
+            <SecondaryButton label="← Volver" onPress={proximity.reset} />
+            <ThemedText
+              colorToken="secondary"
+              style={styles.helper}
+              variant="bodySmall"
+            >
+              {buttonState.helper}
+            </ThemedText>
+          </>
+        ) : null}
+
+        {controlMode === CONTROL_MODE.CLOCKED_IN ||
+        controlMode === CONTROL_MODE.COMPLETED ? (
+          <>
+            <PrimaryButton
+              disabled={buttonState.disabled}
+              label={buttonState.label}
+              loading={isSubmitting || isLoadingAttendance}
+              onPress={onRegisterAction}
+            />
+            <ThemedText
+              colorToken="secondary"
+              style={styles.helper}
+              variant="bodySmall"
+            >
+              {buttonState.helper}
+            </ThemedText>
+          </>
         ) : null}
 
         {errorMessage ? (
-          <Text style={[styles.errorText, { color: theme.error }]}>
-            {errorMessage}
-          </Text>
+          <FeedbackText tone="error">{errorMessage}</FeedbackText>
         ) : null}
-      </View>
+      </GlassCard>
 
       <View style={styles.metricsRow}>
-        <View
-          style={[
-            styles.metricCard,
-            {
-              backgroundColor: theme.backgroundElement,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View
-            style={[styles.metricIcon, { backgroundColor: theme.primaryMuted }]}
-          />
-          <Text style={[styles.metricValue, { color: theme.text }]}>
-            {formatMinutes(weeklyMinutes)}
-          </Text>
-          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>
-            Horas semanales
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.metricCard,
-            {
-              backgroundColor: theme.backgroundElement,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View
-            style={[styles.metricIcon, { backgroundColor: theme.primaryMuted }]}
-          />
-          <Text style={[styles.metricValue, { color: theme.text }]}>
-            {weeklyAttendedDays} dias
-          </Text>
-          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>
-            Dias asistidos semana
-          </Text>
-        </View>
+        <MetricCard
+          label="Horas semanales"
+          value={formatMinutes(weeklyMinutes)}
+        />
+        <MetricCard
+          label="Dias asistidos semana"
+          value={`${weeklyAttendedDays} dias`}
+        />
       </View>
 
-      <View style={styles.sectionHeader}>
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Historial Reciente
-        </Text>
-        <Pressable
-          onPress={() => router.push('/(tabs)/control-history' as never)}
-        >
-          <Text style={[styles.sectionLink, { color: theme.primary }]}>
-            Ver todo
-          </Text>
-        </Pressable>
-      </View>
+      <GlassCard style={styles.historyCard} variant="soft">
+        <SectionHeader
+          actionLabel="Ver todo"
+          actionProps={{
+            onPress: () => router.push('/(tabs)/control-history' as never),
+          }}
+          title="Historial reciente"
+        />
 
-      <View
-        style={[
-          styles.historyCard,
-          {
-            backgroundColor: theme.backgroundElement,
-            shadowColor: theme.shadow,
-          },
-        ]}
-      >
         {recentEvents.length === 0 ? (
-          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
+          <ThemedText colorToken="secondary" variant="bodySmall">
             Todavía no hay registros.
-          </Text>
+          </ThemedText>
         ) : (
           recentEvents.map((event) => (
             <View key={event.id} style={styles.historyRow}>
@@ -427,35 +716,136 @@ export default function ControlScreen() {
                   {
                     backgroundColor:
                       event.type === 'clock_in'
-                        ? theme.primaryMuted
-                        : theme.surfaceMuted,
+                        ? theme.surface.glass.tint
+                        : theme.surface.glass.soft,
+                    borderColor: theme.surface.glass.border,
                   },
                 ]}
-              />
-              <View style={styles.historyInfo}>
-                <Text style={[styles.historyTitle, { color: theme.text }]}>
-                  {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
-                </Text>
-                <Text
-                  style={[styles.historyPlace, { color: theme.textSecondary }]}
-                >
-                  {formatCompactDate(
-                    event.occurredAt,
-                    activeOrganization.timezone,
-                  )}
-                </Text>
-              </View>
-              <Text
-                style={[styles.historyTime, { color: theme.textSecondary }]}
               >
-                {formatTime(event.occurredAt, activeOrganization.timezone)}
-              </Text>
+                <View
+                  style={[
+                    styles.historyIconDot,
+                    {
+                      backgroundColor:
+                        event.type === 'clock_in'
+                          ? theme.colors.status.success
+                          : theme.colors.brand.accent,
+                    },
+                  ]}
+                />
+              </View>
+
+              <View style={styles.historyInfo}>
+                <ThemedText variant="subtitle">
+                  {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
+                </ThemedText>
+                <ThemedText colorToken="secondary" variant="bodySmall">
+                  {formatCompactDate(event.occurredAt, currentTimezone)}
+                </ThemedText>
+              </View>
+
+              <ThemedText colorToken="secondary" variant="label">
+                {formatTime(event.occurredAt, currentTimezone)}
+              </ThemedText>
             </View>
           ))
         )}
-      </View>
-    </ScrollView>
+      </GlassCard>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setIsOvertimeModalVisible(false)}
+        transparent
+        visible={isOvertimeModalVisible}
+      >
+        <View
+          style={[styles.modalRoot, { backgroundColor: theme.overlay.modal }]}
+        >
+          <Pressable
+            onPress={() => setIsOvertimeModalVisible(false)}
+            style={styles.modalBackdrop}
+          />
+
+          <GlassCard style={styles.modalCard}>
+            <SectionHeader
+              subtitle={overtimeTitle}
+              title="Tu jornada habitual ya terminó"
+            />
+
+            <ThemedText
+              colorToken="secondary"
+              style={styles.modalBody}
+              variant="bodySmall"
+            >
+              Si te olvidaste de marcar la salida, podés cerrarla con la hora
+              actual o con el horario habitual calculado.
+            </ThemedText>
+
+            <PrimaryButton
+              label="Cerrar con hora actual"
+              loading={isSubmitting}
+              onPress={onCloseWithCurrentTime}
+            />
+            <SecondaryButton
+              label={`Cerrar jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
+              loading={isSubmitting}
+              onPress={onCloseAtStandardTime}
+            />
+          </GlassCard>
+        </View>
+      </Modal>
+    </Screen>
   );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+
+  return (
+    <GlassCard style={styles.metricCard} variant="soft">
+      <View
+        style={[
+          styles.metricIcon,
+          {
+            backgroundColor: theme.surface.glass.tint,
+            borderColor: theme.surface.glass.border,
+          },
+        ]}
+      />
+      <ThemedText style={styles.metricValue} variant="heading">
+        {value}
+      </ThemedText>
+      <ThemedText colorToken="secondary" variant="bodySmall">
+        {label}
+      </ThemedText>
+    </GlassCard>
+  );
+}
+
+function FeedbackText({ children, tone }: { children: string; tone: 'error' }) {
+  return (
+    <ThemedText
+      colorToken={tone === 'error' ? 'error' : 'secondary'}
+      style={styles.feedbackText}
+      variant="bodySmall"
+    >
+      {children}
+    </ThemedText>
+  );
+}
+
+function getBlockedMessage(
+  reason?: 'gps_accuracy' | 'permission_denied' | 'location_unavailable',
+) {
+  switch (reason) {
+    case 'gps_accuracy':
+      return 'Señal GPS débil. Intentá moverte a un lugar abierto.';
+    case 'permission_denied':
+      return 'Necesitamos acceso a tu ubicación para validar tu zona de trabajo.';
+    case 'location_unavailable':
+    default:
+      return 'No se pudo obtener tu ubicación. Intentá de nuevo.';
+  }
 }
 
 function formatClock(date: Date, timezone: string) {
@@ -496,6 +886,44 @@ function formatTime(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
+function formatDisplayDate(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(`${value}T12:00:00Z`));
+}
+
+function formatHoursLabel(value: number) {
+  return new Intl.NumberFormat('es-CL', {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+  }).format(value);
+}
+
+function formatOvertimeTitle(record: OpenShift, timezone: string) {
+  return `Entrada: ${formatTime(record.clockInAt, timezone)} — Jornada: ${formatHoursLabel(record.shiftDurationHours)}h + ${formatHoursLabel(record.breakDurationHours)}h colación`;
+}
+
+function getStandardCloseAt(record: OpenShift) {
+  return new Date(
+    new Date(record.clockInAt).getTime() +
+      (record.shiftDurationHours + record.breakDurationHours) * 3_600_000,
+  );
+}
+
+function getOvertimeThreshold(record: OpenShift) {
+  return new Date(
+    new Date(record.clockInAt).getTime() +
+      (record.shiftDurationHours + record.breakDurationHours + 1) * 3_600_000,
+  );
+}
+
+function isOvertimeThresholdExceeded(record: OpenShift) {
+  return Date.now() > getOvertimeThreshold(record).getTime();
+}
+
 function formatMinutes(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -525,170 +953,116 @@ function getErrorMessage(error: unknown) {
   return null;
 }
 
-function getLocationErrorMessage(error: unknown) {
-  const message = getErrorMessage(error);
-  if (!message) return null;
-
-  const normalizedMessage = message.toLowerCase();
-  const isWebSecureContext =
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    'isSecureContext' in window &&
-    window.isSecureContext;
-
-  if (
-    normalizedMessage.includes('not allowed') ||
-    normalizedMessage.includes('permission denied')
-  ) {
-    return 'Permiso de ubicación denegado en el navegador.';
-  }
-
-  if (
-    normalizedMessage.includes('unknown error acquiring position') ||
-    normalizedMessage.includes('position unavailable') ||
-    normalizedMessage.includes('location is unavailable')
-  ) {
-    if (Platform.OS === 'web' && !isWebSecureContext) {
-      return LOCATION_WEB_SECURE_CONTEXT_MESSAGE;
-    }
-
-    return 'La ubicación del dispositivo está desactivada. Por favor, activá el GPS para registrar asistencia.';
-  }
-
-  return null;
-}
-
 const styles = StyleSheet.create({
+  container: {
+    alignSelf: 'center',
+    gap: 16,
+    maxWidth: 720,
+    paddingHorizontal: 16,
+    width: '100%',
+  },
   loaderContainer: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
   },
-  loaderText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  page: {
-    flex: 1,
-  },
-  container: {
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.three,
-  },
   heroCard: {
-    borderRadius: 32,
-    padding: Spacing.three,
-    gap: Spacing.two,
     alignItems: 'center',
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 8,
+    gap: 12,
   },
   clock: {
-    fontSize: 44,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
+    textAlign: 'center',
   },
   date: {
-    fontSize: 14,
-    fontWeight: '500',
+    textAlign: 'center',
     textTransform: 'capitalize',
-  },
-  primaryButton: {
-    marginTop: Spacing.two,
-    width: '100%',
-    paddingVertical: Spacing.two,
-    borderRadius: 999,
-    alignItems: 'center',
-  },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
   },
   helper: {
     textAlign: 'center',
-    fontSize: 12,
   },
-  errorText: {
+  loadingRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  feedbackText: {
     textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '600',
+  },
+  statusChip: {
+    alignSelf: 'center',
+  },
+  statusContainer: {
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+  },
+  actionButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    width: '100%',
+  },
+  flexButton: {
+    flex: 1,
   },
   metricsRow: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 8,
   },
   metricCard: {
     flex: 1,
-    borderRadius: 24,
-    padding: Spacing.three,
-    gap: Spacing.one,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  metricIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-  },
-  metricValue: {
-    fontSize: 22,
-    fontWeight: '700',
-  },
-  metricLabel: {
-    fontSize: 12,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    gap: 8,
+    minHeight: 148,
     justifyContent: 'space-between',
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
+  metricIcon: {
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 36,
+    width: 36,
   },
-  sectionLink: {
-    fontSize: 12,
-    fontWeight: '600',
+  metricValue: {
+    letterSpacing: -0.4,
   },
   historyCard: {
-    borderRadius: 28,
-    padding: Spacing.three,
-    gap: Spacing.three,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    gap: 16,
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalBody: {
+    textAlign: 'left',
+  },
+  modalCard: {
+    gap: 12,
+    maxWidth: 520,
+    width: '100%',
+  },
+  modalRoot: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 16,
   },
   historyRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    flexDirection: 'row',
+    gap: 12,
   },
   historyIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
+  },
+  historyIconDot: {
+    borderRadius: 999,
+    height: 14,
+    width: 14,
   },
   historyInfo: {
     flex: 1,
-  },
-  historyTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  historyPlace: {
-    fontSize: 12,
-  },
-  historyTime: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  emptyText: {
-    fontSize: 13,
+    gap: 2,
   },
 });

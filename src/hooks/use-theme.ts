@@ -1,14 +1,3 @@
-/**
- * Learn more about light and dark modes:
- * https://docs.expo.dev/guides/color-schemes/
- */
-
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export function useTheme() {
-  const scheme = useColorScheme();
-  const theme = scheme === 'unspecified' ? 'light' : scheme;
-
-  return Colors[theme];
-}
+// Re-export useTheme from theme/hooks to maintain backward compatibility
+// This breaks the require cycle: primitives -> use-theme -> theme/index -> primitives
+export { useTheme } from '@/theme/hooks';

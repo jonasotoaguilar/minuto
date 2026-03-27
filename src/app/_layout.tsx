@@ -1,24 +1,63 @@
 import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from '@react-navigation/native';
+  Lora_400Regular,
+  Lora_500Medium,
+  Lora_600SemiBold,
+  Lora_700Bold,
+} from '@expo-google-fonts/lora';
+import {
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+} from '@expo-google-fonts/manrope';
+import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
-import { useColorScheme } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
+import { useEffect } from 'react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
+import { OrganizationProvider } from '@/hooks/use-organization';
+import { ThemeProvider } from '@/theme';
+
+// Keep the native splash screen visible while we load fonts.
+SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
+  const [fontsLoaded, fontError] = useFonts({
+    Lora_400Regular,
+    Lora_500Medium,
+    Lora_600SemiBold,
+    Lora_700Bold,
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+  });
+
+  useEffect(() => {
+    // Hide the splash screen once fonts are ready (or on error — graceful degradation).
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync();
+    }
+  }, [fontsLoaded, fontError]);
+
+  // Don't render the navigation tree until fonts are ready.
+  if (!fontsLoaded && !fontError) {
+    return null;
+  }
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
-        <Stack.Screen name="(auth)" />
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="edit-profile" />
-        <Stack.Screen name="index" />
-      </Stack>
+    <ThemeProvider>
+      <OrganizationProvider>
+        <AnimatedSplashOverlay />
+        <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+          <Stack.Screen name="(auth)" />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="edit-profile" />
+          <Stack.Screen name="org-settings" />
+          <Stack.Screen name="index" />
+        </Stack>
+      </OrganizationProvider>
     </ThemeProvider>
   );
 }

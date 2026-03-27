@@ -1,156 +1,226 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import {
+  FlatList,
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
-  Text,
+  TextInput,
   View,
 } from 'react-native';
-
-import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import {
   countryCodeToFlag,
   getPhoneCountry,
   PHONE_COUNTRIES,
   type PhoneCountryCode,
 } from '@/lib/phone';
-
-type ThemeShape = {
-  text: string;
-  textSecondary: string;
-  border: string;
-  primary: string;
-  backgroundElement: string;
-  backgroundSelected: string;
-  shadow: string;
-};
+import { GlassCard, ThemedText } from '@/theme/primitives';
 
 type PhoneCountryDropdownProps = {
   countryCode: PhoneCountryCode;
   onChangeCountry: (countryCode: PhoneCountryCode) => void;
-  theme: ThemeShape;
   disabled?: boolean;
   minWidth?: number;
 };
 
+type CountryItem = (typeof PHONE_COUNTRIES)[number];
+
 export function PhoneCountryDropdown({
   countryCode,
   onChangeCountry,
-  theme,
   disabled,
   minWidth = 120,
 }: PhoneCountryDropdownProps) {
+  const theme = useTheme();
   const [isOpen, setIsOpen] = useState(false);
-  const [anchor, setAnchor] = useState({
-    x: 0,
-    y: 0,
-    width: minWidth,
-    height: 40,
-  });
-  const triggerRef = useRef<View | null>(null);
+  const [search, setSearch] = useState('');
+
   const selectedCountry = getPhoneCountry(countryCode);
   const selectedFlag = countryCodeToFlag(countryCode);
 
-  const openMenu = () => {
-    triggerRef.current?.measureInWindow((x, y, width, height) => {
-      setAnchor({
-        x,
-        y,
-        width: Math.max(width, minWidth),
-        height,
-      });
-      setIsOpen(true);
-    });
+  const filteredCountries =
+    search.trim().length === 0
+      ? PHONE_COUNTRIES
+      : PHONE_COUNTRIES.filter((country) => {
+          const query = search.trim().toLowerCase();
+          return (
+            country.name.toLowerCase().includes(query) ||
+            country.dialCode.includes(query) ||
+            country.code.toLowerCase().includes(query)
+          );
+        });
+
+  const handleOpen = () => {
+    setSearch('');
+    setIsOpen(true);
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    setSearch('');
+  };
+
+  const handleSelect = (code: PhoneCountryCode) => {
+    onChangeCountry(code);
+    handleClose();
+  };
+
+  const renderItem = ({ item }: { item: CountryItem }) => {
+    const isSelected = item.code === countryCode;
+
+    return (
+      <Pressable
+        onPress={() => handleSelect(item.code)}
+        style={[
+          styles.menuItem,
+          {
+            marginHorizontal: theme.spacing.xs,
+            paddingHorizontal: theme.spacing.sm,
+            paddingVertical: theme.spacing.xs,
+          },
+          isSelected
+            ? { backgroundColor: theme.colors.background.selected }
+            : null,
+        ]}
+      >
+        <ThemedText style={styles.menuItemText} variant="label">
+          {countryCodeToFlag(item.code)} {item.name} (+{item.dialCode})
+        </ThemedText>
+        <ThemedText
+          colorToken={isSelected ? 'accent' : 'primary'}
+          style={[styles.menuCheck, !isSelected ? styles.hiddenCheck : null]}
+          variant="label"
+        >
+          ✓
+        </ThemedText>
+      </Pressable>
+    );
   };
 
   return (
     <View style={[styles.wrapper, { minWidth }]}>
-      <View ref={triggerRef} collapsable={false}>
-        <Pressable
-          disabled={disabled}
-          onPress={() => {
-            if (isOpen) {
-              setIsOpen(false);
-              return;
-            }
-            openMenu();
-          }}
-          style={[
-            styles.trigger,
-            {
-              borderColor: theme.border,
-              backgroundColor: theme.backgroundElement,
-              opacity: disabled ? 0.7 : 1,
-            },
-          ]}
+      <Pressable
+        disabled={disabled}
+        onPress={handleOpen}
+        style={[
+          styles.trigger,
+          {
+            borderColor: theme.colors.border.default,
+            backgroundColor: theme.colors.background.card,
+            opacity: disabled ? 0.7 : 1,
+            borderRadius: theme.radius.pill,
+            paddingVertical: theme.spacing.sm,
+            paddingHorizontal: theme.spacing.md,
+            gap: theme.spacing.xs,
+          },
+        ]}
+      >
+        <ThemedText style={styles.triggerText} variant="label">
+          {selectedFlag} +{selectedCountry.dialCode}
+        </ThemedText>
+        <ThemedText
+          colorToken="secondary"
+          style={styles.triggerCaret}
+          variant="caption"
         >
-          <Text style={[styles.triggerText, { color: theme.text }]}>
-            {selectedFlag} +{selectedCountry.dialCode}
-          </Text>
-          <Text style={[styles.triggerCaret, { color: theme.textSecondary }]}>
-            {isOpen ? '^' : 'v'}
-          </Text>
-        </Pressable>
-      </View>
+          {isOpen ? '^' : 'v'}
+        </ThemedText>
+      </Pressable>
 
       <Modal
         visible={isOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => setIsOpen(false)}
+        onRequestClose={handleClose}
+        statusBarTranslucent
       >
-        <Pressable style={styles.overlay} onPress={() => setIsOpen(false)}>
-          <Pressable onPress={(event) => event.stopPropagation()}>
-            <View
+        <Pressable
+          style={[styles.backdrop, { backgroundColor: theme.overlay.scrim }]}
+          onPress={handleClose}
+        >
+          <Pressable style={styles.cardWrapper} onPress={() => undefined}>
+            <GlassCard
+              padding={0}
               style={[
-                styles.menu,
+                styles.card,
                 {
-                  width: Math.max(anchor.width, 220),
-                  top: anchor.y + anchor.height + 6,
-                  left: anchor.x,
-                  backgroundColor: theme.backgroundElement,
-                  borderColor: theme.border,
-                  shadowColor: theme.shadow,
+                  backgroundColor: theme.colors.background.card,
+                  shadowColor: theme.colors.shadow.color,
+                  ...theme.elevation.modal,
+                  paddingTop: theme.spacing.lg,
                 },
               ]}
             >
-              <ScrollView style={styles.menuList} showsVerticalScrollIndicator>
-                {PHONE_COUNTRIES.map((country) => (
-                  <Pressable
-                    key={country.code}
-                    onPress={() => {
-                      onChangeCountry(country.code);
-                      setIsOpen(false);
-                    }}
-                    style={[
-                      styles.menuItem,
-                      country.code === countryCode
-                        ? { backgroundColor: theme.backgroundSelected }
-                        : null,
-                    ]}
-                  >
-                    <Text style={[styles.menuItemText, { color: theme.text }]}>
-                      {countryCodeToFlag(country.code)} {country.name} (+
-                      {country.dialCode})
-                    </Text>
-                    <Text
-                      style={[
-                        styles.menuCheck,
-                        {
-                          color:
-                            country.code === countryCode
-                              ? theme.primary
-                              : 'transparent',
-                        },
-                      ]}
-                    >
-                      ✓
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </View>
+              <ThemedText
+                style={[
+                  styles.title,
+                  {
+                    marginBottom: theme.spacing.sm,
+                    paddingHorizontal: theme.spacing.lg,
+                  },
+                ]}
+                variant="title"
+              >
+                Seleccionar país
+              </ThemedText>
+
+              <View
+                style={[
+                  styles.searchRow,
+                  {
+                    backgroundColor: theme.colors.background.card,
+                    borderColor: theme.colors.border.default,
+                    borderRadius: theme.radius.md,
+                    marginHorizontal: theme.spacing.lg,
+                    marginBottom: theme.spacing.sm,
+                    paddingHorizontal: theme.spacing.sm,
+                    paddingVertical: theme.spacing.xs,
+                    gap: theme.spacing.xs,
+                  },
+                ]}
+              >
+                <ThemedText
+                  colorToken="secondary"
+                  style={styles.searchIcon}
+                  variant="bodySmall"
+                >
+                  🔍
+                </ThemedText>
+                <TextInput
+                  style={[
+                    styles.searchInput,
+                    theme.typography.body,
+                    {
+                      color: theme.colors.text.primary,
+                      paddingVertical: theme.spacing.xs,
+                    },
+                  ]}
+                  placeholder="Buscar país o código…"
+                  placeholderTextColor={theme.colors.text.muted}
+                  value={search}
+                  onChangeText={setSearch}
+                  autoCorrect={false}
+                  autoCapitalize="none"
+                  clearButtonMode="while-editing"
+                />
+              </View>
+
+              <FlatList<CountryItem>
+                data={filteredCountries}
+                keyExtractor={(item) => item.code}
+                renderItem={renderItem}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+                contentContainerStyle={[
+                  styles.listContent,
+                  { paddingBottom: theme.spacing['3xl'] },
+                ]}
+                style={styles.list}
+                initialNumToRender={20}
+                maxToRenderPerBatch={30}
+                windowSize={10}
+              />
+            </GlassCard>
           </Pressable>
         </Pressable>
       </Modal>
@@ -161,62 +231,55 @@ export function PhoneCountryDropdown({
 const styles = StyleSheet.create({
   wrapper: {
     position: 'relative',
-    zIndex: 120,
-    elevation: 120,
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'transparent',
   },
   trigger: {
     borderWidth: 1,
-    borderRadius: 999,
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.one,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: Spacing.one,
   },
-  triggerText: {
-    fontSize: 13,
-    fontWeight: '700',
+  triggerText: {},
+  triggerCaret: {},
+  backdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  triggerCaret: {
-    fontSize: 12,
-    fontWeight: '700',
+  cardWrapper: {
+    width: '88%',
+    maxWidth: 400,
   },
-  menu: {
-    position: 'absolute',
-    top: 42,
-    width: 220,
-    borderRadius: 14,
+  card: {
+    borderCurve: 'continuous',
+    minHeight: 320,
+    maxHeight: '70%',
+  },
+  title: {
+    textAlign: 'center',
+  },
+  searchRow: {
     borderWidth: 1,
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 140,
-    zIndex: 140,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  menuList: {
-    maxHeight: 220,
+  searchIcon: {
+    fontSize: 14,
   },
+  searchInput: {
+    flex: 1,
+  },
+  list: {},
+  listContent: {},
   menuItem: {
-    marginHorizontal: Spacing.one,
     marginVertical: 2,
     borderRadius: 10,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  menuItemText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  menuCheck: {
-    fontSize: 14,
-    fontWeight: '700',
+  menuItemText: {},
+  menuCheck: {},
+  hiddenCheck: {
+    opacity: 0,
   },
 });

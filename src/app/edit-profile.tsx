@@ -1,23 +1,10 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { z } from 'zod';
 
 import { PhoneCountryDropdown } from '@/components/phone-country-dropdown';
-import { Fonts, Spacing } from '@/constants/theme';
+import { SecondaryScreenHeader } from '@/components/secondary-screen-header';
 import { useTheme } from '@/hooks/use-theme';
 import {
   formatNationalPhone,
@@ -29,6 +16,14 @@ import {
   validateNationalPhone,
 } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
+import {
+  GlassCard,
+  PrimaryButton,
+  Screen,
+  SectionHeader,
+  TextField,
+  ThemedText,
+} from '@/theme/primitives';
 
 const MAX_NAME_LENGTH = 80;
 const MAX_ADDRESS_LENGTH = 160;
@@ -96,7 +91,6 @@ const profileSchema = z
 
 export default function EditProfileScreen() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const [formValues, setFormValues] =
@@ -275,427 +269,273 @@ export default function EditProfileScreen() {
     }
   };
 
-  const initials = deriveInitials(formValues.fullName);
-
   return (
-    <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}>
-      <KeyboardAvoidingView
-        style={styles.keyboardWrapper}
-        behavior={Platform.select({ ios: 'padding', android: undefined })}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.container,
-            {
-              paddingTop: insets.top + Spacing.two,
-              paddingBottom: insets.bottom + Spacing.five,
-            },
-          ]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={[styles.topBar, { borderBottomColor: theme.border }]}>
-            <Pressable onPress={() => router.back()} style={styles.backButton}>
-              <Text style={[styles.backButtonText, { color: theme.text }]}>
-                ←
-              </Text>
-            </Pressable>
-            <Text style={[styles.brandText, { color: theme.primary }]}>
-              Minuto
-            </Text>
-            <View
-              style={[
-                styles.avatarShell,
-                {
-                  borderColor: theme.primary,
-                  backgroundColor: theme.backgroundElement,
-                },
-              ]}
-            >
-              <Text style={[styles.avatarText, { color: theme.textSecondary }]}>
-                {initials}
-              </Text>
-            </View>
-          </View>
-
-          <Text style={[styles.title, { color: theme.text }]}>
-            Modificar Perfil
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.textSecondary }]}>
-            Actualiza tu información personal
-          </Text>
-
-          <View style={styles.heroWrap}>
-            <View style={[styles.heroAvatar, { backgroundColor: '#D7B689' }]}>
-              <Text style={styles.heroAvatarText}>{initials}</Text>
-            </View>
-            <View
-              style={[styles.heroBadge, { backgroundColor: theme.primary }]}
-            >
-              <Text style={styles.heroBadgeText}>✎</Text>
-            </View>
-          </View>
-
-          <View
-            style={[
-              styles.formCard,
-              {
-                backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
-                shadowColor: theme.shadow,
-              },
-            ]}
-          >
-            <Label text="Nombre completo" />
-            <InputRow
-              icon="👤"
-              value={formValues.fullName}
-              onChangeText={(value) => handleChange('fullName', value)}
-              placeholder="Nombre y apellido"
-              theme={theme}
-              maxLength={MAX_NAME_LENGTH}
-            />
-
-            <Label text="Correo electrónico" />
-            <ReadonlyRow icon="✉" value={formValues.email} theme={theme} />
-
-            <Label text="Número de teléfono" />
-            <PhoneRow
-              countryCode={formValues.phoneCountry}
-              nationalNumber={formValues.phone}
-              onChangeCountry={(countryCode) =>
-                handleChange('phoneCountry', countryCode)
-              }
-              onChangeNationalNumber={(value) => handleChange('phone', value)}
-              theme={theme}
-            />
-
-            {validationErrors.fullName ||
-            validationErrors.phone ||
-            errorMessage ? (
-              <Text style={[styles.errorText, { color: theme.error }]}>
-                {validationErrors.fullName ||
-                  validationErrors.phone ||
-                  errorMessage}
-              </Text>
-            ) : null}
-
-            {successMessage ? (
-              <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-                {successMessage}
-              </Text>
-            ) : null}
-          </View>
-
-          <Pressable
-            onPress={handleSaveProfile}
-            disabled={isSaving || isLoading || !isFormDirty}
-            style={[
-              styles.primaryButton,
-              {
-                backgroundColor: theme.primary,
-                opacity: isSaving || isLoading || !isFormDirty ? 0.7 : 1,
-              },
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>
-              {isSaving ? 'Guardando...' : 'Guardar Cambios'}
-            </Text>
-          </Pressable>
-
-          <Pressable onPress={() => router.back()} style={styles.cancelButton}>
-            <Text
-              style={[styles.cancelButtonText, { color: theme.textSecondary }]}
-            >
-              Cancelar
-            </Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-}
-
-function Label({ text }: { text: string }) {
-  return <Text style={styles.label}>{text.toUpperCase()}</Text>;
-}
-
-function InputRow({
-  icon,
-  value,
-  onChangeText,
-  placeholder,
-  theme,
-  maxLength,
-}: {
-  icon: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  placeholder: string;
-  theme: ReturnType<typeof useTheme>;
-  maxLength?: number;
-}) {
-  return (
-    <View style={[styles.rowShell, { backgroundColor: theme.surfaceMuted }]}>
-      <Text style={styles.rowIcon}>{icon}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textSecondary}
-        style={[styles.rowInput, { color: theme.text }]}
-        maxLength={maxLength}
+    <Screen
+      keyboardAvoiding
+      scroll
+      contentContainerStyle={[
+        styles.container,
+        {
+          paddingTop: theme.spacing.lg,
+          paddingBottom: theme.spacing['3xl'],
+        },
+      ]}
+      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
+    >
+      <SecondaryScreenHeader
+        title="Modificar perfil"
+        subtitle="Actualizá tu información personal."
+        onBack={() => router.back()}
       />
-    </View>
+
+      <GlassCard style={styles.formCard}>
+        <SectionHeader
+          eyebrow="Modificar perfil"
+          subtitle="Tus datos quedan sincronizados con la cuenta actual."
+          title="Información principal"
+        />
+
+        <TextField
+          autoCapitalize="words"
+          editable={!isLoading}
+          errorMessage={validationErrors.fullName}
+          label="Nombre completo"
+          maxLength={MAX_NAME_LENGTH}
+          onChangeText={(value) => handleChange('fullName', value)}
+          placeholder="Nombre y apellido"
+          value={formValues.fullName}
+        />
+
+        <TextField
+          autoCapitalize="sentences"
+          editable={!isLoading}
+          errorMessage={validationErrors.address}
+          label="Dirección"
+          maxLength={MAX_ADDRESS_LENGTH}
+          onChangeText={(value) => handleChange('address', value)}
+          placeholder="Calle, comuna y referencia"
+          value={formValues.address}
+        />
+
+        <ReadonlyField
+          helperText="Se sincroniza con tu cuenta y no se edita acá."
+          label="Correo electrónico"
+          value={formValues.email || 'Sin correo registrado'}
+        />
+
+        <PhoneField
+          countryCode={formValues.phoneCountry}
+          disabled={isLoading}
+          errorMessage={validationErrors.phone}
+          nationalNumber={formValues.phone}
+          onChangeCountry={(countryCode) =>
+            handleChange('phoneCountry', countryCode)
+          }
+          onChangeNationalNumber={(value) => handleChange('phone', value)}
+        />
+
+        {errorMessage ? (
+          <StatusMessage tone="error">{errorMessage}</StatusMessage>
+        ) : null}
+
+        {successMessage ? (
+          <StatusMessage tone="success">{successMessage}</StatusMessage>
+        ) : null}
+      </GlassCard>
+
+      <PrimaryButton
+        disabled={isLoading || !isFormDirty}
+        label={isSaving ? 'Guardando…' : 'Guardar cambios'}
+        loading={isSaving}
+        onPress={handleSaveProfile}
+      />
+    </Screen>
   );
 }
 
-function ReadonlyRow({
-  icon,
+function ReadonlyField({
+  helperText,
+  label,
   value,
-  theme,
 }: {
-  icon: string;
+  helperText?: string;
+  label: string;
   value: string;
-  theme: ReturnType<typeof useTheme>;
 }) {
+  const theme = useTheme();
+
   return (
-    <View style={[styles.rowShell, { backgroundColor: theme.surfaceMuted }]}>
-      <Text style={styles.rowIcon}>{icon}</Text>
-      <Text style={[styles.readonlyText, { color: theme.text }]}>{value}</Text>
+    <View style={styles.fieldGroup}>
+      <ThemedText variant="label">{label}</ThemedText>
+      <View
+        style={[
+          styles.readonlyShell,
+          {
+            backgroundColor: theme.surface.glass.soft,
+            borderColor: theme.surface.glass.border,
+            borderRadius: theme.radius.xl,
+          },
+        ]}
+      >
+        <ThemedText variant="body">{value}</ThemedText>
+        {helperText ? (
+          <ThemedText colorToken="secondary" variant="caption">
+            {helperText}
+          </ThemedText>
+        ) : null}
+      </View>
     </View>
   );
 }
 
-function PhoneRow({
+function PhoneField({
   countryCode,
+  disabled,
+  errorMessage,
   nationalNumber,
   onChangeCountry,
   onChangeNationalNumber,
-  theme,
 }: {
   countryCode: PhoneCountryCode;
+  disabled: boolean;
+  errorMessage?: string;
   nationalNumber: string;
   onChangeCountry: (countryCode: PhoneCountryCode) => void;
   onChangeNationalNumber: (value: string) => void;
-  theme: ReturnType<typeof useTheme>;
 }) {
+  const theme = useTheme();
   const selectedCountry = getPhoneCountry(countryCode);
 
   return (
-    <View style={[styles.rowShell, { backgroundColor: theme.surfaceMuted }]}>
-      <Text style={styles.rowIcon}>📞</Text>
-      <PhoneCountryDropdown
-        countryCode={countryCode}
-        onChangeCountry={onChangeCountry}
-        theme={theme}
-        minWidth={116}
-      />
-      <View style={[styles.phoneDivider, { backgroundColor: theme.border }]} />
-      <TextInput
-        value={nationalNumber}
-        onChangeText={onChangeNationalNumber}
-        placeholder={selectedCountry.pattern.replaceAll('X', '0')}
-        placeholderTextColor={theme.textSecondary}
-        style={[styles.rowInput, { color: theme.text }]}
-        keyboardType="phone-pad"
-      />
+    <View style={styles.fieldGroup}>
+      <ThemedText variant="label">Número de teléfono</ThemedText>
+
+      <View
+        style={[
+          styles.phoneShell,
+          {
+            backgroundColor: theme.surface.glass.soft,
+            borderColor: errorMessage
+              ? theme.colors.status.error
+              : theme.surface.glass.border,
+            borderRadius: theme.radius.xl,
+          },
+        ]}
+      >
+        <PhoneCountryDropdown
+          countryCode={countryCode}
+          disabled={disabled}
+          minWidth={116}
+          onChangeCountry={onChangeCountry}
+        />
+
+        <View
+          style={[
+            styles.phoneDivider,
+            { backgroundColor: theme.surface.glass.border },
+          ]}
+        />
+
+        <TextInput
+          editable={!disabled}
+          keyboardType="phone-pad"
+          onChangeText={onChangeNationalNumber}
+          placeholder={selectedCountry.pattern.replaceAll('X', '0')}
+          placeholderTextColor={theme.colors.text.muted}
+          selectionColor={theme.colors.brand.primary}
+          style={[
+            styles.phoneInput,
+            theme.typography.body,
+            { color: theme.colors.text.primary },
+          ]}
+          value={nationalNumber}
+        />
+      </View>
+
+      {errorMessage ? (
+        <ThemedText colorToken="error" variant="caption">
+          {errorMessage}
+        </ThemedText>
+      ) : null}
     </View>
   );
 }
 
-function deriveInitials(fullName: string) {
-  const normalizedName = fullName.trim();
-  if (!normalizedName) return 'MP';
+function StatusMessage({
+  children,
+  tone,
+}: {
+  children: string;
+  tone: 'error' | 'success';
+}) {
+  const theme = useTheme();
+  const isError = tone === 'error';
 
-  const tokens = normalizedName.split(/\s+/).filter(Boolean);
-  if (tokens.length === 1) {
-    return tokens[0].slice(0, 2).toUpperCase();
-  }
-
-  return `${tokens[0][0] ?? ''}${tokens[1][0] ?? ''}`.toUpperCase();
+  return (
+    <View
+      style={[
+        styles.messageCard,
+        {
+          backgroundColor: isError
+            ? theme.surface.danger
+            : theme.colors.brand.muted,
+          borderColor: isError
+            ? theme.surface.glass.border
+            : theme.colors.border.default,
+          borderRadius: theme.radius.lg,
+        },
+      ]}
+    >
+      <ThemedText
+        colorToken={isError ? 'error' : 'primary'}
+        variant="bodySmall"
+      >
+        {children}
+      </ThemedText>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-  },
-  keyboardWrapper: {
-    flex: 1,
-  },
   container: {
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.three,
-  },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    paddingBottom: Spacing.two,
-  },
-  backButton: {
-    width: 36,
-    height: 36,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backButtonText: {
-    fontSize: 26,
-    fontWeight: '500',
-  },
-  brandText: {
-    fontSize: 42,
-    lineHeight: 46,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
-  },
-  avatarShell: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  title: {
-    fontSize: 64,
-    lineHeight: 68,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: Spacing.two,
-  },
-  subtitle: {
-    fontSize: 18,
-    textAlign: 'center',
-    marginTop: Spacing.one,
-    marginBottom: Spacing.one,
-  },
-  heroWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: Spacing.two,
-  },
-  heroAvatar: {
-    width: 148,
-    height: 148,
-    borderRadius: 74,
-    borderWidth: 5,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
-  },
-  heroAvatarText: {
-    color: '#FFFFFF',
-    fontSize: 42,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
-  },
-  heroBadge: {
-    position: 'absolute',
-    right: '31%',
-    bottom: 8,
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  heroBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+    flexGrow: 1,
+    gap: 16,
+    maxWidth: 720,
+    alignSelf: 'center',
+    width: '100%',
+    paddingHorizontal: 16,
   },
   formCard: {
-    borderRadius: 26,
+    gap: 16,
+  },
+  fieldGroup: {
+    gap: 8,
+  },
+  readonlyShell: {
     borderWidth: 1,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    shadowOpacity: 0.09,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 4,
   },
-  label: {
-    fontSize: 13,
-    letterSpacing: 2,
-    fontWeight: '700',
-    color: '#1E6D4D',
-  },
-  rowShell: {
-    borderRadius: 16,
+  phoneShell: {
+    borderWidth: 1,
     minHeight: 56,
-    paddingHorizontal: Spacing.two,
+    paddingHorizontal: 8,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.one,
-  },
-  rowIcon: {
-    fontSize: 20,
-  },
-  rowInput: {
-    flex: 1,
-    fontSize: 18,
-    paddingVertical: Spacing.one,
-  },
-  readonlyText: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '500',
+    gap: 8,
   },
   phoneDivider: {
     width: 1,
-    height: 22,
+    alignSelf: 'stretch',
+    marginVertical: 12,
   },
-  errorText: {
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'center',
+  phoneInput: {
+    flex: 1,
   },
-  infoText: {
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  primaryButton: {
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 56,
-    shadowColor: '#11B981',
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 36,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.one,
-  },
-  cancelButtonText: {
-    fontSize: 20,
-    fontWeight: '700',
+  messageCard: {
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
 });

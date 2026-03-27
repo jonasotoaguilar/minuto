@@ -1,61 +1,127 @@
+import DateTimePicker, {
+  DateTimePickerAndroid,
+  type DateTimePickerEvent,
+} from '@react-native-community/datetimepicker';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
-import { Fonts, Spacing } from '@/constants/theme';
+import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
+import {
+  Chip,
+  GlassCard,
+  PrimaryButton,
+  Screen,
+  SecondaryButton,
+  SectionHeader,
+  TextField,
+  ThemedText,
+} from '@/theme/primitives';
 
 type MembershipRole = 'owner' | 'admin' | 'manager' | 'employee';
 
+interface EmployeeProfileRecord {
+  break_duration_hours: number | null;
+  department: string | null;
+  hire_date: string | null;
+  position: string | null;
+  shift_duration_hours: number | null;
+}
+
 type EmployeeProfileRow =
-  | {
-      position: string | null;
-      department: string | null;
-    }
-  | {
-      position: string | null;
-      department: string | null;
-    }[]
+  | EmployeeProfileRecord
+  | EmployeeProfileRecord[]
   | null;
 
 type MembershipRow = {
+  employee_profiles: EmployeeProfileRow;
   id: string;
-  organization_id: string;
-  user_id: string | null;
   invited_email: string | null;
+  organization_id: string;
   role: MembershipRole;
   status: 'invited' | 'active' | 'suspended';
-  employee_profiles: EmployeeProfileRow;
+  user_id: string | null;
 };
 
 type UserProfileRow = {
-  id: string;
   full_name: string | null;
+  id: string;
 };
 
 type TeamMember = {
-  id: string;
-  name: string;
-  roleLabel: string;
+  breakDurationHours: number;
   department: string;
+  hireDate: string;
+  id: string;
   initials: string;
+  name: string;
+  position: string;
+  roleLabel: string;
+  shiftDurationHours: number;
 };
 
+interface EditEmployeeFormValues {
+  breakDurationHours: string;
+  department: string;
+  hireDate: string;
+  position: string;
+  shiftDurationHours: string;
+}
+
+interface EditEmployeeFormErrors {
+  breakDurationHours?: string;
+  department?: string;
+  hireDate?: string;
+  position?: string;
+  shiftDurationHours?: string;
+}
+
+interface UpdateEmployeeProfileParams {
+  membershipId: string;
+  breakDurationHours?: number;
+  department?: string;
+  hireDate?: string;
+  position?: string;
+  shiftDurationHours?: number;
+}
+
+interface UpdateEmployeeProfileResult {
+  errorCode?: string;
+  success: boolean;
+}
+
+type UpdateEmployeeProfileFn = (
+  params: UpdateEmployeeProfileParams,
+) => Promise<UpdateEmployeeProfileResult>;
+
+const DEPARTMENT_FILTERS = {
+  all: 'ALL',
+} as const;
+
 const DEFAULT_DEPARTMENT = 'General';
+const DEFAULT_BREAK_DURATION_HOURS = 0.75;
+const DEFAULT_SHIFT_DURATION_HOURS = 8;
+const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
+const MAX_BREAK_DURATION_HOURS = 5;
+const MAX_SHIFT_DURATION_HOURS = 15;
+const TIME_INPUT_PATTERN = /^(\d{1,2}):(\d{2})$/;
+const DATE_DISPLAY_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
 export default function TeamScreen() {
+  const router = useRouter();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const {
     activeOrganization,
     isLoadingOrganizations,
@@ -66,13 +132,28 @@ export default function TeamScreen() {
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState('ALL');
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteMessage, setInviteMessage] = useState('');
-  const [isInviting, setIsInviting] = useState(false);
+  const [selectedDepartment, setSelectedDepartment] = useState<string>(
+    DEPARTMENT_FILTERS.all,
+  );
+  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
+  const [editFormValues, setEditFormValues] = useState<EditEmployeeFormValues>(
+    getEmptyEditFormValues(),
+  );
+  const [editFormErrors, setEditFormErrors] = useState<EditEmployeeFormErrors>(
+    {},
+  );
+  const [editFormMessage, setEditFormMessage] = useState('');
+  const [isHireDatePickerVisible, setIsHireDatePickerVisible] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  const canManageOrganization = MANAGEMENT_ROLES.includes(
+    activeOrganization?.membershipRole ?? 'employee',
+  );
 
   const loadMembers = useCallback(async () => {
-    if (!activeOrganization) return;
+    if (!activeOrganization) {
+      return;
+    }
 
     setIsLoadingMembers(true);
     setErrorMessage('');
@@ -80,7 +161,7 @@ export default function TeamScreen() {
     const { data, error } = await supabase
       .from('memberships')
       .select(
-        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department)',
+        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department, hire_date, shift_duration_hours, break_duration_hours)',
       )
       .eq('organization_id', activeOrganization.id)
       .eq('status', 'active')
@@ -136,16 +217,21 @@ export default function TeamScreen() {
         membership.user_id,
         membership.id,
       );
-      const roleLabel =
-        employeeProfile?.position?.trim() || mapMembershipRole(membership.role);
-      const department = normalizeDepartment(employeeProfile?.department);
 
       return {
+        breakDurationHours:
+          employeeProfile?.break_duration_hours ?? DEFAULT_BREAK_DURATION_HOURS,
+        department: normalizeDepartment(employeeProfile?.department),
+        hireDate: employeeProfile?.hire_date?.trim() ?? '',
         id: membership.id,
-        name,
-        roleLabel,
-        department,
         initials: deriveInitials(name),
+        name,
+        position: employeeProfile?.position?.trim() ?? '',
+        roleLabel:
+          employeeProfile?.position?.trim() ||
+          mapMembershipRole(membership.role),
+        shiftDurationHours:
+          employeeProfile?.shift_duration_hours ?? DEFAULT_SHIFT_DURATION_HOURS,
       } satisfies TeamMember;
     });
 
@@ -154,14 +240,14 @@ export default function TeamScreen() {
   }, [activeOrganization]);
 
   useEffect(() => {
-    loadMembers();
+    void loadMembers();
   }, [loadMembers]);
 
   const departments = useMemo(() => {
     const uniqueDepartments = [
       ...new Set(members.map((member) => member.department)),
     ];
-    return ['ALL', ...uniqueDepartments];
+    return [DEPARTMENT_FILTERS.all, ...uniqueDepartments];
   }, [members]);
 
   const filteredMembers = useMemo(() => {
@@ -169,7 +255,7 @@ export default function TeamScreen() {
 
     return members.filter((member) => {
       const matchesDepartment =
-        selectedDepartment === 'ALL' ||
+        selectedDepartment === DEPARTMENT_FILTERS.all ||
         member.department === selectedDepartment;
       const matchesSearch =
         normalizedSearch.length === 0 ||
@@ -181,52 +267,145 @@ export default function TeamScreen() {
     });
   }, [members, searchQuery, selectedDepartment]);
 
-  const inviteMember = useCallback(async () => {
-    if (!activeOrganization || isInviting) return;
+  const isEditModalVisible = selectedMember !== null;
 
-    const normalizedEmail = inviteEmail.trim().toLowerCase();
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
-      setInviteMessage('Ingresa un email válido.');
+  const onEditMember = useCallback((member: TeamMember) => {
+    setSelectedMember(member);
+    setEditFormValues(createEditFormValues(member));
+    setEditFormErrors({});
+    setEditFormMessage('');
+    setIsHireDatePickerVisible(false);
+  }, []);
+
+  const onCloseEditModal = useCallback(() => {
+    if (isSavingProfile) {
       return;
     }
 
-    setIsInviting(true);
-    setInviteMessage('');
+    setSelectedMember(null);
+    setEditFormValues(getEmptyEditFormValues());
+    setEditFormErrors({});
+    setEditFormMessage('');
+    setIsHireDatePickerVisible(false);
+  }, [isSavingProfile]);
 
-    const invitationCode = createInvitationCode();
-    const expiresAt = new Date(
-      Date.now() + 7 * 24 * 60 * 60 * 1000,
-    ).toISOString();
+  const applyHireDateSelection = useCallback((date: Date) => {
+    const storageValue = formatDateForStorageFromPicker(date);
 
-    const { error } = await supabase.from('memberships').insert({
-      organization_id: activeOrganization.id,
-      invited_email: normalizedEmail,
-      role: 'employee',
-      status: 'invited',
-      invitation_code: invitationCode,
-      invitation_expires_at: expiresAt,
-    });
+    setEditFormValues((current) => ({
+      ...current,
+      hireDate: formatDateForDisplay(storageValue),
+    }));
+    setEditFormErrors((current) => ({
+      ...current,
+      hireDate: undefined,
+    }));
+  }, []);
 
-    if (error) {
-      setInviteMessage(error.message);
-      setIsInviting(false);
+  const onHireDateChange = useCallback(
+    (event: DateTimePickerEvent, selectedDate?: Date) => {
+      if (process.env.EXPO_OS === 'android') {
+        setIsHireDatePickerVisible(false);
+      }
+
+      if (event.type === 'dismissed' || !selectedDate) {
+        return;
+      }
+
+      applyHireDateSelection(selectedDate);
+    },
+    [applyHireDateSelection],
+  );
+
+  const onOpenHireDatePicker = useCallback(() => {
+    const pickerValue = getDatePickerValue(editFormValues.hireDate);
+
+    if (process.env.EXPO_OS === 'android') {
+      DateTimePickerAndroid.open({
+        maximumDate: getTodayPickerMaximumDate(),
+        mode: 'date',
+        onChange: onHireDateChange,
+        value: pickerValue,
+      });
       return;
     }
 
-    setInviteEmail('');
-    setInviteMessage(`Invitación enviada (${invitationCode}).`);
-    setIsInviting(false);
-  }, [activeOrganization, inviteEmail, isInviting]);
+    if (process.env.EXPO_OS !== 'ios') {
+      return;
+    }
+
+    setIsHireDatePickerVisible(true);
+  }, [editFormValues.hireDate, onHireDateChange]);
+
+  const onSaveMemberProfile = useCallback(async () => {
+    if (!selectedMember) {
+      return;
+    }
+
+    const validation = validateEditForm(editFormValues);
+    setEditFormErrors(validation.errors);
+
+    if (!validation.isValid) {
+      setEditFormMessage('Revisá los campos marcados antes de guardar.');
+      return;
+    }
+
+    setIsSavingProfile(true);
+    setEditFormMessage('');
+
+    try {
+      const attendanceModule = (await import(
+        '@/lib/attendance'
+      )) as typeof import('@/lib/attendance') & {
+        updateEmployeeProfile?: UpdateEmployeeProfileFn;
+      };
+
+      if (typeof attendanceModule.updateEmployeeProfile !== 'function') {
+        throw new Error(
+          'La actualización del perfil todavía no está disponible.',
+        );
+      }
+
+      const result = await attendanceModule.updateEmployeeProfile({
+        membershipId: selectedMember.id,
+        shiftDurationHours: validation.parsed.shiftDurationHours,
+        breakDurationHours: validation.parsed.breakDurationHours,
+        position: validation.parsed.position,
+        department: validation.parsed.department,
+        hireDate: validation.parsed.hireDate,
+      });
+
+      if (!result.success) {
+        throw new Error(mapProfileUpdateError(result.errorCode));
+      }
+
+      await loadMembers();
+      setSelectedMember(null);
+      setEditFormValues(getEmptyEditFormValues());
+      setEditFormErrors({});
+      setEditFormMessage('');
+      setIsHireDatePickerVisible(false);
+      Alert.alert(
+        'Perfil actualizado',
+        'Los datos del colaborador fueron guardados.',
+      );
+    } catch (error) {
+      setEditFormMessage(
+        getErrorMessage(error) ??
+          'No se pudo guardar el perfil del colaborador.',
+      );
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }, [editFormValues, loadMembers, selectedMember]);
 
   if (isLoadingOrganizations) {
     return (
-      <View
-        style={[styles.loaderContainer, { backgroundColor: theme.background }]}
-      >
-        <Text style={[styles.loaderText, { color: theme.textSecondary }]}>
+      <Screen contentContainerStyle={styles.loaderContainer}>
+        <ThemedText colorToken="secondary" variant="label">
           Cargando organizaciones...
-        </Text>
-      </View>
+        </ThemedText>
+      </Screen>
     );
   }
 
@@ -235,189 +414,406 @@ export default function TeamScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.page, { backgroundColor: theme.background }]}
+    <Screen
+      scroll
       contentContainerStyle={[
         styles.container,
         {
-          paddingTop: insets.top + Spacing.three,
-          paddingBottom: insets.bottom + 112,
+          paddingTop: theme.spacing.lg,
+          paddingBottom: BottomTabInset + theme.spacing['2xl'],
         },
       ]}
+      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
     >
       <AppHeader />
 
-      <View
-        style={[
-          styles.searchInputWrap,
-          {
-            backgroundColor: theme.backgroundElement,
-            borderColor: theme.border,
-          },
-        ]}
-      >
-        <View
-          style={[styles.searchCircle, { borderColor: theme.textSecondary }]}
+      <GlassCard style={styles.organizationCard}>
+        <SectionHeader
+          eyebrow="Organización activa"
+          subtitle={`Tu equipo tiene ${members.length} ${members.length === 1 ? 'miembro activo' : 'miembros activos'}.`}
+          title={activeOrganization.name}
         />
-        <View
-          style={[
-            styles.searchHandle,
-            { backgroundColor: theme.textSecondary },
-          ]}
+
+        <View style={styles.organizationMetaRow}>
+          <Chip label={`${members.length} miembros`} tone="brand" />
+          <Chip
+            label={activeOrganization.membershipRole.toUpperCase()}
+            tone="neutral"
+          />
+        </View>
+
+        {canManageOrganization ? (
+          <View style={styles.organizationActions}>
+            <PrimaryButton
+              fullWidth={false}
+              label="Modificar organización"
+              onPress={() => router.push('/org-settings')}
+              style={styles.inlineAction}
+            />
+
+            <SecondaryButton
+              fullWidth={false}
+              label="Invitar miembro"
+              onPress={() =>
+                Alert.alert(
+                  'Próximamente',
+                  'La invitación guiada llega en la próxima iteración.',
+                )
+              }
+              style={styles.inlineAction}
+            />
+          </View>
+        ) : null}
+      </GlassCard>
+
+      <GlassCard style={styles.filtersCard} variant="soft">
+        <SectionHeader
+          eyebrow="Explorar equipo"
+          subtitle="Filtrá por nombre, rol o departamento sin salir de esta vista."
+          title="Miembros"
         />
-        <TextInput
-          value={searchQuery}
+
+        <TextField
+          autoCapitalize="none"
+          autoCorrect={false}
+          inputStyle={styles.searchInput}
           onChangeText={setSearchQuery}
           placeholder="Buscar miembros del equipo..."
-          placeholderTextColor={theme.textSecondary}
-          style={[styles.searchInput, { color: theme.text }]}
+          returnKeyType="search"
+          value={searchQuery}
         />
-      </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.departmentsRow}
-      >
-        {departments.map((department) => {
-          const isSelected = department === selectedDepartment;
+        <ScrollView
+          contentContainerStyle={styles.departmentsRow}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+        >
+          {departments.map((department) => {
+            const isSelected = department === selectedDepartment;
 
-          return (
-            <Pressable
-              key={department}
-              onPress={() => setSelectedDepartment(department)}
-              style={[
-                styles.departmentChip,
-                {
-                  backgroundColor: isSelected
-                    ? theme.primary
-                    : theme.backgroundElement,
-                },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.departmentChipText,
-                  { color: isSelected ? '#FFFFFF' : theme.textSecondary },
-                ]}
-              >
-                {department === 'ALL' ? 'TODOS' : department.toUpperCase()}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+            return (
+              <Chip
+                key={department}
+                label={
+                  department === DEPARTMENT_FILTERS.all
+                    ? 'TODOS'
+                    : department.toUpperCase()
+                }
+                onPress={() => setSelectedDepartment(department)}
+                selected={isSelected}
+                tone="brand"
+              />
+            );
+          })}
+        </ScrollView>
+      </GlassCard>
 
       {errorMessage ? (
-        <Text style={[styles.errorText, { color: theme.error }]}>
-          {errorMessage}
-        </Text>
+        <FeedbackCard tone="error">{errorMessage}</FeedbackCard>
       ) : null}
 
       {isLoadingMembers ? (
-        <Text style={[styles.stateText, { color: theme.textSecondary }]}>
+        <ThemedText colorToken="secondary" variant="body">
           Cargando miembros...
-        </Text>
+        </ThemedText>
       ) : null}
 
       {!isLoadingMembers && filteredMembers.length === 0 ? (
-        <Text style={[styles.stateText, { color: theme.textSecondary }]}>
+        <ThemedText colorToken="secondary" variant="body">
           No hay miembros para ese filtro.
-        </Text>
+        </ThemedText>
       ) : null}
 
       {filteredMembers.map((member) => (
-        <View
-          key={member.id}
-          style={[
-            styles.memberCard,
-            {
-              backgroundColor: theme.backgroundElement,
-              borderColor: theme.border,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
+        <GlassCard key={member.id} style={styles.memberCard} variant="soft">
           <View style={styles.memberTopRow}>
             <View
-              style={[styles.avatar, { backgroundColor: theme.primaryMuted }]}
+              style={[
+                styles.avatar,
+                {
+                  backgroundColor: theme.surface.glass.tint,
+                  borderColor: theme.surface.glass.border,
+                },
+              ]}
             >
-              <Text style={[styles.avatarText, { color: theme.accent }]}>
+              <ThemedText colorToken="accent" variant="subtitle">
                 {member.initials}
-              </Text>
+              </ThemedText>
             </View>
+
+            <Chip label={member.department} tone="neutral" />
           </View>
 
-          <Text style={[styles.memberName, { color: theme.text }]}>
-            {member.name}
-          </Text>
-          <Text style={[styles.memberRole, { color: theme.textSecondary }]}>
-            {member.roleLabel}
-          </Text>
-          <Text
-            style={[styles.memberDepartment, { color: theme.textSecondary }]}
-          >
-            Departamento: {member.department}
-          </Text>
-        </View>
+          <View style={styles.memberCopy}>
+            <ThemedText style={styles.memberName} variant="heading">
+              {member.name}
+            </ThemedText>
+            <ThemedText colorToken="secondary" variant="subtitle">
+              {member.roleLabel}
+            </ThemedText>
+            <ThemedText colorToken="secondary" variant="bodySmall">
+              Departamento: {member.department}
+            </ThemedText>
+          </View>
+
+          {canManageOrganization ? (
+            <View style={styles.memberActions}>
+              <SecondaryButton
+                fullWidth={false}
+                label="Editar"
+                onPress={() => onEditMember(member)}
+              />
+            </View>
+          ) : null}
+        </GlassCard>
       ))}
 
-      <View
-        style={[
-          styles.inviteCard,
-          {
-            borderColor: theme.primaryMuted,
-            backgroundColor: theme.background,
-          },
-        ]}
+      <Modal
+        animationType="fade"
+        onRequestClose={onCloseEditModal}
+        transparent
+        visible={isEditModalVisible}
       >
-        <View style={[styles.invitePlus, { backgroundColor: theme.primary }]}>
-          <Text style={styles.invitePlusText}>+</Text>
-        </View>
-        <Text style={[styles.inviteTitle, { color: theme.accent }]}>
-          Añadir Miembro
-        </Text>
-        <Text style={[styles.inviteSubtitle, { color: theme.textSecondary }]}>
-          Invita a un nuevo compañero
-        </Text>
-        <TextInput
-          value={inviteEmail}
-          onChangeText={setInviteEmail}
-          placeholder="correo@empresa.com"
-          placeholderTextColor={theme.textSecondary}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          style={[
-            styles.inviteInput,
-            {
-              color: theme.text,
-              borderColor: theme.border,
-              backgroundColor: theme.backgroundElement,
-            },
-          ]}
-        />
-        <Pressable
-          accessibilityRole="button"
-          onPress={inviteMember}
-          style={[
-            styles.inviteButton,
-            {
-              backgroundColor: theme.primary,
-              opacity: isInviting ? 0.7 : 1,
-            },
-          ]}
+        <View
+          style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
         >
-          <Text style={styles.inviteButtonText}>
-            {isInviting ? 'Enviando...' : 'Enviar invitación'}
-          </Text>
-        </Pressable>
-        {inviteMessage ? (
-          <Text style={[styles.inviteMessage, { color: theme.textSecondary }]}>
-            {inviteMessage}
-          </Text>
-        ) : null}
-      </View>
-    </ScrollView>
+          <Pressable onPress={onCloseEditModal} style={styles.modalBackdrop} />
+
+          <GlassCard
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.colors.background.card },
+            ]}
+          >
+            <SectionHeader
+              eyebrow="Editar colaborador"
+              subtitle={
+                selectedMember?.name ??
+                'Actualizá los datos del perfil laboral.'
+              }
+              title="Perfil del empleado"
+            />
+
+            <ThemedText
+              colorToken="secondary"
+              style={styles.modalBody}
+              variant="bodySmall"
+            >
+              Ajustá la jornada, colación y datos del perfil laboral en una sola
+              vista.
+            </ThemedText>
+
+            <TextField
+              keyboardType="numbers-and-punctuation"
+              label="Jornada laboral"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  shiftDurationHours: value,
+                }))
+              }
+              onBlur={() =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  shiftDurationHours: formatTimeInputOnBlur(
+                    current.shiftDurationHours,
+                  ),
+                }))
+              }
+              errorMessage={editFormErrors.shiftDurationHours}
+              helperText="Ingresá la jornada en formato HH:MM, por ejemplo 08:00."
+              placeholder="08:00"
+              value={editFormValues.shiftDurationHours}
+            />
+
+            <TextField
+              keyboardType="numbers-and-punctuation"
+              label="Colación"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  breakDurationHours: value,
+                }))
+              }
+              onBlur={() =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  breakDurationHours: formatTimeInputOnBlur(
+                    current.breakDurationHours,
+                  ),
+                }))
+              }
+              errorMessage={editFormErrors.breakDurationHours}
+              helperText="Ingresá la colación en formato HH:MM, por ejemplo 00:45."
+              placeholder="00:45"
+              value={editFormValues.breakDurationHours}
+            />
+
+            <TextField
+              label="Cargo"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  position: value,
+                }))
+              }
+              placeholder="Ej: Supervisor de turno"
+              value={editFormValues.position}
+            />
+
+            <TextField
+              label="Departamento"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  department: value,
+                }))
+              }
+              placeholder="Ej: Operaciones"
+              value={editFormValues.department}
+            />
+
+            {process.env.EXPO_OS === 'web' ? (
+              <TextField
+                label="Fecha de contratación"
+                onChangeText={(value) =>
+                  setEditFormValues((current) => ({
+                    ...current,
+                    hireDate: value,
+                  }))
+                }
+                onBlur={() =>
+                  setEditFormValues((current) => ({
+                    ...current,
+                    hireDate: formatDateInputOnBlur(current.hireDate),
+                  }))
+                }
+                errorMessage={editFormErrors.hireDate}
+                helperText="Formato DD/MM/YYYY, por ejemplo 15/01/2024."
+                keyboardType="numbers-and-punctuation"
+                placeholder="15/01/2024"
+                value={editFormValues.hireDate}
+              />
+            ) : (
+              <View style={styles.dateFieldWrapper}>
+                <ThemedText variant="label">Fecha de contratación</ThemedText>
+
+                <Pressable
+                  accessibilityHint="Abre el selector nativo de fecha"
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: isHireDatePickerVisible }}
+                  accessibilityLabel="Fecha de contratación"
+                  onPress={onOpenHireDatePicker}
+                  style={({ pressed }) => [
+                    styles.dateFieldButton,
+                    theme.elevation.card,
+                    {
+                      backgroundColor: theme.colors.background.card,
+                      borderColor: editFormErrors.hireDate
+                        ? theme.colors.status.error
+                        : theme.colors.border.default,
+                      borderRadius: theme.radius.lg,
+                      minHeight: theme.spacing['4xl'] + theme.spacing.sm,
+                      opacity: pressed ? 0.92 : 1,
+                      paddingHorizontal: theme.spacing.lg,
+                      shadowColor: theme.colors.shadow.color,
+                    },
+                  ]}
+                >
+                  <ThemedText
+                    colorToken={
+                      editFormValues.hireDate ? 'primary' : 'secondary'
+                    }
+                    variant="body"
+                  >
+                    {editFormValues.hireDate || 'Seleccionar fecha'}
+                  </ThemedText>
+                  <ThemedText colorToken="secondary" variant="caption">
+                    DD/MM/YYYY
+                  </ThemedText>
+                </Pressable>
+
+                <ThemedText
+                  colorToken={editFormErrors.hireDate ? 'error' : 'secondary'}
+                  variant="caption"
+                >
+                  {editFormErrors.hireDate ||
+                    'Tocá para elegir la fecha y guardarla en formato calendario.'}
+                </ThemedText>
+
+                {process.env.EXPO_OS === 'ios' && isHireDatePickerVisible ? (
+                  <View
+                    style={[
+                      styles.datePickerCard,
+                      {
+                        backgroundColor: theme.colors.background.card,
+                        borderColor: theme.colors.border.default,
+                        borderRadius: theme.radius.lg,
+                      },
+                    ]}
+                  >
+                    <DateTimePicker
+                      display="spinner"
+                      maximumDate={getTodayPickerMaximumDate()}
+                      mode="date"
+                      onChange={onHireDateChange}
+                      value={getDatePickerValue(editFormValues.hireDate)}
+                    />
+                    <View style={styles.dateFieldActions}>
+                      <SecondaryButton
+                        fullWidth={false}
+                        label="Listo"
+                        onPress={() => setIsHireDatePickerVisible(false)}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+            )}
+
+            {editFormMessage ? (
+              <FeedbackCard tone="error">{editFormMessage}</FeedbackCard>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <PrimaryButton
+                label="Guardar"
+                loading={isSavingProfile}
+                onPress={onSaveMemberProfile}
+                style={styles.modalActionButton}
+              />
+              <SecondaryButton
+                disabled={isSavingProfile}
+                label="Cancelar"
+                onPress={onCloseEditModal}
+                style={styles.modalActionButton}
+              />
+            </View>
+          </GlassCard>
+        </View>
+      </Modal>
+    </Screen>
+  );
+}
+
+function FeedbackCard({ children, tone }: { children: string; tone: 'error' }) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.feedbackCard,
+        {
+          backgroundColor: tone === 'error' ? theme.surface.danger : undefined,
+          borderColor: theme.surface.glass.border,
+          borderRadius: theme.radius.lg,
+        },
+      ]}
+    >
+      <ThemedText colorToken="error" variant="bodySmall">
+        {children}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -440,7 +836,9 @@ function deriveName(
       .filter(Boolean)
       .map((token) => token[0].toUpperCase() + token.slice(1).toLowerCase())
       .join(' ');
-    if (fromEmail) return fromEmail;
+    if (fromEmail) {
+      return fromEmail;
+    }
   }
 
   if (userId) {
@@ -462,6 +860,275 @@ function normalizeDepartment(rawDepartment: string | null | undefined) {
   return rawDepartment.trim();
 }
 
+function getEmptyEditFormValues(): EditEmployeeFormValues {
+  return {
+    breakDurationHours: decimalToHHMM(DEFAULT_BREAK_DURATION_HOURS),
+    department: '',
+    hireDate: '',
+    position: '',
+    shiftDurationHours: decimalToHHMM(DEFAULT_SHIFT_DURATION_HOURS),
+  };
+}
+
+function createEditFormValues(member: TeamMember): EditEmployeeFormValues {
+  return {
+    breakDurationHours: decimalToHHMM(member.breakDurationHours),
+    department:
+      member.department === DEFAULT_DEPARTMENT ? '' : member.department,
+    hireDate: formatDateForDisplay(member.hireDate),
+    position: member.position,
+    shiftDurationHours: decimalToHHMM(member.shiftDurationHours),
+  };
+}
+
+function decimalToHHMM(decimal: number) {
+  const totalMinutes = Math.max(0, Math.round(decimal * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
+function validateEditForm(values: EditEmployeeFormValues) {
+  const errors: EditEmployeeFormErrors = {};
+  const shiftDurationHours = parseHHMMInput(values.shiftDurationHours);
+  const breakDurationHours = parseHHMMInput(values.breakDurationHours);
+  const hireDate = normalizeDateForStorage(values.hireDate);
+  const todayStorageDate = getTodayStorageDate();
+
+  if (shiftDurationHours === null || shiftDurationHours <= 0) {
+    errors.shiftDurationHours =
+      'La jornada debe tener formato HH:MM y ser mayor a 00:00.';
+  } else if (shiftDurationHours > MAX_SHIFT_DURATION_HOURS) {
+    errors.shiftDurationHours =
+      'La jornada laboral no puede superar las 15:00 horas.';
+  }
+
+  if (breakDurationHours === null) {
+    errors.breakDurationHours = 'La colación debe tener formato HH:MM.';
+  } else if (breakDurationHours < 0) {
+    errors.breakDurationHours = 'La colación no puede ser negativa.';
+  } else if (breakDurationHours > MAX_BREAK_DURATION_HOURS) {
+    errors.breakDurationHours = 'La colación no puede superar las 05:00 horas.';
+  } else if (
+    shiftDurationHours !== null &&
+    breakDurationHours >= shiftDurationHours
+  ) {
+    errors.breakDurationHours = 'La colación debe ser menor que la jornada.';
+  }
+
+  if (values.hireDate.trim().length > 0 && hireDate === null) {
+    errors.hireDate = 'La fecha debe tener formato DD/MM/YYYY.';
+  } else if (hireDate && hireDate > todayStorageDate) {
+    errors.hireDate = 'La fecha de contratación no puede ser posterior a hoy.';
+  }
+
+  if (
+    errors.shiftDurationHours ||
+    errors.breakDurationHours ||
+    errors.hireDate ||
+    shiftDurationHours === null ||
+    breakDurationHours === null
+  ) {
+    return {
+      errors,
+      isValid: false,
+      parsed: null,
+    } as const;
+  }
+
+  return {
+    errors,
+    isValid: true,
+    parsed: {
+      breakDurationHours,
+      department: normalizeOptionalText(values.department),
+      hireDate: hireDate || undefined,
+      position: normalizeOptionalText(values.position),
+      shiftDurationHours,
+    },
+  } as const;
+}
+
+function parseHHMMInput(value: string) {
+  const normalized = formatTimeInputOnBlur(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const match = normalized.match(TIME_INPUT_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    minutes < 0 ||
+    minutes >= 60 ||
+    hours < 0 ||
+    hours > 24 ||
+    (hours === 24 && minutes > 0)
+  ) {
+    return null;
+  }
+
+  return hours + minutes / 60;
+}
+
+function normalizeOptionalText(value: string) {
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function isValidStorageDateInput(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  return date.toISOString().slice(0, 10) === value;
+}
+
+function formatTimeInputOnBlur(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+
+  if (/^\d{3,4}$/.test(digits) && !trimmed.includes(':')) {
+    const padded = digits.padStart(4, '0');
+    return `${padded.slice(0, 2)}:${padded.slice(2)}`;
+  }
+
+  const match = trimmed.match(/^(\d{1,2}):(\d{1,2})$/);
+
+  if (match) {
+    const hours = match[1].padStart(2, '0');
+    const minutes = match[2].padStart(2, '0');
+    return `${hours}:${minutes}`;
+  }
+
+  return trimmed;
+}
+
+function formatDateInputOnBlur(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.length === 8 && !trimmed.includes('/')) {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+  }
+
+  const match = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (match) {
+    return `${match[1].padStart(2, '0')}/${match[2].padStart(2, '0')}/${match[3]}`;
+  }
+
+  return trimmed;
+}
+
+function formatDateForStorageFromPicker(value: Date) {
+  const year = String(value.getFullYear());
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function getDatePickerValue(value: string) {
+  const normalized = normalizeDateForStorage(value);
+
+  if (!normalized) {
+    return new Date();
+  }
+
+  const [year, month, day] = normalized.split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function getTodayPickerMaximumDate() {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  return today;
+}
+
+function getTodayStorageDate() {
+  return formatDateForStorageFromPicker(new Date());
+}
+
+function formatDateForDisplay(value: string) {
+  const normalized = value.trim();
+  if (!normalized || !isValidStorageDateInput(normalized)) {
+    return '';
+  }
+
+  const [year, month, day] = normalized.split('-');
+  return `${day}/${month}/${year}`;
+}
+
+function normalizeDateForStorage(value: string) {
+  const normalized = formatDateInputOnBlur(value);
+  if (!normalized) {
+    return '';
+  }
+
+  const match = normalized.match(DATE_DISPLAY_PATTERN);
+  if (!match) {
+    return null;
+  }
+
+  const storageValue = `${match[3]}-${match[2]}-${match[1]}`;
+  return isValidStorageDateInput(storageValue) ? storageValue : null;
+}
+
+function mapProfileUpdateError(errorCode?: string) {
+  switch (errorCode) {
+    case 'MEMBERSHIP_NOT_FOUND':
+      return 'No encontramos al colaborador que querés actualizar.';
+    case 'INVALID_SHIFT':
+      return 'La jornada informada no es válida.';
+    case 'INVALID_BREAK':
+      return 'La colación informada no es válida.';
+    default:
+      return 'No se pudo guardar el perfil del colaborador.';
+  }
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof error.message === 'string' &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+
+  return null;
+}
+
 function mapMembershipRole(role: MembershipRole) {
   if (role === 'owner') return 'Organization Owner';
   if (role === 'admin') return 'Administrator';
@@ -469,175 +1136,115 @@ function mapMembershipRole(role: MembershipRole) {
   return 'Employee';
 }
 
-function createInvitationCode() {
-  return `INV-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-}
-
 const styles = StyleSheet.create({
+  container: {
+    alignSelf: 'center',
+    gap: 16,
+    maxWidth: 720,
+    paddingHorizontal: 16,
+    width: '100%',
+  },
   loaderContainer: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
   },
-  loaderText: {
-    fontSize: 14,
-    fontWeight: '600',
+  organizationCard: {
+    gap: 16,
   },
-  page: {
-    flex: 1,
-  },
-  container: {
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.three,
-  },
-  title: {
-    fontSize: 36,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
-    letterSpacing: -0.6,
-  },
-  searchCircle: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-  },
-  searchHandle: {
-    width: 7,
-    height: 2,
-    borderRadius: 2,
-    marginTop: 2,
-    transform: [{ rotate: '45deg' }],
-  },
-  searchInputWrap: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+  organizationMetaRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  organizationActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  inlineAction: {
+    minWidth: 188,
+  },
+  filtersCard: {
+    gap: 16,
   },
   searchInput: {
-    flex: 1,
-    fontSize: 15,
+    minHeight: 24,
   },
   departmentsRow: {
-    gap: Spacing.two,
+    gap: 8,
   },
-  departmentChip: {
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-  },
-  departmentChipText: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  errorText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  stateText: {
-    fontSize: 14,
-    fontWeight: '500',
+  feedbackCard: {
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   memberCard: {
-    borderRadius: 24,
-    padding: Spacing.three,
-    borderWidth: 1,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-    gap: Spacing.one,
+    gap: 12,
   },
   memberTopRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: Spacing.one,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
   },
   avatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 18,
     alignItems: 'center',
+    borderWidth: 1,
+    height: 54,
     justifyContent: 'center',
+    width: 54,
+    borderRadius: 999,
   },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: '700',
+  memberCopy: {
+    gap: 4,
+  },
+  memberActions: {
+    alignItems: 'flex-end',
   },
   memberName: {
-    fontSize: 31,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
     letterSpacing: -0.4,
   },
-  memberRole: {
-    fontSize: 18,
-    fontWeight: '500',
+  modalActionButton: {
+    flex: 1,
   },
-  memberDepartment: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: Spacing.one,
+  modalActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  inviteCard: {
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
+  modalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalBody: {
+    textAlign: 'left',
+  },
+  dateFieldActions: {
+    alignItems: 'flex-start',
+  },
+  dateFieldButton: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: Spacing.five,
-    gap: Spacing.two,
-  },
-  invitePlus: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.one,
-  },
-  invitePlusText: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    lineHeight: 30,
-    fontWeight: '500',
-  },
-  inviteTitle: {
-    fontSize: 34,
-    fontFamily: Fonts.serif,
-    fontWeight: '700',
-  },
-  inviteSubtitle: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  inviteInput: {
-    width: '100%',
     borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
-    fontSize: 15,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
-  inviteButton: {
+  dateFieldWrapper: {
+    gap: 8,
+  },
+  datePickerCard: {
+    borderWidth: 1,
+    gap: 12,
+    padding: 12,
+  },
+  modalCard: {
+    gap: 12,
+    maxWidth: 560,
     width: '100%',
-    borderRadius: 14,
-    paddingVertical: Spacing.two,
+  },
+  modalRoot: {
     alignItems: 'center',
-  },
-  inviteButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  inviteMessage: {
-    fontSize: 13,
-    fontWeight: '500',
-    alignSelf: 'flex-start',
+    flex: 1,
+    justifyContent: 'center',
+    padding: 16,
   },
 });

@@ -1,21 +1,33 @@
+/* Google Fonts — loaded once for web. Native loads fonts via expo-font. */
+@import url("https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap");
+
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/preflight.css" layer(base);
 @import "tailwindcss/utilities.css";
 
+:root {
+  /* Typography custom properties used by var(--font-*) in typography tokens. */
+  --font-display: "Lora", ui-serif, Georgia, serif;
+  --font-sans: "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --font-rounded: ui-rounded, "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+}
+
 @media android {
   :root {
-    --font-mono: monospace;
-    --font-rounded: normal;
-    --font-serif: serif;
+    --font-display: serif;
     --font-sans: normal;
+    --font-rounded: normal;
+    --font-mono: monospace;
   }
 }
 
 @media ios {
   :root {
-    --font-mono: ui-monospace;
-    --font-serif: ui-serif;
+    --font-display: ui-serif;
     --font-sans: system-ui;
     --font-rounded: ui-rounded;
+    --font-mono: ui-monospace;
   }
 }

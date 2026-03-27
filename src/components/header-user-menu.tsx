@@ -1,6 +1,4 @@
 import { StyleSheet, Text, View } from 'react-native';
-
-import { Fonts } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import { OrganizationSwitcher } from './organization-switcher';
@@ -16,7 +14,19 @@ export function AppHeader() {
 
   return (
     <View style={styles.header}>
-      <Text style={[styles.appName, { color: theme.text }]}>Minuto</Text>
+      <Text
+        style={[
+          styles.appName,
+          {
+            color: theme.colors.text.primary,
+            fontFamily: theme.typography.subtitle.fontFamily,
+            fontSize: theme.typography.subtitle.fontSize,
+            fontWeight: theme.typography.subtitle.fontWeight,
+          },
+        ]}
+      >
+        Minuto
+      </Text>
 
       {activeOrganization ? (
         <OrganizationSwitcher
@@ -38,9 +48,5 @@ const styles = StyleSheet.create({
     zIndex: 120,
     elevation: 120,
   },
-  appName: {
-    fontSize: 18,
-    fontWeight: '700',
-    fontFamily: Fonts.sans,
-  },
+  appName: {},
 });

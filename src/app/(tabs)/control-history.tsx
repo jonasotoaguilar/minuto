@@ -1,47 +1,65 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
+
 import { OrganizationSetupView } from '@/components/organization-setup-view';
-import { Spacing } from '@/constants/theme';
+import { SecondaryScreenHeader } from '@/components/secondary-screen-header';
+import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import {
   type AttendanceRecord,
-  getPaginatedAttendanceRecords,
+  calculateAttendanceSummary,
+  getAllAttendanceRecords,
+  getAttendanceMonthOptions,
 } from '@/lib/attendance';
+import { resolveOrganizationTimezone } from '@/lib/timezone';
+import {
+  Chip,
+  GlassCard,
+  Screen,
+  SecondaryButton,
+  SectionHeader,
+  ThemedText,
+} from '@/theme/primitives';
 
 const PAGE_SIZE = 10;
+const ALL_HISTORY_FILTER_KEY = 'all-history';
+const SUMMARY_CARD_VARIANT = {
+  featured: 'featured',
+  accent: 'accent',
+  default: 'default',
+} as const;
+
+type SummaryCardVariant =
+  (typeof SUMMARY_CARD_VARIANT)[keyof typeof SUMMARY_CARD_VARIANT];
+
+type YearFilterOption = {
+  year: number;
+  label: string;
+};
 
 export default function ControlHistoryScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const theme = useTheme();
   const {
     activeOrganization,
     isLoadingOrganizations,
     isOrganizationSetupOpen,
   } = useOrganization();
+  const currentTimezone = resolveOrganizationTimezone(
+    activeOrganization?.defaultTimezone,
+  );
 
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [totalRecords, setTotalRecords] = useState(0);
+  const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
   const [page, setPage] = useState(0);
-  const [startDateInput, setStartDateInput] = useState('');
-  const [endDateInput, setEndDateInput] = useState('');
-  const [appliedStartDate, setAppliedStartDate] = useState('');
-  const [appliedEndDate, setAppliedEndDate] = useState('');
-
-  const totalPages = Math.max(1, Math.ceil(totalRecords / PAGE_SIZE));
+  const [selectedMonthKey, setSelectedMonthKey] = useState(
+    ALL_HISTORY_FILTER_KEY,
+  );
+  const [visibleYear, setVisibleYear] = useState<number | null>(null);
 
   const loadRecords = useCallback(async () => {
     if (!activeOrganization) return;
@@ -50,17 +68,12 @@ export default function ControlHistoryScreen() {
     setErrorMessage('');
 
     try {
-      const response = await getPaginatedAttendanceRecords({
+      const response = await getAllAttendanceRecords({
         organizationId: activeOrganization.id,
         membershipId: activeOrganization.membershipId,
-        page,
-        pageSize: PAGE_SIZE,
-        startDate: appliedStartDate || undefined,
-        endDate: appliedEndDate || undefined,
       });
 
-      setRecords(response.records);
-      setTotalRecords(response.total);
+      setAllRecords(response);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -70,27 +83,135 @@ export default function ControlHistoryScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeOrganization, appliedEndDate, appliedStartDate, page]);
+  }, [activeOrganization]);
 
   useEffect(() => {
-    loadRecords();
+    void loadRecords();
   }, [loadRecords]);
 
-  const applyFilters = () => {
+  const monthOptions = useMemo(
+    () => getAttendanceMonthOptions(allRecords),
+    [allRecords],
+  );
+
+  const yearOptions = useMemo<YearFilterOption[]>(() => {
+    const years = new Set<number>();
+
+    for (const option of monthOptions) {
+      years.add(option.year);
+    }
+
+    return Array.from(years)
+      .sort((left, right) => right - left)
+      .map((year) => ({ year, label: String(year) }));
+  }, [monthOptions]);
+
+  const latestYear = yearOptions[0]?.year ?? null;
+
+  useEffect(() => {
+    if (selectedMonthKey === ALL_HISTORY_FILTER_KEY) {
+      return;
+    }
+
+    const isValidMonth = monthOptions.some(
+      (option) => option.key === selectedMonthKey,
+    );
+
+    if (!isValidMonth) {
+      setSelectedMonthKey(ALL_HISTORY_FILTER_KEY);
+    }
+  }, [monthOptions, selectedMonthKey]);
+
+  useEffect(() => {
+    if (selectedMonthKey !== ALL_HISTORY_FILTER_KEY) {
+      const selectedMonth = monthOptions.find(
+        (option) => option.key === selectedMonthKey,
+      );
+
+      if (selectedMonth && selectedMonth.year !== visibleYear) {
+        setVisibleYear(selectedMonth.year);
+      }
+
+      return;
+    }
+
+    if (visibleYear === null && latestYear !== null) {
+      setVisibleYear(latestYear);
+      return;
+    }
+
+    if (
+      visibleYear !== null &&
+      !yearOptions.some((option) => option.year === visibleYear)
+    ) {
+      setVisibleYear(latestYear);
+    }
+  }, [latestYear, monthOptions, selectedMonthKey, visibleYear, yearOptions]);
+
+  const filteredRecords = useMemo(() => {
+    if (selectedMonthKey === ALL_HISTORY_FILTER_KEY) {
+      return allRecords;
+    }
+
+    return allRecords.filter((record) =>
+      record.workDate.startsWith(selectedMonthKey),
+    );
+  }, [allRecords, selectedMonthKey]);
+
+  const summary = useMemo(
+    () => calculateAttendanceSummary(filteredRecords),
+    [filteredRecords],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
+  const paginatedRecords = useMemo(() => {
+    const from = page * PAGE_SIZE;
+    return filteredRecords.slice(from, from + PAGE_SIZE);
+  }, [filteredRecords, page]);
+
+  useEffect(() => {
+    if (page < totalPages) {
+      return;
+    }
+
+    setPage(Math.max(0, totalPages - 1));
+  }, [page, totalPages]);
+
+  const activeFilterLabel = useMemo(() => {
+    if (selectedMonthKey === ALL_HISTORY_FILTER_KEY) {
+      return 'Todo el historial';
+    }
+
+    return (
+      monthOptions.find((option) => option.key === selectedMonthKey)?.label ??
+      'Todo el historial'
+    );
+  }, [monthOptions, selectedMonthKey]);
+
+  const visibleMonthOptions = useMemo(() => {
+    if (visibleYear === null) {
+      return [];
+    }
+
+    return monthOptions.filter((option) => option.year === visibleYear);
+  }, [monthOptions, visibleYear]);
+
+  const handleSelectFilter = useCallback((monthKey: string) => {
+    setSelectedMonthKey(monthKey);
     setPage(0);
-    setAppliedStartDate(startDateInput.trim());
-    setAppliedEndDate(endDateInput.trim());
-  };
+  }, []);
+
+  const handleSelectYear = useCallback((year: number) => {
+    setVisibleYear(year);
+  }, []);
 
   if (isLoadingOrganizations) {
     return (
-      <View
-        style={[styles.loaderContainer, { backgroundColor: theme.background }]}
-      >
-        <Text style={[styles.loaderText, { color: theme.textSecondary }]}>
+      <Screen contentContainerStyle={styles.loaderContainer}>
+        <ThemedText colorToken="secondary" variant="label">
           Cargando organizaciones...
-        </Text>
-      </View>
+        </ThemedText>
+      </Screen>
     );
   }
 
@@ -99,223 +220,282 @@ export default function ControlHistoryScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.page, { backgroundColor: theme.background }]}
-      contentContainerStyle={{
-        paddingTop: insets.top + Spacing.three,
-        paddingBottom: insets.bottom + 110,
-        paddingHorizontal: Spacing.three,
-        gap: Spacing.three,
-      }}
+    <Screen
+      scroll
+      contentContainerStyle={[
+        styles.container,
+        {
+          paddingTop: theme.spacing.lg,
+          paddingBottom: BottomTabInset + theme.spacing['2xl'],
+        },
+      ]}
+      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
     >
-      <View style={styles.headerRow}>
-        <Pressable
-          onPress={() => router.replace('/(tabs)/control' as never)}
-          style={[
-            styles.backButton,
-            { backgroundColor: theme.backgroundElement },
-          ]}
-        >
-          <Text style={[styles.backButtonText, { color: theme.text }]}>
-            Atras
-          </Text>
-        </Pressable>
-        <Text style={[styles.title, { color: theme.text }]}>
-          Historial completo
-        </Text>
+      <SecondaryScreenHeader
+        title="Historial control"
+        subtitle="Revisá tus marcaciones y filtrá por mes y año."
+        onBack={() => router.replace('/(tabs)/control' as never)}
+      />
+
+      <View style={styles.metricsRow}>
+        <SummaryCard
+          hint={
+            selectedMonthKey === ALL_HISTORY_FILTER_KEY
+              ? 'Todo el historial'
+              : activeFilterLabel
+          }
+          label="Horas totales"
+          value={formatMinutes(summary.totalMinutes)}
+          variant={SUMMARY_CARD_VARIANT.featured}
+        />
+        <SummaryCard
+          hint="+40 h por semana"
+          label="Horas extras"
+          value={formatMinutes(summary.overtimeMinutes)}
+          variant={SUMMARY_CARD_VARIANT.accent}
+        />
+        <SummaryCard
+          hint={
+            selectedMonthKey === ALL_HISTORY_FILTER_KEY
+              ? 'Todo el historial'
+              : activeFilterLabel
+          }
+          label="Días trabajados"
+          value={String(summary.workedDays)}
+          variant={SUMMARY_CARD_VARIANT.default}
+        />
       </View>
 
-      <View
-        style={[
-          styles.filtersCard,
-          {
-            backgroundColor: theme.backgroundElement,
-            shadowColor: theme.shadow,
-          },
-        ]}
-      >
-        <View style={styles.dateInputsRow}>
-          <View style={styles.dateInputContainer}>
-            <Text style={[styles.filterLabel, { color: theme.textSecondary }]}>
-              Desde
-            </Text>
-            <TextInput
-              value={startDateInput}
-              onChangeText={setStartDateInput}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={theme.textSecondary}
-              autoCapitalize="none"
-              style={[
-                styles.dateInput,
-                {
-                  borderColor: theme.border,
-                  color: theme.text,
-                  backgroundColor: theme.surfaceMuted,
-                },
-              ]}
-            />
-          </View>
-          <View style={styles.dateInputContainer}>
-            <Text style={[styles.filterLabel, { color: theme.textSecondary }]}>
-              Hasta
-            </Text>
-            <TextInput
-              value={endDateInput}
-              onChangeText={setEndDateInput}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={theme.textSecondary}
-              autoCapitalize="none"
-              style={[
-                styles.dateInput,
-                {
-                  borderColor: theme.border,
-                  color: theme.text,
-                  backgroundColor: theme.surfaceMuted,
-                },
-              ]}
-            />
-          </View>
+      <GlassCard style={styles.filtersCard} variant="soft">
+        <SectionHeader
+          eyebrow="Periodo"
+          subtitle="Solo podés elegir meses con registros reales."
+          title={activeFilterLabel}
+        />
+
+        <View style={styles.filterToolbar}>
+          <FilterChip
+            label="Todo el historial"
+            isActive={selectedMonthKey === ALL_HISTORY_FILTER_KEY}
+            onPress={() => handleSelectFilter(ALL_HISTORY_FILTER_KEY)}
+          />
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.yearChipsRow}
+          >
+            {yearOptions.map((option) => (
+              <FilterChip
+                key={option.year}
+                label={option.label}
+                isActive={visibleYear === option.year}
+                onPress={() => handleSelectYear(option.year)}
+                variant="secondary"
+              />
+            ))}
+          </ScrollView>
         </View>
 
-        <Pressable
-          onPress={applyFilters}
-          style={[styles.applyButton, { backgroundColor: theme.primary }]}
-        >
-          <Text style={styles.applyButtonText}>Aplicar filtros</Text>
-        </Pressable>
+        {visibleMonthOptions.length > 0 ? (
+          <View style={styles.monthGrid}>
+            {visibleMonthOptions.map((option) => (
+              <FilterChip
+                key={option.key}
+                label={option.label}
+                isActive={selectedMonthKey === option.key}
+                onPress={() => handleSelectFilter(option.key)}
+              />
+            ))}
+          </View>
+        ) : (
+          <ThemedText colorToken="secondary" variant="bodySmall">
+            Todavía no hay meses disponibles para filtrar.
+          </ThemedText>
+        )}
 
         {errorMessage ? (
-          <Text style={[styles.errorText, { color: theme.error }]}>
+          <ThemedText colorToken="error" variant="bodySmall">
             {errorMessage}
-          </Text>
+          </ThemedText>
         ) : null}
-      </View>
+      </GlassCard>
 
-      <View
-        style={[
-          styles.tableCard,
-          {
-            backgroundColor: theme.backgroundElement,
-            shadowColor: theme.shadow,
-          },
-        ]}
-      >
-        <View style={[styles.tableRow, styles.tableHeader]}>
-          <Text
-            style={[
-              styles.headerCell,
-              styles.dateColumn,
-              { color: theme.textSecondary },
-            ]}
+      <GlassCard style={styles.tableCard} variant="soft">
+        <View
+          style={[
+            styles.tableRow,
+            styles.tableHeader,
+            { borderBottomColor: theme.colors.border.default },
+          ]}
+        >
+          <ThemedText
+            colorToken="secondary"
+            style={[styles.headerCell, styles.dateColumn]}
+            variant="label"
           >
             Fecha
-          </Text>
-          <Text style={[styles.headerCell, { color: theme.textSecondary }]}>
+          </ThemedText>
+          <ThemedText
+            colorToken="secondary"
+            style={styles.headerCell}
+            variant="label"
+          >
             Entrada
-          </Text>
-          <Text style={[styles.headerCell, { color: theme.textSecondary }]}>
+          </ThemedText>
+          <ThemedText
+            colorToken="secondary"
+            style={styles.headerCell}
+            variant="label"
+          >
             Salida
-          </Text>
-          <Text
-            style={[
-              styles.headerCell,
-              styles.statusColumn,
-              { color: theme.textSecondary },
-            ]}
+          </ThemedText>
+          <ThemedText
+            colorToken="secondary"
+            style={[styles.headerCell, styles.statusColumn]}
+            variant="label"
           >
             Estado
-          </Text>
+          </ThemedText>
         </View>
 
-        {records.length === 0 ? (
-          <Text style={[styles.emptyText, { color: theme.textSecondary }]}>
-            {isLoading ? 'Cargando...' : 'No hay registros con esos filtros.'}
-          </Text>
+        {paginatedRecords.length === 0 ? (
+          <ThemedText
+            colorToken="secondary"
+            style={styles.emptyText}
+            variant="bodySmall"
+          >
+            {isLoading
+              ? 'Cargando...'
+              : selectedMonthKey === ALL_HISTORY_FILTER_KEY
+                ? 'Todavía no hay registros en el historial.'
+                : 'No hay registros para el mes seleccionado.'}
+          </ThemedText>
         ) : (
-          records.map((record) => {
+          paginatedRecords.map((record, index) => {
             const isCompleted = Boolean(record.clockOutAt);
+
             return (
-              <View key={record.id} style={styles.tableRow}>
-                <Text
-                  style={[
-                    styles.bodyCell,
-                    styles.dateColumn,
-                    { color: theme.text },
-                  ]}
+              <View
+                key={record.id}
+                style={[
+                  styles.tableRow,
+                  index > 0 && {
+                    borderTopWidth: StyleSheet.hairlineWidth,
+                    borderTopColor: theme.colors.border.default,
+                  },
+                ]}
+              >
+                <ThemedText
+                  style={[styles.bodyCell, styles.dateColumn]}
+                  variant="bodySmall"
                 >
                   {record.workDate}
-                </Text>
-                <Text style={[styles.bodyCell, { color: theme.text }]}>
-                  {formatTime(record.clockInAt, activeOrganization.timezone)}
-                </Text>
-                <Text style={[styles.bodyCell, { color: theme.text }]}>
+                </ThemedText>
+                <ThemedText style={styles.bodyCell} variant="bodySmall">
+                  {formatTime(record.clockInAt, currentTimezone)}
+                </ThemedText>
+                <ThemedText style={styles.bodyCell} variant="bodySmall">
                   {record.clockOutAt
-                    ? formatTime(record.clockOutAt, activeOrganization.timezone)
+                    ? formatTime(record.clockOutAt, currentTimezone)
                     : '--:--'}
-                </Text>
-                <Text
-                  style={[
-                    styles.bodyCell,
-                    styles.statusColumn,
-                    {
-                      color: isCompleted ? theme.primary : theme.textSecondary,
-                    },
-                  ]}
-                >
-                  {isCompleted ? 'Completo' : 'Abierto'}
-                </Text>
+                </ThemedText>
+                <View style={[styles.statusColumn, styles.statusCell]}>
+                  <Chip
+                    label={isCompleted ? 'Completo' : 'Abierto'}
+                    selected={isCompleted}
+                    tone={isCompleted ? 'success' : 'neutral'}
+                  />
+                </View>
               </View>
             );
           })
         )}
 
         <View style={styles.paginationRow}>
-          <Pressable
+          <SecondaryButton
+            disabled={page === 0}
+            fullWidth={false}
+            label="Anterior"
             onPress={() =>
               setPage((currentPage) => Math.max(0, currentPage - 1))
             }
-            disabled={page === 0}
-            style={[
-              styles.paginationButton,
-              {
-                backgroundColor:
-                  page === 0 ? theme.surfaceMuted : theme.primaryMuted,
-              },
-            ]}
-          >
-            <Text style={[styles.paginationButtonText, { color: theme.text }]}>
-              Anterior
-            </Text>
-          </Pressable>
+            style={styles.paginationButton}
+          />
 
-          <Text style={[styles.pageInfo, { color: theme.textSecondary }]}>
+          <ThemedText colorToken="secondary" variant="bodySmall">
             Pagina {Math.min(page + 1, totalPages)} de {totalPages}
-          </Text>
+          </ThemedText>
 
-          <Pressable
+          <SecondaryButton
+            disabled={page + 1 >= totalPages}
+            fullWidth={false}
+            label="Siguiente"
             onPress={() =>
               setPage((currentPage) =>
                 currentPage + 1 < totalPages ? currentPage + 1 : currentPage,
               )
             }
-            disabled={page + 1 >= totalPages}
-            style={[
-              styles.paginationButton,
-              {
-                backgroundColor:
-                  page + 1 >= totalPages
-                    ? theme.surfaceMuted
-                    : theme.primaryMuted,
-              },
-            ]}
-          >
-            <Text style={[styles.paginationButtonText, { color: theme.text }]}>
-              Siguiente
-            </Text>
-          </Pressable>
+            style={styles.paginationButton}
+          />
         </View>
-      </View>
-    </ScrollView>
+      </GlassCard>
+    </Screen>
+  );
+}
+
+type SummaryCardProps = {
+  hint: string;
+  label: string;
+  value: string;
+  variant: SummaryCardVariant;
+};
+
+function SummaryCard({ hint, label, value, variant }: SummaryCardProps) {
+  const theme = useTheme();
+  const cardStyle = getSummaryCardStyle(theme, variant);
+  const valueToken =
+    variant === SUMMARY_CARD_VARIANT.accent ? 'accent' : 'primary';
+
+  return (
+    <GlassCard style={[styles.metricCard, cardStyle]} variant="soft">
+      <ThemedText colorToken="secondary" variant="label">
+        {label}
+      </ThemedText>
+      <ThemedText
+        colorToken={valueToken}
+        style={styles.metricValue}
+        variant="heading"
+      >
+        {value}
+      </ThemedText>
+      <ThemedText colorToken="secondary" variant="bodySmall">
+        {hint}
+      </ThemedText>
+    </GlassCard>
+  );
+}
+
+type FilterChipProps = {
+  isActive: boolean;
+  label: string;
+  onPress: () => void;
+  variant?: 'default' | 'secondary';
+};
+
+function FilterChip({
+  isActive,
+  label,
+  onPress,
+  variant = 'default',
+}: FilterChipProps) {
+  return (
+    <Chip
+      label={label}
+      onPress={onPress}
+      selected={isActive}
+      tone={variant === 'secondary' ? 'neutral' : 'brand'}
+    />
   );
 }
 
@@ -328,138 +508,117 @@ function formatTime(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
+function formatMinutes(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
+}
+
+function getSummaryCardStyle(
+  theme: ReturnType<typeof useTheme>,
+  variant: SummaryCardVariant,
+) {
+  if (variant === SUMMARY_CARD_VARIANT.accent) {
+    return {
+      backgroundColor: theme.colors.brand.muted,
+      borderColor: theme.colors.brand.muted,
+    };
+  }
+
+  if (variant === SUMMARY_CARD_VARIANT.default) {
+    return {
+      backgroundColor: theme.surface.glass.soft,
+      borderColor: theme.surface.glass.border,
+    };
+  }
+
+  return {
+    backgroundColor: theme.surface.glass.strong,
+    borderColor: theme.surface.glass.border,
+  };
+}
+
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
+  container: {
+    alignSelf: 'center',
+    gap: 16,
+    maxWidth: 960,
+    paddingHorizontal: 16,
+    width: '100%',
   },
   loaderContainer: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
   },
-  loaderText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  headerRow: {
+  metricsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  backButton: {
-    borderRadius: 999,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.two,
+  metricCard: {
+    flexGrow: 1,
+    gap: 8,
+    minWidth: '30%',
   },
-  backButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
+  metricValue: {
+    letterSpacing: -0.4,
   },
   filtersCard: {
-    borderRadius: 24,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    gap: 16,
   },
-  filterLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+  filterToolbar: {
+    gap: 12,
   },
-  dateInputsRow: {
+  yearChipsRow: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  monthGrid: {
     flexDirection: 'row',
-    gap: Spacing.two,
-  },
-  dateInputContainer: {
-    flex: 1,
-    gap: Spacing.one,
-  },
-  dateInput: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: 10,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  applyButton: {
-    borderRadius: 12,
-    paddingVertical: Spacing.two,
-    alignItems: 'center',
-  },
-  applyButtonText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  errorText: {
-    fontSize: 12,
-    fontWeight: '600',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   tableCard: {
-    borderRadius: 24,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    gap: 16,
   },
   tableHeader: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#DDE7E1',
-    paddingBottom: Spacing.two,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: 12,
   },
   tableRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
+    flexDirection: 'row',
+    minHeight: 52,
     width: '100%',
   },
   headerCell: {
     flex: 1,
-    fontSize: 12,
-    fontWeight: '700',
   },
   bodyCell: {
     flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
   },
   dateColumn: {
     flex: 1.2,
   },
   statusColumn: {
-    flex: 0.9,
-    textAlign: 'right',
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  statusCell: {
+    justifyContent: 'center',
   },
   emptyText: {
-    fontSize: 13,
-    paddingVertical: Spacing.two,
+    paddingVertical: 8,
   },
   paginationRow: {
-    flexDirection: 'row',
     alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
     justifyContent: 'space-between',
-    gap: Spacing.two,
   },
   paginationButton: {
-    borderRadius: 12,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.two,
-  },
-  paginationButtonText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  pageInfo: {
-    fontSize: 12,
-    fontWeight: '600',
+    minWidth: 112,
   },
 });

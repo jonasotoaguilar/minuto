@@ -1,21 +1,10 @@
 import { type Href, Link, useRouter } from 'expo-router';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import {
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { z } from 'zod';
-
-import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
+import { PrimaryButton, Screen, ThemedText } from '@/theme/primitives';
 
 const MAX_EMAIL_LENGTH = 120;
 const MAX_PASSWORD_LENGTH = 72;
@@ -46,7 +35,6 @@ type TouchedFields = Partial<Record<keyof LoginFormValues, boolean>>;
 
 export default function LoginScreen() {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -187,208 +175,313 @@ export default function LoginScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.select({ ios: 'padding', android: undefined })}
+    <Screen
+      keyboardAvoiding
+      scroll
+      contentContainerStyle={[
+        styles.container,
+        {
+          paddingTop: theme.spacing['2xl'],
+          paddingBottom: theme.spacing['3xl'],
+        },
+      ]}
     >
-      <ScrollView
-        style={[styles.page, { backgroundColor: theme.background }]}
-        contentContainerStyle={[
-          styles.container,
-          {
-            paddingTop: insets.top + Spacing.three,
-            paddingBottom: insets.bottom + Spacing.five,
-          },
-        ]}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.topBar}>
-          <View style={styles.brand}>
-            <View
-              style={[styles.brandIcon, { backgroundColor: theme.primary }]}
-            >
-              <Text style={styles.brandLetter}>M</Text>
-            </View>
-            <Text style={[styles.brandText, { color: theme.text }]}>
-              Minuto
-            </Text>
-          </View>
-          <View style={styles.topLinks}>
-            <Text style={[styles.topLink, { color: theme.textSecondary }]}>
-              About
-            </Text>
-            <Text style={[styles.topLink, { color: theme.textSecondary }]}>
-              Support
-            </Text>
-          </View>
-        </View>
-
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: theme.backgroundElement,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View style={[styles.cardBanner, { backgroundColor: theme.primary }]}>
-            <View
+      <View style={styles.topBar}>
+        <View style={styles.brand}>
+          <View
+            style={[
+              styles.brandIcon,
+              { backgroundColor: theme.colors.brand.primary },
+            ]}
+          >
+            <ThemedText
+              colorToken="inverse"
               style={[
-                styles.cardShield,
-                { backgroundColor: theme.primaryMuted },
-              ]}
-            >
-              <Text style={[styles.cardShieldText, { color: theme.primary }]}>
-                OK
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.cardBody}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>
-              Bienvenido a Minuto
-            </Text>
-            <Text style={[styles.cardSubtitle, { color: theme.textSecondary }]}>
-              Ingresa a tu cuenta
-            </Text>
-
-            <View style={styles.form}>
-              <Field
-                label="Email"
-                placeholder="nombre@empresa.com"
-                theme={theme}
-                icon="@"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                maxLength={MAX_EMAIL_LENGTH}
-                onFocus={() => setFocusedField('email')}
-                onBlur={() => {
-                  setFocusedField(null);
-                  setTouchedFields((current) => ({ ...current, email: true }));
-                }}
-                error={
-                  touchedFields.email && focusedField !== 'email'
-                    ? fieldErrors.email
-                    : undefined
-                }
-              />
-              <View style={styles.passwordRow}>
-                <Text style={[styles.fieldLabel, { color: theme.text }]}>
-                  Contraseña
-                </Text>
-                <Text style={[styles.linkText, { color: theme.primary }]}>
-                  ¿Olvidaste la contraseña?
-                </Text>
-              </View>
-              <Field
-                placeholder="********"
-                theme={theme}
-                icon="*"
-                secure={!isPasswordVisible}
-                value={password}
-                onChangeText={setPassword}
-                autoCorrect={false}
-                maxLength={MAX_PASSWORD_LENGTH}
-                onFocus={() => setFocusedField('password')}
-                onBlur={() => {
-                  setFocusedField(null);
-                  setTouchedFields((current) => ({
-                    ...current,
-                    password: true,
-                  }));
-                }}
-                error={
-                  touchedFields.password && focusedField !== 'password'
-                    ? fieldErrors.password
-                    : undefined
-                }
-                rightElement={
-                  <Pressable
-                    onPress={() => setIsPasswordVisible((current) => !current)}
-                    hitSlop={8}
-                  >
-                    <Text style={[styles.toggleText, { color: theme.primary }]}>
-                      {isPasswordVisible ? 'Ocultar' : 'Ver'}
-                    </Text>
-                  </Pressable>
-                }
-              />
-            </View>
-
-            <Pressable
-              onPress={handleSignIn}
-              disabled={isSubmitDisabled}
-              style={[
-                styles.primaryButton,
+                styles.brandLetter,
                 {
-                  backgroundColor: theme.primary,
-                  opacity: isSubmitDisabled ? 0.6 : 1,
+                  fontSize: theme.typography.subtitle.fontSize,
+                  fontWeight: theme.typography.subtitle.fontWeight,
                 },
               ]}
             >
-              <Text style={styles.primaryButtonText}>
-                {isSubmitting ? 'Ingresando...' : 'Iniciar Sesión →'}
-              </Text>
-            </Pressable>
+              M
+            </ThemedText>
+          </View>
+          <ThemedText
+            variant="title"
+            style={[styles.brandText, { fontSize: 20 }]}
+          >
+            Minuto
+          </ThemedText>
+        </View>
+        {/* <View style={styles.topLinks}>
+          <ThemedText
+            colorToken="secondary"
+            variant="caption"
+            style={[
+              styles.topLink,
+              { fontWeight: theme.typography.label.fontWeight },
+            ]}
+          >
+            About
+          </ThemedText>
+          <ThemedText
+            colorToken="secondary"
+            variant="caption"
+            style={[
+              styles.topLink,
+              { fontWeight: theme.typography.label.fontWeight },
+            ]}
+          >
+            Support
+          </ThemedText>
+        </View> */}
+      </View>
 
-            {errorMessage ? (
-              <Text style={[styles.errorText, { color: theme.error }]}>
-                {errorMessage}
-              </Text>
-            ) : null}
-
-            {infoMessage ? (
-              <Text style={[styles.infoText, { color: theme.textSecondary }]}>
-                {infoMessage}
-              </Text>
-            ) : null}
-
-            <Text style={[styles.helpText, { color: theme.textSecondary }]}>
-              ¿Problemas para entrar?{' '}
-              <Text style={[styles.helpLink, { color: theme.primary }]}>
-                Estamos aquí para ayudarte
-              </Text>
-            </Text>
-
-            {isLockoutActive ? (
-              <Text style={[styles.errorText, { color: theme.error }]}>
-                Demasiados intentos fallidos. Probá en {lockoutSecondsLeft}s.
-              </Text>
-            ) : failedAttempts > 0 ? (
-              <Text style={[styles.helpText, { color: theme.textSecondary }]}>
-                Intentos fallidos: {failedAttempts}/{MAX_FAILED_ATTEMPTS}
-              </Text>
-            ) : null}
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.colors.background.card,
+            shadowColor: theme.colors.shadow.color,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.cardBanner,
+            { backgroundColor: theme.colors.brand.primary },
+          ]}
+        >
+          <View
+            style={[
+              styles.cardShield,
+              { backgroundColor: theme.colors.brand.muted },
+            ]}
+          >
+            <ThemedText
+              colorToken="brand"
+              style={[
+                styles.cardShieldText,
+                {
+                  fontSize: theme.typography.body.fontSize,
+                  fontWeight: theme.typography.label.fontWeight,
+                },
+              ]}
+            >
+              OK
+            </ThemedText>
           </View>
         </View>
 
-        <Text style={[styles.footerText, { color: theme.textSecondary }]}>
-          ¿Aún no tienes cuenta?{' '}
-          <Link
-            href="/register"
-            style={{ color: theme.primary, fontWeight: '600' }}
+        <View style={styles.cardBody}>
+          <ThemedText variant="heading" style={styles.cardTitle}>
+            Bienvenido a Minuto
+          </ThemedText>
+          <ThemedText
+            colorToken="secondary"
+            style={[
+              styles.cardSubtitle,
+              { fontSize: theme.typography.bodySmall.fontSize },
+            ]}
           >
-            Contrata Minuto para tu negocio
-          </Link>
-        </Text>
+            Ingresa a tu cuenta
+          </ThemedText>
 
-        <View style={styles.bottomLinks}>
-          <Text style={[styles.bottomLink, { color: theme.textSecondary }]}>
-            PRIVACIDAD
-          </Text>
-          <Text style={[styles.bottomLink, { color: theme.textSecondary }]}>
-            TÉRMINOS
-          </Text>
-          <Text style={[styles.bottomLink, { color: theme.textSecondary }]}>
-            COOKIES
-          </Text>
+          <View style={styles.form}>
+            <Field
+              label="Email"
+              placeholder="nombre@empresa.com"
+              icon="@"
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={MAX_EMAIL_LENGTH}
+              onFocus={() => setFocusedField('email')}
+              onBlur={() => {
+                setFocusedField(null);
+                setTouchedFields((current) => ({ ...current, email: true }));
+              }}
+              error={
+                touchedFields.email && focusedField !== 'email'
+                  ? fieldErrors.email
+                  : undefined
+              }
+            />
+            {/* TODO: Implementar recuperación de contraseña */}
+            <View style={styles.passwordRow}>
+              <ThemedText variant="label">Contraseña</ThemedText>
+              <ThemedText
+                colorToken="brand"
+                variant="caption"
+                style={[
+                  styles.linkText,
+                  { fontWeight: theme.typography.label.fontWeight },
+                ]}
+              >
+                ¿Olvidaste la contraseña?
+              </ThemedText>
+            </View>
+            <Field
+              placeholder="********"
+              icon="*"
+              secure={!isPasswordVisible}
+              value={password}
+              onChangeText={setPassword}
+              autoCorrect={false}
+              maxLength={MAX_PASSWORD_LENGTH}
+              onFocus={() => setFocusedField('password')}
+              onBlur={() => {
+                setFocusedField(null);
+                setTouchedFields((current) => ({
+                  ...current,
+                  password: true,
+                }));
+              }}
+              error={
+                touchedFields.password && focusedField !== 'password'
+                  ? fieldErrors.password
+                  : undefined
+              }
+              rightElement={
+                <Pressable
+                  onPress={() => setIsPasswordVisible((current) => !current)}
+                  hitSlop={8}
+                >
+                  <ThemedText
+                    colorToken="brand"
+                    variant="caption"
+                    style={[
+                      styles.toggleText,
+                      { fontWeight: theme.typography.label.fontWeight },
+                    ]}
+                  >
+                    {isPasswordVisible ? 'Ocultar' : 'Ver'}
+                  </ThemedText>
+                </Pressable>
+              }
+            />
+          </View>
+
+          <PrimaryButton
+            disabled={isSubmitDisabled}
+            label={isSubmitting ? 'Ingresando...' : 'Iniciar Sesión →'}
+            loading={isSubmitting}
+            onPress={handleSignIn}
+          />
+
+          {errorMessage ? (
+            <ThemedText
+              colorToken="error"
+              style={[
+                styles.messageText,
+                {
+                  fontSize: theme.typography.caption.fontSize,
+                  fontWeight: theme.typography.label.fontWeight,
+                },
+              ]}
+            >
+              {errorMessage}
+            </ThemedText>
+          ) : null}
+
+          {infoMessage ? (
+            <ThemedText
+              colorToken="secondary"
+              style={[
+                styles.messageText,
+                {
+                  fontSize: theme.typography.caption.fontSize,
+                  fontWeight: theme.typography.label.fontWeight,
+                },
+              ]}
+            >
+              {infoMessage}
+            </ThemedText>
+          ) : null}
+
+          {/* <ThemedText
+            colorToken="secondary"
+            style={[
+              styles.helpText,
+              { fontSize: theme.typography.caption.fontSize },
+            ]}
+          >
+            ¿Problemas para entrar?{' '}
+            <ThemedText
+              colorToken="brand"
+              style={[
+                styles.helpLink,
+                {
+                  fontSize: theme.typography.caption.fontSize,
+                  fontWeight: theme.typography.label.fontWeight,
+                },
+              ]}
+            >
+              Estamos aquí para ayudarte
+            </ThemedText>
+          </ThemedText> */}
+
+          <ThemedText
+            colorToken="secondary"
+            style={[
+              styles.footerText,
+              { fontSize: theme.typography.caption.fontSize },
+            ]}
+          >
+            ¿Aún no tienes cuenta?{' '}
+            <Link
+              href="/register"
+              style={{
+                color: theme.colors.brand.primary,
+                fontWeight: theme.typography.label.fontWeight,
+              }}
+            >
+              Registrate en Minuto
+            </Link>
+          </ThemedText>
+
+          {isLockoutActive ? (
+            <ThemedText
+              colorToken="error"
+              style={[
+                styles.messageText,
+                {
+                  fontSize: theme.typography.caption.fontSize,
+                  fontWeight: theme.typography.label.fontWeight,
+                },
+              ]}
+            >
+              Demasiados intentos fallidos. Probá en {lockoutSecondsLeft}s.
+            </ThemedText>
+          ) : failedAttempts > 0 ? (
+            <ThemedText
+              colorToken="secondary"
+              style={[
+                styles.helpText,
+                { fontSize: theme.typography.caption.fontSize },
+              ]}
+            >
+              Intentos fallidos: {failedAttempts}/{MAX_FAILED_ATTEMPTS}
+            </ThemedText>
+          ) : null}
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </View>
+
+      {/* <View style={styles.bottomLinks}>
+        <ThemedText colorToken="secondary" variant="eyebrow">
+          PRIVACIDAD
+        </ThemedText>
+        <ThemedText colorToken="secondary" variant="eyebrow">
+          TÉRMINOS
+        </ThemedText>
+        <ThemedText colorToken="secondary" variant="eyebrow">
+          COOKIES
+        </ThemedText>
+      </View> */}
+    </Screen>
   );
 }
 
@@ -396,7 +489,6 @@ type FieldProps = {
   label?: string;
   placeholder: string;
   icon: string;
-  theme: ReturnType<typeof useTheme>;
   secure?: boolean;
   value?: string;
   onChangeText?: (value: string) => void;
@@ -414,7 +506,6 @@ function Field({
   label,
   placeholder,
   icon,
-  theme,
   secure,
   value,
   onChangeText,
@@ -427,22 +518,43 @@ function Field({
   onBlur,
   onFocus,
 }: FieldProps) {
+  const theme = useTheme();
+
   return (
     <View style={styles.fieldGroup}>
-      {label ? (
-        <Text style={[styles.fieldLabel, { color: theme.text }]}>{label}</Text>
-      ) : null}
+      {label ? <ThemedText variant="label">{label}</ThemedText> : null}
       <View
         style={[
           styles.field,
-          { borderColor: error ? theme.error : theme.border },
+          {
+            borderColor: error
+              ? theme.colors.status.error
+              : theme.colors.border.default,
+          },
         ]}
       >
-        <Text style={[styles.fieldIcon, { color: theme.primary }]}>{icon}</Text>
+        <ThemedText
+          colorToken="brand"
+          style={[
+            styles.fieldIcon,
+            {
+              fontSize: theme.typography.bodySmall.fontSize,
+              fontWeight: theme.typography.label.fontWeight,
+            },
+          ]}
+        >
+          {icon}
+        </ThemedText>
         <TextInput
           placeholder={placeholder}
-          placeholderTextColor={theme.textSecondary}
-          style={[styles.fieldInput, { color: theme.text }]}
+          placeholderTextColor={theme.colors.text.muted}
+          style={[
+            styles.fieldInput,
+            {
+              color: theme.colors.text.primary,
+              fontSize: theme.typography.bodySmall.fontSize,
+            },
+          ]}
           secureTextEntry={secure}
           value={value}
           onChangeText={onChangeText}
@@ -456,19 +568,25 @@ function Field({
         {rightElement}
       </View>
       {error ? (
-        <Text style={[styles.fieldError, { color: theme.error }]}>{error}</Text>
+        <ThemedText
+          colorToken="error"
+          variant="caption"
+          style={[
+            styles.fieldError,
+            { fontWeight: theme.typography.label.fontWeight },
+          ]}
+        >
+          {error}
+        </ThemedText>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  page: {
-    flex: 1,
-  },
   container: {
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.three,
+    paddingHorizontal: 16,
+    gap: 16,
   },
   topBar: {
     flexDirection: 'row',
@@ -478,7 +596,7 @@ const styles = StyleSheet.create({
   brand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    gap: 8,
   },
   brandIcon: {
     width: 40,
@@ -488,22 +606,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brandLetter: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 18,
+    // Using label typography for compact brand icon text
   },
   brandText: {
-    fontSize: 20,
-    fontWeight: '600',
-    fontFamily: Fonts.serif,
+    // fontSize applied inline via theme.typography.title
   },
   topLinks: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 8,
   },
   topLink: {
-    fontSize: 12,
-    fontWeight: '600',
+    // fontWeight applied inline via theme.typography.label
   },
   card: {
     borderRadius: 28,
@@ -526,50 +639,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardShieldText: {
-    fontSize: 16,
-    fontWeight: '700',
+    // Using body typography with semibold weight
   },
   cardBody: {
-    padding: Spacing.three,
-    gap: Spacing.three,
+    padding: 16,
+    gap: 16,
   },
   cardTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
     textAlign: 'center',
   },
   cardSubtitle: {
-    fontSize: 14,
+    // fontSize applied inline via theme.typography.bodySmall
     textAlign: 'center',
   },
   form: {
-    gap: Spacing.two,
+    gap: 8,
   },
   fieldGroup: {
-    gap: Spacing.one,
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
+    gap: 4,
   },
   field: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.one,
-    gap: Spacing.one,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
   },
   fieldIcon: {
-    fontSize: 14,
-    fontWeight: '700',
+    // Typography applied inline via theme.typography.label
   },
   fieldInput: {
     flex: 1,
-    fontSize: 14,
-    paddingVertical: Spacing.one,
+    // fontSize applied inline via theme.typography.bodySmall
+    paddingVertical: 4,
   },
   passwordRow: {
     flexDirection: 'row',
@@ -577,55 +681,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   linkText: {
-    fontSize: 12,
-    fontWeight: '600',
+    // fontWeight applied inline via theme.typography.label
   },
   toggleText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  primaryButton: {
-    paddingVertical: Spacing.two,
-    borderRadius: 999,
-    alignItems: 'center',
+    // fontWeight applied inline via theme.typography.label (bold)
   },
   fieldError: {
-    fontSize: 12,
-    fontWeight: '600',
+    // fontWeight applied inline via theme.typography.label
   },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+  messageText: {
+    // Typography applied inline via theme.typography.caption with semibold
+    textAlign: 'center',
   },
   helpText: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  errorText: {
-    fontSize: 12,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  infoText: {
-    fontSize: 12,
+    // fontSize applied inline via theme.typography.caption
     textAlign: 'center',
   },
   helpLink: {
-    fontWeight: '600',
+    // fontWeight applied inline via theme.typography.label
   },
   footerText: {
-    fontSize: 12,
+    // fontSize applied inline via theme.typography.caption
     textAlign: 'center',
   },
   bottomLinks: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: Spacing.two,
-  },
-  bottomLink: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1,
+    gap: 8,
   },
 });

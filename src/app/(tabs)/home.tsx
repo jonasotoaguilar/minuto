@@ -1,18 +1,28 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, View } from 'react-native';
+
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
-
-import { StatusPill } from '@/components/status-pill';
-import { Fonts, Spacing } from '@/constants/theme';
+import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  Chip,
+  GlassCard,
+  Screen,
+  SectionHeader,
+  ThemedText,
+} from '@/theme/primitives';
+
+const QUICK_ACTIONS: ReadonlyArray<{ href?: '/(tabs)/team'; label: string }> = [
+  { label: 'Payroll' },
+  { label: 'Benefits' },
+  { href: '/(tabs)/team', label: 'Team' },
+];
 
 export default function HomeScreen() {
   const router = useRouter();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const {
     activeOrganization,
     isLoadingOrganizations,
@@ -21,13 +31,11 @@ export default function HomeScreen() {
 
   if (isLoadingOrganizations) {
     return (
-      <View
-        style={[styles.loaderContainer, { backgroundColor: theme.background }]}
-      >
-        <Text style={[styles.loaderText, { color: theme.textSecondary }]}>
+      <Screen contentContainerStyle={styles.loaderContainer}>
+        <ThemedText colorToken="secondary" variant="label">
           Cargando organizaciones...
-        </Text>
-      </View>
+        </ThemedText>
+      </Screen>
     );
   }
 
@@ -36,475 +44,392 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScrollView
-      style={[styles.page, { backgroundColor: theme.background }]}
+    <Screen
+      scroll
       contentContainerStyle={[
         styles.container,
         {
-          paddingTop: insets.top + Spacing.three,
-          paddingBottom: insets.bottom + 110,
+          paddingTop: theme.spacing.lg,
+          paddingBottom: BottomTabInset + theme.spacing['2xl'],
         },
       ]}
+      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
     >
       <AppHeader />
 
-      <View
-        style={[
-          styles.profileCard,
-          {
-            backgroundColor: theme.backgroundElement,
-            shadowColor: theme.shadow,
-          },
-        ]}
-      >
+      <GlassCard style={styles.profileCard}>
         <View style={styles.profileHeader}>
           <View
             style={[
               styles.avatarLarge,
-              { backgroundColor: theme.primaryMuted },
-            ]}
-          >
-            <Text style={[styles.avatarInitials, { color: theme.accent }]}>
-              TO
-            </Text>
-            <View
-              style={[styles.onlineDot, { backgroundColor: theme.primary }]}
-            />
-          </View>
-          <Text style={[styles.profileName, { color: theme.text }]}>
-            Thiago Oliveira
-          </Text>
-          <Text style={[styles.profileRole, { color: theme.textSecondary }]}>
-            Senior Product Designer
-          </Text>
-        </View>
-
-        <View style={styles.profileFooter}>
-          <View style={styles.profileContact}>
-            <View
-              style={[styles.contactDot, { backgroundColor: theme.primary }]}
-            />
-            <Text style={[styles.contactText, { color: theme.textSecondary }]}>
-              thiago@minut...
-            </Text>
-          </View>
-          <View style={styles.profileContact}>
-            <View
-              style={[styles.contactDot, { backgroundColor: theme.primary }]}
-            />
-            <Text style={[styles.contactText, { color: theme.textSecondary }]}>
-              +55 11 9882...
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View
-        style={[
-          styles.highlightCard,
-          { backgroundColor: theme.primary, shadowColor: theme.shadow },
-        ]}
-      >
-        <View style={styles.highlightBadge}>
-          <View
-            style={[
-              styles.badgeSquare,
-              { backgroundColor: theme.primaryMuted },
-            ]}
-          >
-            <View
-              style={[styles.badgeTick, { backgroundColor: theme.primary }]}
-            />
-          </View>
-          <Text style={styles.badgeLabel}>PENDING SIGNATURE</Text>
-        </View>
-        <Text style={styles.highlightTitle}>
-          Q3 Performance Review & Bonus Agreement
-        </Text>
-        <Text style={styles.highlightSubtitle}>Due in 2 days</Text>
-        <View style={styles.highlightButton}>
-          <Text style={[styles.highlightButtonText, { color: theme.primary }]}>
-            Sign Document →
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.metricsRow}>
-        <View
-          style={[
-            styles.metricCard,
-            {
-              backgroundColor: theme.backgroundElement,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View
-            style={[styles.metricIcon, { backgroundColor: theme.primaryMuted }]}
-          >
-            <View
-              style={[
-                styles.metricIconInner,
-                { backgroundColor: theme.primary },
-              ]}
-            />
-          </View>
-          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>
-            VACATION
-          </Text>
-          <Text style={[styles.metricValue, { color: theme.text }]}>15</Text>
-          <Text style={[styles.metricCaption, { color: theme.textSecondary }]}>
-            Days remaining
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.metricCard,
-            {
-              backgroundColor: theme.backgroundElement,
-              shadowColor: theme.shadow,
-            },
-          ]}
-        >
-          <View
-            style={[styles.metricIcon, { backgroundColor: theme.primaryMuted }]}
-          >
-            <View
-              style={[
-                styles.metricIconInner,
-                { backgroundColor: theme.primary },
-              ]}
-            />
-          </View>
-          <Text style={[styles.metricLabel, { color: theme.textSecondary }]}>
-            ATTENDANCE
-          </Text>
-          <Text style={[styles.metricValue, { color: theme.text }]}>98%</Text>
-          <Text style={[styles.metricCaption, { color: theme.textSecondary }]}>
-            On-time rate
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.quickRow}>
-        {['Payroll', 'Benefits', 'Team'].map((label) => (
-          <Pressable
-            key={label}
-            onPress={
-              label === 'Team'
-                ? () => router.push('/(tabs)/team' as never)
-                : undefined
-            }
-            style={[
-              styles.quickItem,
               {
-                backgroundColor: theme.backgroundElement,
-                shadowColor: theme.shadow,
+                backgroundColor: theme.surface.glass.tint,
+                borderColor: theme.surface.glass.border,
               },
             ]}
           >
+            <ThemedText colorToken="accent" variant="heading">
+              TO
+            </ThemedText>
             <View
               style={[
-                styles.quickIcon,
-                { backgroundColor: theme.surfaceMuted },
+                styles.onlineDot,
+                {
+                  backgroundColor: theme.colors.status.success,
+                  borderColor: theme.colors.background.card,
+                },
               ]}
             />
-            <Text style={[styles.quickLabel, { color: theme.text }]}>
-              {label}
-            </Text>
-          </Pressable>
-        ))}
+          </View>
+
+          <View style={styles.profileCopy}>
+            <ThemedText style={styles.profileName} variant="heading">
+              Thiago Oliveira
+            </ThemedText>
+            <ThemedText colorToken="secondary" variant="subtitle">
+              Senior Product Designer
+            </ThemedText>
+          </View>
+
+          <Chip label="En línea" selected tone="success" />
+        </View>
+
+        <View style={styles.profileFooter}>
+          <ContactItem label="thiago@minut..." />
+          <ContactItem label="+55 11 9882..." />
+        </View>
+      </GlassCard>
+
+      <GlassCard
+        style={[
+          styles.highlightCard,
+          {
+            backgroundColor: theme.colors.brand.primary,
+            borderColor: theme.colors.brand.primary,
+          },
+        ]}
+        variant="soft"
+      >
+        <Chip label="PENDING SIGNATURE" tone="brand" />
+
+        <View style={styles.highlightCopy}>
+          <ThemedText colorToken="inverse" variant="heading">
+            Q3 Performance Review & Bonus Agreement
+          </ThemedText>
+          <ThemedText colorToken="inverse" variant="body">
+            Due in 2 days
+          </ThemedText>
+        </View>
+
+        <Pressable
+          accessibilityRole="button"
+          style={({ pressed }) => [
+            styles.highlightButton,
+            {
+              backgroundColor: theme.colors.background.card,
+              opacity: pressed ? 0.9 : 1,
+            },
+          ]}
+        >
+          <ThemedText colorToken="accent" variant="label">
+            Sign Document →
+          </ThemedText>
+        </Pressable>
+      </GlassCard>
+
+      <View style={styles.metricsRow}>
+        <MetricCard label="VACATION" value="15" caption="Days remaining" />
+        <MetricCard label="ATTENDANCE" value="98%" caption="On-time rate" />
       </View>
 
+      <View style={styles.quickRow}>
+        {QUICK_ACTIONS.map((action) => {
+          let handlePress: (() => void) | undefined;
+
+          if (action.href) {
+            const href = action.href;
+            handlePress = () => router.push(href);
+          }
+
+          return (
+            <Pressable
+              key={action.label}
+              accessibilityRole="button"
+              onPress={handlePress}
+              style={({ pressed }) => [
+                styles.quickItem,
+                {
+                  backgroundColor: theme.surface.glass.soft,
+                  opacity: pressed ? 0.92 : 1,
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.quickIcon,
+                  {
+                    backgroundColor: theme.surface.glass.tint,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.quickIconDot,
+                    { backgroundColor: theme.colors.brand.primary },
+                  ]}
+                />
+              </View>
+              <ThemedText variant="label">{action.label}</ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <GlassCard style={styles.activityCard} variant="soft">
+        <SectionHeader
+          action={
+            <ThemedText colorToken="accent" variant="label">
+              View all
+            </ThemedText>
+          }
+          title="Recent Activity"
+        />
+
+        <ActivityItem
+          accentColor={theme.colors.status.success}
+          title="Bonus payment approved"
+          when="Yesterday, 4:30 PM"
+        />
+        <ActivityItem
+          accentColor={theme.colors.background.selected}
+          title="Updated address in portal"
+          when="Oct 12, 11:20 AM"
+        />
+      </GlassCard>
+
+      <View style={styles.statusRow}>
+        <Chip label="ZONA DE TRABAJO VALIDADA" selected tone="success" />
+      </View>
+    </Screen>
+  );
+}
+
+function ContactItem({ label }: { label: string }) {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.profileContact}>
       <View
         style={[
-          styles.activityCard,
+          styles.contactDot,
+          { backgroundColor: theme.colors.brand.primary },
+        ]}
+      />
+      <ThemedText colorToken="secondary" variant="caption">
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+function MetricCard(props: { caption: string; label: string; value: string }) {
+  const theme = useTheme();
+
+  return (
+    <GlassCard style={styles.metricCard} variant="soft">
+      <View
+        style={[
+          styles.metricIcon,
           {
-            backgroundColor: theme.backgroundElement,
-            shadowColor: theme.shadow,
+            backgroundColor: theme.surface.glass.tint,
+            borderColor: theme.surface.glass.border,
           },
         ]}
       >
-        <View style={styles.activityHeader}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Recent Activity
-          </Text>
-          <Text style={[styles.sectionLink, { color: theme.primary }]}>
-            View all
-          </Text>
-        </View>
-        <View style={styles.activityItem}>
-          <View
-            style={[styles.activityDot, { backgroundColor: theme.primary }]}
-          />
-          <View>
-            <Text style={[styles.activityTitle, { color: theme.text }]}>
-              Bonus payment approved
-            </Text>
-            <Text style={[styles.activityTime, { color: theme.textSecondary }]}>
-              Yesterday, 4:30 PM
-            </Text>
-          </View>
-        </View>
-        <View style={styles.activityItem}>
-          <View
-            style={[
-              styles.activityDot,
-              { backgroundColor: theme.backgroundSelected },
-            ]}
-          />
-          <View>
-            <Text style={[styles.activityTitle, { color: theme.text }]}>
-              Updated address in portal
-            </Text>
-            <Text style={[styles.activityTime, { color: theme.textSecondary }]}>
-              Oct 12, 11:20 AM
-            </Text>
-          </View>
-        </View>
+        <View
+          style={[
+            styles.metricIconInner,
+            { backgroundColor: theme.colors.brand.primary },
+          ]}
+        />
       </View>
+      <ThemedText colorToken="secondary" variant="label">
+        {props.label}
+      </ThemedText>
+      <ThemedText style={styles.metricValue} variant="heading">
+        {props.value}
+      </ThemedText>
+      <ThemedText colorToken="secondary" variant="bodySmall">
+        {props.caption}
+      </ThemedText>
+    </GlassCard>
+  );
+}
 
-      <View style={styles.statusRow}>
-        <StatusPill label="ZONA DE TRABAJO VALIDADA" />
+function ActivityItem(props: {
+  accentColor: string;
+  title: string;
+  when: string;
+}) {
+  return (
+    <View style={styles.activityItem}>
+      <View
+        style={[styles.activityDot, { backgroundColor: props.accentColor }]}
+      />
+      <View style={styles.activityCopy}>
+        <ThemedText variant="subtitle">{props.title}</ThemedText>
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          {props.when}
+        </ThemedText>
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    alignSelf: 'center',
+    gap: 16,
+    maxWidth: 720,
+    paddingHorizontal: 16,
+    width: '100%',
+  },
   loaderContainer: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
     justifyContent: 'center',
   },
-  loaderText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  page: {
-    flex: 1,
-  },
-  container: {
-    paddingHorizontal: Spacing.three,
-    gap: Spacing.three,
-  },
   profileCard: {
-    borderRadius: 28,
-    padding: Spacing.three,
-    gap: Spacing.three,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+    gap: 16,
   },
   profileHeader: {
     alignItems: 'center',
-    gap: Spacing.one,
+    flexDirection: 'row',
+    gap: 12,
   },
   avatarLarge: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
     alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 88,
     justifyContent: 'center',
-  },
-  avatarInitials: {
-    fontSize: 18,
-    fontWeight: '700',
+    width: 88,
   },
   onlineDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    position: 'absolute',
-    bottom: 6,
-    right: 6,
+    borderRadius: 999,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    bottom: 6,
+    height: 14,
+    position: 'absolute',
+    right: 6,
+    width: 14,
+  },
+  profileCopy: {
+    flex: 1,
+    gap: 4,
   },
   profileName: {
-    fontSize: 20,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
-  },
-  profileRole: {
-    fontSize: 14,
-    fontWeight: '500',
+    letterSpacing: -0.3,
   },
   profileFooter: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
     justifyContent: 'space-between',
-    gap: Spacing.three,
   },
   profileContact: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.one,
+    flexDirection: 'row',
+    gap: 8,
   },
   contactDot: {
-    width: 8,
+    borderRadius: 999,
     height: 8,
-    borderRadius: 4,
-  },
-  contactText: {
-    fontSize: 12,
+    width: 8,
   },
   highlightCard: {
-    borderRadius: 32,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
-    elevation: 10,
+    gap: 16,
   },
-  highlightBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-  },
-  badgeSquare: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badgeTick: {
-    width: 12,
-    height: 12,
-    borderRadius: 3,
-  },
-  badgeLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#EFFFF7',
-    letterSpacing: 0.6,
-  },
-  highlightTitle: {
-    color: '#F7FFFB',
-    fontSize: 20,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
-  },
-  highlightSubtitle: {
-    color: '#E3FFF2',
-    fontSize: 14,
-    fontWeight: '500',
+  highlightCopy: {
+    gap: 8,
   },
   highlightButton: {
-    marginTop: Spacing.one,
-    backgroundColor: '#FFFFFF',
-    paddingVertical: Spacing.two,
-    borderRadius: 999,
     alignItems: 'center',
-  },
-  highlightButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
+    borderRadius: 999,
+    justifyContent: 'center',
+    minHeight: 48,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    alignSelf: 'flex-start',
   },
   metricsRow: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 8,
   },
   metricCard: {
     flex: 1,
-    borderRadius: 24,
-    padding: Spacing.three,
-    gap: Spacing.one,
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    gap: 8,
+    minHeight: 148,
+    justifyContent: 'space-between',
   },
   metricIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
     alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 40,
     justifyContent: 'center',
-    marginBottom: Spacing.one,
+    width: 40,
   },
   metricIconInner: {
-    width: 16,
+    borderRadius: 999,
     height: 16,
-    borderRadius: 8,
-  },
-  metricLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
+    width: 16,
   },
   metricValue: {
-    fontSize: 26,
-    fontWeight: '700',
-  },
-  metricCaption: {
-    fontSize: 12,
+    letterSpacing: -0.5,
   },
   quickRow: {
     flexDirection: 'row',
-    gap: Spacing.two,
+    gap: 8,
   },
   quickItem: {
-    flex: 1,
-    borderRadius: 20,
-    paddingVertical: Spacing.two,
     alignItems: 'center',
-    gap: Spacing.one,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 4,
+    borderRadius: 20,
+    flex: 1,
+    gap: 8,
+    justifyContent: 'center',
+    minHeight: 112,
+    paddingHorizontal: 12,
+    paddingVertical: 16,
   },
   quickIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 40,
+    justifyContent: 'center',
+    width: 40,
   },
-  quickLabel: {
-    fontSize: 12,
-    fontWeight: '600',
+  quickIconDot: {
+    borderRadius: 999,
+    height: 14,
+    width: 14,
   },
   activityCard: {
-    borderRadius: 28,
-    padding: Spacing.three,
-    gap: Spacing.two,
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  activityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    fontFamily: Fonts.serif,
-  },
-  sectionLink: {
-    fontSize: 12,
-    fontWeight: '600',
+    gap: 16,
   },
   activityItem: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.two,
+    flexDirection: 'row',
+    gap: 12,
   },
   activityDot: {
-    width: 10,
+    borderRadius: 999,
     height: 10,
-    borderRadius: 5,
+    width: 10,
   },
-  activityTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  activityTime: {
-    fontSize: 12,
+  activityCopy: {
+    flex: 1,
+    gap: 2,
   },
   statusRow: {
     alignItems: 'center',

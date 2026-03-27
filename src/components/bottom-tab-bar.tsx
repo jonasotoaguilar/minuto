@@ -1,10 +1,9 @@
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { Fonts, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { GlassCard, ThemedText } from '@/theme/primitives';
 
 type IconProps = {
   color: string;
@@ -142,8 +141,8 @@ export function BottomTabBar({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
-  const primary = theme.primary;
-  const inactive = theme.textSecondary;
+  const primary = theme.colors.brand.primary;
+  const inactive = theme.colors.text.secondary;
   const routes = state.routes;
 
   const homeRoute = routes.find((route) => route.name === 'home') ?? routes[0];
@@ -185,7 +184,19 @@ export function BottomTabBar({
       ]}
       pointerEvents="box-none"
     >
-      <View style={[styles.bar, { backgroundColor: theme.backgroundElement }]}>
+      <GlassCard
+        padding={0}
+        style={[
+          styles.bar,
+          {
+            backgroundColor: theme.surface.glass.strong,
+            borderColor: theme.surface.glass.border,
+            shadowColor: theme.colors.shadow.color,
+            ...theme.elevation.elevated,
+          },
+        ]}
+        variant="soft"
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
@@ -198,16 +209,17 @@ export function BottomTabBar({
             color={state.index === homeRouteIndex ? primary : inactive}
             isActive={state.index === homeRouteIndex}
           />
-          <Text
+          <ThemedText
             style={[
               styles.tabLabel,
               {
                 color: state.index === homeRouteIndex ? primary : inactive,
               },
             ]}
+            variant="caption"
           >
             Inicio
-          </Text>
+          </ThemedText>
         </Pressable>
 
         <Pressable
@@ -222,16 +234,17 @@ export function BottomTabBar({
             color={state.index === controlRouteIndex ? primary : inactive}
             isActive={state.index === controlRouteIndex}
           />
-          <Text
+          <ThemedText
             style={[
               styles.tabLabel,
               {
                 color: state.index === controlRouteIndex ? primary : inactive,
               },
             ]}
+            variant="caption"
           >
             Control
-          </Text>
+          </ThemedText>
         </Pressable>
 
         <Pressable
@@ -246,16 +259,17 @@ export function BottomTabBar({
             color={state.index === teamRouteIndex ? primary : inactive}
             isActive={state.index === teamRouteIndex}
           />
-          <Text
+          <ThemedText
             style={[
               styles.tabLabel,
               {
                 color: state.index === teamRouteIndex ? primary : inactive,
               },
             ]}
+            variant="caption"
           >
             Equipo
-          </Text>
+          </ThemedText>
         </Pressable>
 
         <Pressable
@@ -270,18 +284,19 @@ export function BottomTabBar({
             color={state.index === profileRouteIndex ? primary : inactive}
             isActive={state.index === profileRouteIndex}
           />
-          <Text
+          <ThemedText
             style={[
               styles.tabLabel,
               {
                 color: state.index === profileRouteIndex ? primary : inactive,
               },
             ]}
+            variant="caption"
           >
             Perfil
-          </Text>
+          </ThemedText>
         </Pressable>
-      </View>
+      </GlassCard>
     </View>
   );
 }
@@ -292,29 +307,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   bar: {
-    marginHorizontal: Spacing.three,
-    marginBottom: Spacing.two,
-    paddingTop: Spacing.two,
-    paddingBottom: Spacing.two,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
     borderRadius: 999,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
   },
   tabButton: {
     flex: 1,
     alignItems: 'center',
     gap: 6,
-    paddingVertical: Spacing.one,
+    paddingVertical: 4,
   },
   tabLabel: {
     fontSize: 12,
     fontWeight: '600',
-    fontFamily: Fonts.sans,
+    // TODO: Move to inline style with theme.typography.body.fontFamily
   },
   iconBox: {
     width: 20,
