@@ -400,7 +400,7 @@ export default function ControlHistoryScreen() {
           </ThemedText>
           <ThemedText
             colorToken="secondary"
-            style={styles.headerCell}
+            style={[styles.headerCell, styles.typeColumnHeader]}
             variant="label"
           >
             Tipo
@@ -447,7 +447,7 @@ export default function ControlHistoryScreen() {
               <ThemedText style={styles.bodyCell} variant="bodySmall">
                 {formatTime(row.datetime, currentTimezone)}
               </ThemedText>
-              <View style={styles.bodyCell}>
+              <View style={[styles.bodyCell, styles.typeColumnCell]}>
                 <Chip
                   label={row.type}
                   tone={row.type === 'Entrada' ? 'success' : 'neutral'}
@@ -666,6 +666,15 @@ const styles = StyleSheet.create({
   },
   bodyCell: {
     flex: 1,
+  },
+  typeColumnHeader: {
+    flex: 1.2,
+    textAlign: 'center',
+  },
+  typeColumnCell: {
+    alignItems: 'center',
+    flex: 1.2,
+    justifyContent: 'center',
   },
   dateColumn: {
     flex: 1.2,
