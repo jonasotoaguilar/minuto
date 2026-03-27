@@ -125,6 +125,7 @@ export interface UpdateEmployeeProfileParams {
   membershipId: string;
   shiftDurationHours?: number;
   breakDurationHours?: number;
+  weeklyHours?: number;
   position?: string;
   department?: string;
   hireDate?: string;
@@ -430,6 +431,7 @@ export async function updateEmployeeProfile(
     p_membership_id: params.membershipId,
     p_shift_duration_hours: params.shiftDurationHours,
     p_break_duration_hours: params.breakDurationHours,
+    p_weekly_hours: params.weeklyHours,
     p_position: params.position,
     p_department: params.department,
     p_hire_date: params.hireDate,
@@ -577,6 +579,7 @@ export function getAttendanceMonthOptions(records: AttendanceRecord[]) {
 
 export function calculateAttendanceSummary(
   records: AttendanceRecord[],
+  weeklyHours = 40,
 ): AttendanceSummary {
   const workedDays = calculateAttendanceDays(records);
   const weeklyMinutes = new Map<string, number>();
@@ -594,7 +597,8 @@ export function calculateAttendanceSummary(
   }, 0);
 
   const overtimeMinutes = Array.from(weeklyMinutes.values()).reduce(
-    (accumulator, minutes) => accumulator + Math.max(0, minutes - 40 * 60),
+    (accumulator, minutes) =>
+      accumulator + Math.max(0, minutes - weeklyHours * 60),
     0,
   );
 

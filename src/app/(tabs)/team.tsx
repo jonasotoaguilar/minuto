@@ -38,6 +38,7 @@ interface EmployeeProfileRecord {
   hire_date: string | null;
   position: string | null;
   shift_duration_hours: number | null;
+  weekly_hours: number | null;
 }
 
 type EmployeeProfileRow =
@@ -70,6 +71,7 @@ type TeamMember = {
   position: string;
   roleLabel: string;
   shiftDurationHours: number;
+  weeklyHours: number;
 };
 
 interface EditEmployeeFormValues {
@@ -78,6 +80,7 @@ interface EditEmployeeFormValues {
   hireDate: string;
   position: string;
   shiftDurationHours: string;
+  weeklyHours: string;
 }
 
 interface EditEmployeeFormErrors {
@@ -86,6 +89,7 @@ interface EditEmployeeFormErrors {
   hireDate?: string;
   position?: string;
   shiftDurationHours?: string;
+  weeklyHours?: string;
 }
 
 interface UpdateEmployeeProfileParams {
@@ -95,6 +99,7 @@ interface UpdateEmployeeProfileParams {
   hireDate?: string;
   position?: string;
   shiftDurationHours?: number;
+  weeklyHours?: number;
 }
 
 interface UpdateEmployeeProfileResult {
@@ -116,6 +121,8 @@ const DEFAULT_SHIFT_DURATION_HOURS = 8;
 const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
 const MAX_BREAK_DURATION_HOURS = 5;
 const MAX_SHIFT_DURATION_HOURS = 15;
+const DEFAULT_WEEKLY_HOURS = 40;
+const MAX_WEEKLY_HOURS = 100;
 const TIME_INPUT_PATTERN = /^(\d{1,2}):(\d{2})$/;
 const DATE_DISPLAY_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
@@ -161,7 +168,7 @@ export default function TeamScreen() {
     const { data, error } = await supabase
       .from('memberships')
       .select(
-        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department, hire_date, shift_duration_hours, break_duration_hours)',
+        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department, hire_date, shift_duration_hours, break_duration_hours, weekly_hours)',
       )
       .eq('organization_id', activeOrganization.id)
       .eq('status', 'active')
@@ -232,6 +239,7 @@ export default function TeamScreen() {
           mapMembershipRole(membership.role),
         shiftDurationHours:
           employeeProfile?.shift_duration_hours ?? DEFAULT_SHIFT_DURATION_HOURS,
+        weeklyHours: employeeProfile?.weekly_hours ?? DEFAULT_WEEKLY_HOURS,
       } satisfies TeamMember;
     });
 
@@ -370,6 +378,7 @@ export default function TeamScreen() {
         membershipId: selectedMember.id,
         shiftDurationHours: validation.parsed.shiftDurationHours,
         breakDurationHours: validation.parsed.breakDurationHours,
+        weeklyHours: validation.parsed.weeklyHours,
         position: validation.parsed.position,
         department: validation.parsed.department,
         hireDate: validation.parsed.hireDate,
@@ -621,7 +630,7 @@ export default function TeamScreen() {
                 }))
               }
               errorMessage={editFormErrors.shiftDurationHours}
-              helperText="Ingresá la jornada en formato HH:MM, por ejemplo 08:00."
+              helperText="Horas diarias del contrato, por ejemplo 08:00."
               placeholder="08:00"
               value={editFormValues.shiftDurationHours}
             />
@@ -644,9 +653,24 @@ export default function TeamScreen() {
                 }))
               }
               errorMessage={editFormErrors.breakDurationHours}
-              helperText="Ingresá la colación en formato HH:MM, por ejemplo 00:45."
+              helperText="Horas de colación del contrato, por ejemplo 00:45."
               placeholder="00:45"
               value={editFormValues.breakDurationHours}
+            />
+
+            <TextField
+              keyboardType="numeric"
+              label="Jornada semanal"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  weeklyHours: value,
+                }))
+              }
+              errorMessage={editFormErrors.weeklyHours}
+              helperText="Horas semanales del contrato, por ejemplo 40."
+              placeholder="40"
+              value={editFormValues.weeklyHours}
             />
 
             <TextField
@@ -738,7 +762,7 @@ export default function TeamScreen() {
                   variant="caption"
                 >
                   {editFormErrors.hireDate ||
-                    'Tocá para elegir la fecha y guardarla en formato calendario.'}
+                    'Selecciona la fecha de contratación.'}
                 </ThemedText>
 
                 {process.env.EXPO_OS === 'ios' && isHireDatePickerVisible ? (
@@ -867,6 +891,7 @@ function getEmptyEditFormValues(): EditEmployeeFormValues {
     hireDate: '',
     position: '',
     shiftDurationHours: decimalToHHMM(DEFAULT_SHIFT_DURATION_HOURS),
+    weeklyHours: String(DEFAULT_WEEKLY_HOURS),
   };
 }
 
@@ -878,6 +903,7 @@ function createEditFormValues(member: TeamMember): EditEmployeeFormValues {
     hireDate: formatDateForDisplay(member.hireDate),
     position: member.position,
     shiftDurationHours: decimalToHHMM(member.shiftDurationHours),
+    weeklyHours: String(member.weeklyHours),
   };
 }
 
@@ -923,10 +949,18 @@ function validateEditForm(values: EditEmployeeFormValues) {
     errors.hireDate = 'La fecha de contratación no puede ser posterior a hoy.';
   }
 
+  const weeklyHours = Number(values.weeklyHours);
+  if (Number.isNaN(weeklyHours) || weeklyHours <= 0) {
+    errors.weeklyHours = 'Las horas semanales deben ser mayor a 0.';
+  } else if (weeklyHours > MAX_WEEKLY_HOURS) {
+    errors.weeklyHours = `Las horas semanales no pueden superar ${MAX_WEEKLY_HOURS}.`;
+  }
+
   if (
     errors.shiftDurationHours ||
     errors.breakDurationHours ||
     errors.hireDate ||
+    errors.weeklyHours ||
     shiftDurationHours === null ||
     breakDurationHours === null
   ) {
@@ -946,6 +980,7 @@ function validateEditForm(values: EditEmployeeFormValues) {
       hireDate: hireDate || undefined,
       position: normalizeOptionalText(values.position),
       shiftDurationHours,
+      weeklyHours,
     },
   } as const;
 }

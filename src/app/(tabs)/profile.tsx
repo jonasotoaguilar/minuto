@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -13,6 +13,10 @@ import {
   getAttendanceRecordsForRange,
   getOrganizationMonthRange,
 } from '@/lib/attendance';
+import {
+  PROFILE_UPDATE_STATUS,
+  type ProfileUpdateFeedback,
+} from '@/lib/profile-update-feedback';
 import { supabase } from '@/lib/supabase';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
@@ -42,6 +46,13 @@ export default function ProfileTabScreen() {
   const theme = useTheme();
   const router = useRouter();
   const {
+    profileUpdateMessage: profileUpdateMessageParam,
+    profileUpdateStatus: profileUpdateStatusParam,
+  } = useLocalSearchParams<{
+    profileUpdateMessage?: string;
+    profileUpdateStatus?: string;
+  }>();
+  const {
     activeOrganization,
     isLoadingOrganizations,
     isOrganizationSetupOpen,
@@ -53,6 +64,8 @@ export default function ProfileTabScreen() {
   const [attendanceDays, setAttendanceDays] = useState(0);
   const [streakDays, setStreakDays] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [profileUpdateFeedback, setProfileUpdateFeedback] =
+    useState<ProfileUpdateFeedback | null>(null);
 
   const loadProfileData = useCallback(async () => {
     if (!activeOrganization) {
@@ -135,6 +148,31 @@ export default function ProfileTabScreen() {
       );
     }
   }, [activeOrganization]);
+
+  useEffect(() => {
+    const profileUpdateMessage =
+      typeof profileUpdateMessageParam === 'string'
+        ? profileUpdateMessageParam.trim()
+        : '';
+    const profileUpdateStatus =
+      profileUpdateStatusParam === PROFILE_UPDATE_STATUS.SUCCESS ||
+      profileUpdateStatusParam === PROFILE_UPDATE_STATUS.ERROR
+        ? profileUpdateStatusParam
+        : null;
+
+    if (!profileUpdateMessage || !profileUpdateStatus) {
+      return;
+    }
+
+    setProfileUpdateFeedback({
+      message: profileUpdateMessage,
+      status: profileUpdateStatus,
+    });
+    router.setParams({
+      profileUpdateMessage: undefined,
+      profileUpdateStatus: undefined,
+    });
+  }, [profileUpdateMessageParam, profileUpdateStatusParam, router]);
 
   useEffect(() => {
     void loadProfileData();
@@ -343,6 +381,36 @@ export default function ProfileTabScreen() {
           </View>
         ))}
       </GlassCard>
+
+      {profileUpdateFeedback ? (
+        <View
+          style={[
+            styles.messageCard,
+            {
+              backgroundColor:
+                profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+                  ? theme.surface.danger
+                  : theme.colors.brand.muted,
+              borderColor:
+                profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+                  ? theme.surface.glass.border
+                  : theme.colors.border.default,
+            },
+          ]}
+        >
+          <ThemedText
+            colorToken={
+              profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+                ? 'error'
+                : 'primary'
+            }
+            style={styles.messageText}
+            variant="bodySmall"
+          >
+            {profileUpdateFeedback.message}
+          </ThemedText>
+        </View>
+      ) : null}
 
       {errorMessage ? (
         <View
