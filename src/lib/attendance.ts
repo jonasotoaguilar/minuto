@@ -97,9 +97,17 @@ export interface OpenShift {
   breakDurationHours: number;
 }
 
+export const ATTENDANCE_EVENT_TYPE = {
+  CLOCK_IN: 'clock_in',
+  CLOCK_OUT: 'clock_out',
+} as const;
+
+export type AttendanceEventType =
+  (typeof ATTENDANCE_EVENT_TYPE)[keyof typeof ATTENDANCE_EVENT_TYPE];
+
 export type AttendanceEvent = {
   id: string;
-  type: 'clock_in' | 'clock_out';
+  type: AttendanceEventType;
   occurredAt: string;
   workDate: string;
 };
@@ -120,6 +128,53 @@ export type AttendanceSummary = {
   overtimeMinutes: number;
   workedDays: number;
 };
+
+export interface AttendanceHistoryFilter {
+  year: number | null;
+  month: number | null;
+  periodKey: string | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+export interface AttendanceHistoryAvailablePeriod {
+  year: number;
+  month: number;
+  periodKey: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface AttendanceHistoryPageItem {
+  id: string;
+  attendanceId: string;
+  eventType: AttendanceEventType;
+  occurredAt: string;
+  workDate: string;
+  officeId: string;
+  officeName: string | null;
+  officeIsRemote: boolean;
+}
+
+export interface AttendanceHistoryPageSummary {
+  weeklyHours: number;
+  workedDays: number;
+  totalMinutes: number;
+  overtimeMinutes: number;
+}
+
+export interface AttendanceHistoryPageResult {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+  filter: AttendanceHistoryFilter;
+  availablePeriods: AttendanceHistoryAvailablePeriod[];
+  summary: AttendanceHistoryPageSummary;
+  items: AttendanceHistoryPageItem[];
+}
 
 export interface UpdateEmployeeProfileParams {
   membershipId: string;
@@ -488,6 +543,127 @@ export async function getPaginatedAttendanceRecords(params: {
   return {
     records: rows.slice(from, to).map(mapAttendanceRow),
     total,
+  };
+}
+
+export async function getAttendanceHistoryPage(params: {
+  organizationId: string;
+  membershipId: string;
+  page: number;
+  pageSize: number;
+  year?: number;
+  month?: number;
+}): Promise<AttendanceHistoryPageResult> {
+  const { data, error } = await supabase.rpc('get_attendance_history_page', {
+    p_organization_id: params.organizationId,
+    p_membership_id: params.membershipId,
+    p_page: params.page,
+    p_page_size: params.pageSize,
+    p_year: params.year ?? null,
+    p_month: params.month ?? null,
+  });
+
+  if (error) {
+    if (
+      error.message.includes('get_attendance_history_page') &&
+      error.message.toLowerCase().includes('schema cache')
+    ) {
+      throw new Error(
+        'El historial mensual no está disponible todavía. Falta aplicar la migración de attendance history en Supabase.',
+      );
+    }
+
+    throw new Error(error.message);
+  }
+
+  if (!data || typeof data !== 'object') {
+    throw new Error('No se pudo cargar el historial de asistencia.');
+  }
+
+  const payload = data as {
+    page?: number;
+    page_size?: number;
+    total_items?: number;
+    total_pages?: number;
+    has_previous_page?: boolean;
+    has_next_page?: boolean;
+    filter?: {
+      year?: number | null;
+      month?: number | null;
+      period_key?: string | null;
+      start_date?: string | null;
+      end_date?: string | null;
+    } | null;
+    available_periods?: Array<{
+      year?: number;
+      month?: number;
+      period_key?: string;
+      start_date?: string;
+      end_date?: string;
+    }>;
+    summary?: {
+      weekly_hours?: number;
+      worked_days?: number;
+      total_minutes?: number;
+      overtime_minutes?: number;
+    } | null;
+    items?: Array<{
+      id?: string;
+      attendance_id?: string;
+      event_type?: AttendanceEventType;
+      occurred_at?: string;
+      work_date?: string;
+      office_id?: string;
+      office_name?: string | null;
+      office_is_remote?: boolean;
+    }>;
+  };
+
+  const availablePeriods = (payload.available_periods ?? [])
+    .filter((period) => period.year != null && period.month != null)
+    .map((period) => ({
+      year: Number(period.year),
+      month: Number(period.month),
+      periodKey:
+        period.period_key ??
+        `${period.year}-${String(period.month).padStart(2, '0')}`,
+      startDate: period.start_date ?? '',
+      endDate: period.end_date ?? '',
+    }));
+
+  const items = (payload.items ?? []).map((item) => ({
+    id: item.id ?? '',
+    attendanceId: item.attendance_id ?? '',
+    eventType: item.event_type ?? ATTENDANCE_EVENT_TYPE.CLOCK_IN,
+    occurredAt: item.occurred_at ?? '',
+    workDate: item.work_date ?? '',
+    officeId: item.office_id ?? '',
+    officeName: item.office_name ?? null,
+    officeIsRemote: Boolean(item.office_is_remote),
+  }));
+
+  return {
+    page: payload.page ?? params.page,
+    pageSize: payload.page_size ?? params.pageSize,
+    totalItems: payload.total_items ?? 0,
+    totalPages: payload.total_pages ?? 0,
+    hasPreviousPage: payload.has_previous_page ?? false,
+    hasNextPage: payload.has_next_page ?? false,
+    filter: {
+      year: payload.filter?.year ?? null,
+      month: payload.filter?.month ?? null,
+      periodKey: payload.filter?.period_key ?? null,
+      startDate: payload.filter?.start_date ?? null,
+      endDate: payload.filter?.end_date ?? null,
+    },
+    availablePeriods,
+    summary: {
+      weeklyHours: payload.summary?.weekly_hours ?? 40,
+      workedDays: payload.summary?.worked_days ?? 0,
+      totalMinutes: payload.summary?.total_minutes ?? 0,
+      overtimeMinutes: payload.summary?.overtime_minutes ?? 0,
+    },
+    items,
   };
 }
 

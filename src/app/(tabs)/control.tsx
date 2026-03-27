@@ -479,7 +479,7 @@ export default function ControlScreen() {
     if (controlMode === CONTROL_MODE.COMPLETED) {
       return {
         label: 'Jornada completada',
-        helper: 'Ya registraste entrada y salida para hoy.',
+        helper: '',
         disabled: true,
       };
     }
