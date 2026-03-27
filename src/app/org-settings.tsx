@@ -287,6 +287,7 @@ export default function OrganizationSettingsScreen() {
           <TextField
             autoCapitalize="words"
             label="Nombre de la organización"
+            maxLength={120}
             onChangeText={setOrganizationName}
             placeholder="Nombre de la organización"
             value={organizationName}
@@ -380,6 +381,7 @@ export default function OrganizationSettingsScreen() {
               <TextField
                 autoCapitalize="words"
                 label="Nombre de la oficina"
+                maxLength={120}
                 onChangeText={setOfficeName}
                 placeholder="Casa matriz, Palermo, Providencia..."
                 value={officeName}
