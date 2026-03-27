@@ -295,44 +295,54 @@ export default function EditProfileScreen() {
           title="Información principal"
         />
 
-        <TextField
-          autoCapitalize="words"
-          editable={!isLoading}
-          errorMessage={validationErrors.fullName}
-          label="Nombre completo"
-          maxLength={MAX_NAME_LENGTH}
-          onChangeText={(value) => handleChange('fullName', value)}
-          placeholder="Nombre y apellido"
-          value={formValues.fullName}
-        />
+        {isLoading ? (
+          <View style={styles.loadingState}>
+            <ThemedText colorToken="secondary" variant="body">
+              Cargando datos del perfil...
+            </ThemedText>
+          </View>
+        ) : (
+          <>
+            <TextField
+              autoCapitalize="words"
+              editable={!isLoading}
+              errorMessage={validationErrors.fullName}
+              label="Nombre completo"
+              maxLength={MAX_NAME_LENGTH}
+              onChangeText={(value) => handleChange('fullName', value)}
+              placeholder="Nombre y apellido"
+              value={formValues.fullName}
+            />
 
-        <TextField
-          autoCapitalize="sentences"
-          editable={!isLoading}
-          errorMessage={validationErrors.address}
-          label="Dirección"
-          maxLength={MAX_ADDRESS_LENGTH}
-          onChangeText={(value) => handleChange('address', value)}
-          placeholder="Calle, comuna y referencia"
-          value={formValues.address}
-        />
+            <TextField
+              autoCapitalize="sentences"
+              editable={!isLoading}
+              errorMessage={validationErrors.address}
+              label="Dirección"
+              maxLength={MAX_ADDRESS_LENGTH}
+              onChangeText={(value) => handleChange('address', value)}
+              placeholder="Calle, comuna y referencia"
+              value={formValues.address}
+            />
 
-        <ReadonlyField
-          helperText="Se sincroniza con tu cuenta y no se edita acá."
-          label="Correo electrónico"
-          value={formValues.email || 'Sin correo registrado'}
-        />
+            <ReadonlyField
+              helperText="Se sincroniza con tu cuenta y no se edita acá."
+              label="Correo electrónico"
+              value={formValues.email || 'Sin correo registrado'}
+            />
 
-        <PhoneField
-          countryCode={formValues.phoneCountry}
-          disabled={isLoading}
-          errorMessage={validationErrors.phone}
-          nationalNumber={formValues.phone}
-          onChangeCountry={(countryCode) =>
-            handleChange('phoneCountry', countryCode)
-          }
-          onChangeNationalNumber={(value) => handleChange('phone', value)}
-        />
+            <PhoneField
+              countryCode={formValues.phoneCountry}
+              disabled={isLoading}
+              errorMessage={validationErrors.phone}
+              nationalNumber={formValues.phone}
+              onChangeCountry={(countryCode) =>
+                handleChange('phoneCountry', countryCode)
+              }
+              onChangeNationalNumber={(value) => handleChange('phone', value)}
+            />
+          </>
+        )}
 
         {errorMessage ? (
           <StatusMessage tone="error">{errorMessage}</StatusMessage>
@@ -343,12 +353,14 @@ export default function EditProfileScreen() {
         ) : null}
       </GlassCard>
 
-      <PrimaryButton
-        disabled={isLoading || !isFormDirty}
-        label={isSaving ? 'Guardando…' : 'Guardar cambios'}
-        loading={isSaving}
-        onPress={handleSaveProfile}
-      />
+      {isLoading ? null : (
+        <PrimaryButton
+          disabled={!isFormDirty}
+          label={isSaving ? 'Guardando…' : 'Guardar cambios'}
+          loading={isSaving}
+          onPress={handleSaveProfile}
+        />
+      )}
     </Screen>
   );
 }
@@ -507,6 +519,9 @@ const styles = StyleSheet.create({
   },
   formCard: {
     gap: 16,
+  },
+  loadingState: {
+    paddingVertical: 12,
   },
   fieldGroup: {
     gap: 8,
