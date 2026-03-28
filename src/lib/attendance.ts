@@ -110,6 +110,8 @@ export type AttendanceEvent = {
   type: AttendanceEventType;
   occurredAt: string;
   workDate: string;
+  officeName?: string | null;
+  officeIsRemote?: boolean;
 };
 
 export type AttendanceTypeFilter = 'all' | 'clock_in' | 'clock_out';
@@ -147,11 +149,15 @@ export interface AttendanceHistoryAvailablePeriod {
 
 export interface AttendanceHistoryPageItem {
   id: string;
-  attendanceId: string;
-  eventType: AttendanceEventType;
-  occurredAt: string;
   workDate: string;
-  officeId: string;
+  hasRecord: boolean;
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  autoClosed: boolean;
+  status: 'complete' | 'incomplete' | 'auto_closed' | 'absence';
+  workedMinutes: number;
+  requiredMinutes: number;
+  officeId: string | null;
   officeName: string | null;
   officeIsRemote: boolean;
 }
@@ -161,6 +167,11 @@ export interface AttendanceHistoryPageSummary {
   workedDays: number;
   totalMinutes: number;
   overtimeMinutes: number;
+}
+
+interface CalculateWeeklyTotalsOptions {
+  includeOpenShiftMinutes?: boolean;
+  now?: Date;
 }
 
 export interface AttendanceHistoryPageResult {
@@ -609,11 +620,15 @@ export async function getAttendanceHistoryPage(params: {
     } | null;
     items?: Array<{
       id?: string;
-      attendance_id?: string;
-      event_type?: AttendanceEventType;
-      occurred_at?: string;
       work_date?: string;
-      office_id?: string;
+      has_record?: boolean;
+      clock_in_at?: string | null;
+      clock_out_at?: string | null;
+      auto_closed?: boolean;
+      status?: 'complete' | 'incomplete' | 'auto_closed' | 'absence';
+      worked_minutes?: number;
+      required_minutes?: number;
+      office_id?: string | null;
       office_name?: string | null;
       office_is_remote?: boolean;
     }>;
@@ -631,16 +646,33 @@ export async function getAttendanceHistoryPage(params: {
       endDate: period.end_date ?? '',
     }));
 
-  const items = (payload.items ?? []).map((item) => ({
-    id: item.id ?? '',
-    attendanceId: item.attendance_id ?? '',
-    eventType: item.event_type ?? ATTENDANCE_EVENT_TYPE.CLOCK_IN,
-    occurredAt: item.occurred_at ?? '',
-    workDate: item.work_date ?? '',
-    officeId: item.office_id ?? '',
-    officeName: item.office_name ?? null,
-    officeIsRemote: Boolean(item.office_is_remote),
-  }));
+  const items = (payload.items ?? []).map((item) => {
+    const hasRecord = Boolean(item.has_record);
+    const autoClosed = Boolean(item.auto_closed);
+    const workedMinutes = ensureNonNegativeInteger(item.worked_minutes);
+    const requiredMinutes = ensureNonNegativeInteger(item.required_minutes);
+
+    return {
+      id: item.id ?? '',
+      workDate: item.work_date ?? '',
+      hasRecord,
+      clockInAt: item.clock_in_at ?? null,
+      clockOutAt: item.clock_out_at ?? null,
+      autoClosed,
+      status: resolveAttendanceDayStatus({
+        status: item.status,
+        hasRecord,
+        autoClosed,
+        workedMinutes,
+        requiredMinutes,
+      }),
+      workedMinutes,
+      requiredMinutes,
+      officeId: item.office_id ?? null,
+      officeName: item.office_name ?? null,
+      officeIsRemote: Boolean(item.office_is_remote),
+    };
+  });
 
   return {
     page: payload.page ?? params.page,
@@ -658,13 +690,50 @@ export async function getAttendanceHistoryPage(params: {
     },
     availablePeriods,
     summary: {
-      weeklyHours: payload.summary?.weekly_hours ?? 40,
-      workedDays: payload.summary?.worked_days ?? 0,
-      totalMinutes: payload.summary?.total_minutes ?? 0,
-      overtimeMinutes: payload.summary?.overtime_minutes ?? 0,
+      weeklyHours: ensurePositiveNumber(payload.summary?.weekly_hours, 40),
+      workedDays: ensureNonNegativeInteger(payload.summary?.worked_days),
+      totalMinutes: ensureNonNegativeInteger(payload.summary?.total_minutes),
+      overtimeMinutes: ensureNonNegativeInteger(
+        payload.summary?.overtime_minutes,
+      ),
     },
     items,
   };
+}
+
+function isAttendanceDayStatus(
+  value: unknown,
+): value is AttendanceHistoryPageItem['status'] {
+  return (
+    value === 'complete' ||
+    value === 'incomplete' ||
+    value === 'auto_closed' ||
+    value === 'absence'
+  );
+}
+
+function resolveAttendanceDayStatus(params: {
+  status: unknown;
+  hasRecord: boolean;
+  autoClosed: boolean;
+  workedMinutes: number;
+  requiredMinutes: number;
+}): AttendanceHistoryPageItem['status'] {
+  if (isAttendanceDayStatus(params.status)) {
+    return params.status;
+  }
+
+  if (!params.hasRecord) {
+    return 'absence';
+  }
+
+  if (params.autoClosed) {
+    return 'auto_closed';
+  }
+
+  return params.workedMinutes >= params.requiredMinutes
+    ? 'complete'
+    : 'incomplete';
 }
 
 export async function getAllAttendanceRecords(params: {
@@ -683,13 +752,19 @@ export async function getAllAttendanceRecords(params: {
 
 // ─── Pure calculation helpers ─────────────────────────────────────────────────
 
-export function calculateWeeklyTotals(records: AttendanceRecord[]) {
-  const completedDays = records.filter(
-    (record) => Boolean(record.clockInAt) && Boolean(record.clockOutAt),
-  );
+export function calculateWeeklyTotals(
+  records: AttendanceRecord[],
+  options: CalculateWeeklyTotalsOptions = {},
+) {
+  const attendedDays = calculateAttendanceDays(records);
+  const includeOpenShiftMinutes = options.includeOpenShiftMinutes ?? true;
+  const now = options.now ?? new Date();
 
-  const totalMinutes = completedDays.reduce((accumulator, record) => {
-    const minutes = getCompletedRecordMinutes(record);
+  const totalMinutes = records.reduce((accumulator, record) => {
+    const minutes = getRecordMinutes(record, {
+      includeOpenShiftMinutes,
+      referenceTime: now,
+    });
 
     if (minutes <= 0) {
       return accumulator;
@@ -700,7 +775,7 @@ export function calculateWeeklyTotals(records: AttendanceRecord[]) {
 
   return {
     totalMinutes,
-    attendedDays: completedDays.length,
+    attendedDays,
   };
 }
 
@@ -843,6 +918,8 @@ function buildEventsFromRow(row: AttendanceRow): AttendanceEvent[] {
       type: 'clock_in',
       occurredAt: row.clock_in_at,
       workDate: row.work_date,
+      officeName: row.office_name,
+      officeIsRemote: row.office_is_remote,
     },
   ];
 
@@ -852,6 +929,8 @@ function buildEventsFromRow(row: AttendanceRow): AttendanceEvent[] {
       type: 'clock_out',
       occurredAt: row.clock_out_at,
       workDate: row.work_date,
+      officeName: row.office_name,
+      officeIsRemote: row.office_is_remote,
     });
   }
 
@@ -966,21 +1045,72 @@ function getPreviousWorkday(date: Date) {
 }
 
 function getCompletedRecordMinutes(record: AttendanceRecord) {
-  if (!record.clockOutAt) {
-    return 0;
-  }
-
   const startMs = new Date(record.clockInAt).getTime();
-  const endMs = new Date(record.clockOutAt).getTime();
+  const endMs = record.clockOutAt ? new Date(record.clockOutAt).getTime() : NaN;
+
+  return getWorkedMinutesWithBreak({
+    startMs,
+    endMs,
+    breakDurationHours: record.breakDurationHours,
+  });
+}
+
+function getRecordMinutes(
+  record: AttendanceRecord,
+  options: {
+    includeOpenShiftMinutes: boolean;
+    referenceTime: Date;
+  },
+) {
+  const startMs = new Date(record.clockInAt).getTime();
+  const endMs = record.clockOutAt
+    ? new Date(record.clockOutAt).getTime()
+    : options.includeOpenShiftMinutes
+      ? options.referenceTime.getTime()
+      : NaN;
+
+  return getWorkedMinutesWithBreak({
+    startMs,
+    endMs,
+    breakDurationHours: record.breakDurationHours,
+  });
+}
+
+function getWorkedMinutesWithBreak(params: {
+  startMs: number;
+  endMs: number;
+  breakDurationHours: number;
+}) {
+  const { startMs, endMs, breakDurationHours } = params;
 
   if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
     return 0;
   }
 
   const workedMinutes = Math.floor((endMs - startMs) / 60000);
-  const breakMinutes = Math.max(0, Math.round(record.breakDurationHours * 60));
+  const breakMinutes = Math.max(0, Math.round(breakDurationHours * 60));
 
   return Math.max(0, workedMinutes - breakMinutes);
+}
+
+function ensureNonNegativeInteger(value: unknown) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+
+  return Math.floor(parsed);
+}
+
+function ensurePositiveNumber(value: unknown, fallback: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
 }
 
 function getWeekStartKey(workDate: string) {

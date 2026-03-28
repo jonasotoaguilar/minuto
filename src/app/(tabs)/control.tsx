@@ -1,11 +1,15 @@
+import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Modal,
   Pressable,
+  type StyleProp,
   StyleSheet,
   View,
+  type ViewStyle,
 } from 'react-native';
 
 import { AppHeader } from '@/components/header-user-menu';
@@ -15,6 +19,7 @@ import { useOrganization } from '@/hooks/use-organization';
 import { useProximityValidation } from '@/hooks/use-proximity-validation';
 import { useTheme } from '@/hooks/use-theme';
 import {
+  ATTENDANCE_EVENT_TYPE,
   type AttendanceLocation,
   type AttendanceRecord,
   calculateWeeklyTotals,
@@ -22,6 +27,7 @@ import {
   getOpenShift,
   getOrganizationToday,
   getOrganizationWeekRange,
+  getRecentAttendanceEvents,
   getTodayAttendanceRecord,
   type OpenShift,
   ProximityError,
@@ -33,6 +39,7 @@ import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
   Chip,
   GlassCard,
+  PlainCard,
   PrimaryButton,
   Screen,
   SecondaryButton,
@@ -66,6 +73,7 @@ const VALIDATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export default function ControlScreen() {
   const router = useRouter();
+  const isScreenFocused = useIsFocused();
   const theme = useTheme();
   const {
     activeOrganization,
@@ -79,7 +87,7 @@ export default function ControlScreen() {
   const proximity = useProximityValidation();
 
   const [now, setNow] = useState(() => new Date());
-  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
@@ -90,6 +98,7 @@ export default function ControlScreen() {
   const [weeklyMinutes, setWeeklyMinutes] = useState(0);
   const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
   const [recentEvents, setRecentEvents] = useState<RecentHistoryItem[]>([]);
+  const [isOvertimeAutoDismissed, setIsOvertimeAutoDismissed] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -109,8 +118,6 @@ export default function ControlScreen() {
     const week = getOrganizationWeekRange(currentTimezone);
 
     try {
-      const recentRange = getRecentHistoryRange(currentTimezone);
-
       const [today, weeklyRecords, recentRecords, openShift] =
         await Promise.all([
           getTodayAttendanceRecord({
@@ -124,22 +131,24 @@ export default function ControlScreen() {
             startDate: week.start,
             endDate: week.end,
           }),
-          getAttendanceRecordsForRange({
+          getRecentAttendanceEvents({
             organizationId: activeOrganization.id,
             membershipId: activeOrganization.membershipId,
-            startDate: recentRange.startDate,
-            endDate: recentRange.endDate,
+            eventLimit: 6,
           }),
           getOpenShift(activeOrganization.membershipId),
         ]);
 
-      const totals = calculateWeeklyTotals(weeklyRecords);
+      const totals = calculateWeeklyTotals(weeklyRecords, {
+        includeOpenShiftMinutes: true,
+        now: new Date(),
+      });
 
       setTodayRecord(today);
       setOpenShiftRecord(openShift);
       setWeeklyMinutes(totals.totalMinutes);
       setWeeklyAttendedDays(totals.attendedDays);
-      setRecentEvents(buildRecentHistoryItems(recentRecords).slice(0, 6));
+      setRecentEvents(buildRecentHistoryItems(recentRecords));
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -209,13 +218,30 @@ export default function ControlScreen() {
   }, [controlMode, proximity.reset]);
 
   useEffect(() => {
+    if (!isScreenFocused) {
+      setIsOvertimeModalVisible(false);
+      setIsOvertimeAutoDismissed(false);
+      return;
+    }
+
     if (!openShiftRecord) {
       setIsOvertimeModalVisible(false);
+      setIsOvertimeAutoDismissed(false);
       return;
     }
 
     const syncOvertimeVisibility = () => {
-      setIsOvertimeModalVisible(isOvertimeThresholdExceeded(openShiftRecord));
+      const isExceeded = isOvertimeThresholdExceeded(openShiftRecord);
+
+      if (!isExceeded) {
+        setIsOvertimeAutoDismissed(false);
+        setIsOvertimeModalVisible(false);
+        return;
+      }
+
+      if (!isOvertimeAutoDismissed) {
+        setIsOvertimeModalVisible(true);
+      }
     };
 
     syncOvertimeVisibility();
@@ -225,7 +251,12 @@ export default function ControlScreen() {
     return () => {
       clearInterval(intervalId);
     };
-  }, [openShiftRecord]);
+  }, [isOvertimeAutoDismissed, isScreenFocused, openShiftRecord]);
+
+  const dismissOvertimeModal = useCallback(() => {
+    setIsOvertimeModalVisible(false);
+    setIsOvertimeAutoDismissed(true);
+  }, []);
 
   const onValidateLocation = useCallback(async () => {
     if (!activeOrganization || hasActiveClockIn || hasCompletedDay) {
@@ -284,12 +315,19 @@ export default function ControlScreen() {
       });
 
       setIsOvertimeModalVisible(false);
+      setIsOvertimeAutoDismissed(false);
     },
     [],
   );
 
   const onRegisterAction = useCallback(async () => {
     if (!activeOrganization) {
+      return;
+    }
+
+    if (openShiftRecord && isOvertimeThresholdExceeded(openShiftRecord)) {
+      setIsOvertimeAutoDismissed(false);
+      setIsOvertimeModalVisible(true);
       return;
     }
 
@@ -519,7 +557,9 @@ export default function ControlScreen() {
     }
 
     await submitClockOut({ attendanceId: openShiftRecord.recordId });
-  }, [openShiftRecord, submitClockOut]);
+    await loadAttendance();
+    proximity.reset();
+  }, [loadAttendance, openShiftRecord, proximity, submitClockOut]);
 
   const onCloseAtStandardTime = useCallback(async () => {
     if (!openShiftRecord || !overtimeStandardCloseAt) {
@@ -531,7 +571,15 @@ export default function ControlScreen() {
       autoClosed: true,
       customCloseAt: overtimeStandardCloseAt.toISOString(),
     });
-  }, [openShiftRecord, overtimeStandardCloseAt, submitClockOut]);
+    await loadAttendance();
+    proximity.reset();
+  }, [
+    loadAttendance,
+    openShiftRecord,
+    overtimeStandardCloseAt,
+    proximity,
+    submitClockOut,
+  ]);
 
   if (isLoadingOrganizations) {
     return (
@@ -561,205 +609,217 @@ export default function ControlScreen() {
     >
       <AppHeader />
 
-      <GlassCard style={styles.heroCard}>
-        <Chip
-          label={proximityStatus.chipLabel}
-          selected={controlMode !== CONTROL_MODE.VALIDATING}
-          style={styles.statusChip}
-          tone={proximityStatus.chipTone}
-        />
-        <ThemedText style={styles.clock} variant="display">
-          {formatClock(now, currentTimezone)}
-        </ThemedText>
-        <ThemedText colorToken="secondary" style={styles.date} variant="body">
-          {formatLongDate(now, currentTimezone)}
-        </ThemedText>
-
-        <View style={styles.statusContainer}>
-          {controlMode === CONTROL_MODE.VALIDATING ? (
-            <View style={styles.loadingRow}>
-              <ActivityIndicator
-                color={theme.colors.brand.primary}
-                size="small"
-              />
-              <ThemedText variant="body">Obteniendo ubicación...</ThemedText>
-            </View>
-          ) : null}
-
-          <ThemedText
-            colorToken={
-              controlMode === CONTROL_MODE.VALID ||
-              controlMode === CONTROL_MODE.CLOCKED_IN
-                ? 'success'
-                : controlMode === CONTROL_MODE.OUT_OF_RANGE
-                  ? 'warning'
-                  : controlMode === CONTROL_MODE.GPS_ERROR
-                    ? 'error'
-                    : controlMode === CONTROL_MODE.REMOTE
-                      ? 'accent'
-                      : 'secondary'
-            }
-            style={styles.helper}
-            variant="bodySmall"
-          >
-            {proximityStatus.helper}
+      {isLoadingAttendance ? (
+        <HeroCardSkeleton />
+      ) : (
+        <GlassCard style={styles.heroCard}>
+          <Chip
+            label={proximityStatus.chipLabel}
+            selected={controlMode !== CONTROL_MODE.VALIDATING}
+            style={styles.statusChip}
+            tone={proximityStatus.chipTone}
+          />
+          <ThemedText style={styles.clock} variant="display">
+            {formatClock(now, currentTimezone)}
+          </ThemedText>
+          <ThemedText colorToken="secondary" style={styles.date} variant="body">
+            {formatLongDate(now, currentTimezone)}
           </ThemedText>
 
-          {isCrossDateOpenShift && openShiftRecord ? (
+          <View style={styles.statusContainer}>
+            {controlMode === CONTROL_MODE.VALIDATING ? (
+              <View style={styles.loadingRow}>
+                <ActivityIndicator
+                  color={theme.colors.brand.primary}
+                  size="small"
+                />
+                <ThemedText variant="body">Obteniendo ubicación...</ThemedText>
+              </View>
+            ) : null}
+
             <ThemedText
-              colorToken="warning"
+              colorToken={
+                controlMode === CONTROL_MODE.VALID ||
+                controlMode === CONTROL_MODE.CLOCKED_IN
+                  ? 'success'
+                  : controlMode === CONTROL_MODE.OUT_OF_RANGE
+                    ? 'warning'
+                    : controlMode === CONTROL_MODE.GPS_ERROR
+                      ? 'error'
+                      : controlMode === CONTROL_MODE.REMOTE
+                        ? 'accent'
+                        : 'secondary'
+              }
               style={styles.helper}
-              variant="body"
+              variant="bodySmall"
             >
-              {`Tenés una jornada abierta del ${formatDisplayDate(openShiftRecord.workDate, currentTimezone)}.`}
+              {proximityStatus.helper}
             </ThemedText>
+
+            {isCrossDateOpenShift && openShiftRecord ? (
+              <ThemedText
+                colorToken="warning"
+                style={styles.helper}
+                variant="body"
+              >
+                {`Tenés una jornada abierta del ${formatDisplayDate(openShiftRecord.workDate, currentTimezone)}.`}
+              </ThemedText>
+            ) : null}
+
+            {controlMode === CONTROL_MODE.IDLE ? (
+              <View style={styles.actionButtonsRow}>
+                <PrimaryButton
+                  label="Validar ubicación"
+                  loading={isSubmitting}
+                  onPress={onValidateLocation}
+                  style={styles.flexButton}
+                />
+                <SecondaryButton
+                  label="Trabajo Remoto"
+                  onPress={proximity.selectRemote}
+                  style={styles.flexButton}
+                />
+              </View>
+            ) : null}
+
+            {controlMode === CONTROL_MODE.OUT_OF_RANGE ||
+            controlMode === CONTROL_MODE.GPS_ERROR ? (
+              <View style={styles.actionButtonsRow}>
+                <PrimaryButton
+                  label="Reintentar"
+                  loading={isSubmitting}
+                  onPress={onValidateLocation}
+                  style={styles.flexButton}
+                />
+                <SecondaryButton
+                  label="Trabajo Remoto"
+                  onPress={proximity.selectRemote}
+                  style={styles.flexButton}
+                />
+              </View>
+            ) : null}
+          </View>
+
+          {controlMode === CONTROL_MODE.VALID ||
+          controlMode === CONTROL_MODE.REMOTE ? (
+            <>
+              <PrimaryButton
+                disabled={buttonState.disabled}
+                label={buttonState.label}
+                loading={isSubmitting}
+                onPress={onRegisterAction}
+              />
+              <SecondaryButton label="← Volver" onPress={proximity.reset} />
+              <ThemedText
+                colorToken="secondary"
+                style={styles.helper}
+                variant="bodySmall"
+              >
+                {buttonState.helper}
+              </ThemedText>
+            </>
           ) : null}
 
-          {controlMode === CONTROL_MODE.IDLE ? (
-            <View style={styles.actionButtonsRow}>
+          {controlMode === CONTROL_MODE.CLOCKED_IN ||
+          controlMode === CONTROL_MODE.COMPLETED ? (
+            <>
               <PrimaryButton
-                label="Validar ubicación"
-                loading={isSubmitting || isLoadingAttendance}
-                onPress={onValidateLocation}
-                style={styles.flexButton}
+                disabled={buttonState.disabled}
+                label={buttonState.label}
+                loading={isSubmitting}
+                onPress={onRegisterAction}
               />
-              <SecondaryButton
-                label="Trabajo Remoto"
-                onPress={proximity.selectRemote}
-                style={styles.flexButton}
-              />
-            </View>
+              <ThemedText
+                colorToken="secondary"
+                style={styles.helper}
+                variant="bodySmall"
+              >
+                {buttonState.helper}
+              </ThemedText>
+            </>
           ) : null}
 
-          {controlMode === CONTROL_MODE.OUT_OF_RANGE ||
-          controlMode === CONTROL_MODE.GPS_ERROR ? (
-            <View style={styles.actionButtonsRow}>
-              <PrimaryButton
-                label="Reintentar"
-                loading={isSubmitting || isLoadingAttendance}
-                onPress={onValidateLocation}
-                style={styles.flexButton}
-              />
-              <SecondaryButton
-                label="Trabajo Remoto"
-                onPress={proximity.selectRemote}
-                style={styles.flexButton}
-              />
-            </View>
+          {errorMessage ? (
+            <FeedbackText tone="error">{errorMessage}</FeedbackText>
           ) : null}
+        </GlassCard>
+      )}
+
+      {isLoadingAttendance ? (
+        <MetricsSkeleton />
+      ) : (
+        <View style={styles.metricsRow}>
+          <MetricCard
+            label="Horas semanales"
+            value={formatMinutes(weeklyMinutes)}
+          />
+          <MetricCard
+            label="Dias asistidos semana"
+            value={`${weeklyAttendedDays} dias`}
+          />
         </View>
+      )}
 
-        {controlMode === CONTROL_MODE.VALID ||
-        controlMode === CONTROL_MODE.REMOTE ? (
-          <>
-            <PrimaryButton
-              disabled={buttonState.disabled}
-              label={buttonState.label}
-              loading={isSubmitting || isLoadingAttendance}
-              onPress={onRegisterAction}
-            />
-            <SecondaryButton label="← Volver" onPress={proximity.reset} />
-            <ThemedText
-              colorToken="secondary"
-              style={styles.helper}
-              variant="bodySmall"
-            >
-              {buttonState.helper}
+      {isLoadingAttendance ? (
+        <HistorySkeleton />
+      ) : (
+        <GlassCard style={styles.historyCard} variant="soft">
+          <SectionHeader
+            actionLabel="Ver todo"
+            actionProps={{
+              onPress: () => router.push('/(tabs)/control-history' as never),
+            }}
+            title="Historial reciente"
+          />
+
+          {recentEvents.length === 0 ? (
+            <ThemedText colorToken="secondary" variant="bodySmall">
+              Todavía no hay registros.
             </ThemedText>
-          </>
-        ) : null}
+          ) : (
+            recentEvents.map((event) => (
+              <View
+                key={event.id}
+                style={[
+                  styles.historyRow,
+                  {
+                    backgroundColor: theme.surface.glass.soft,
+                    borderColor: theme.surface.glass.border,
+                  },
+                ]}
+              >
+                <AttendanceEventIcon type={event.type} />
 
-        {controlMode === CONTROL_MODE.CLOCKED_IN ||
-        controlMode === CONTROL_MODE.COMPLETED ? (
-          <>
-            <PrimaryButton
-              disabled={buttonState.disabled}
-              label={buttonState.label}
-              loading={isSubmitting || isLoadingAttendance}
-              onPress={onRegisterAction}
-            />
-            <ThemedText
-              colorToken="secondary"
-              style={styles.helper}
-              variant="bodySmall"
-            >
-              {buttonState.helper}
-            </ThemedText>
-          </>
-        ) : null}
+                <View style={styles.historyInfo}>
+                  <ThemedText variant="subtitle">
+                    {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
+                  </ThemedText>
+                  <ThemedText colorToken="secondary" variant="bodySmall">
+                    {event.officeName}
+                  </ThemedText>
+                </View>
 
-        {errorMessage ? (
-          <FeedbackText tone="error">{errorMessage}</FeedbackText>
-        ) : null}
-      </GlassCard>
-
-      <View style={styles.metricsRow}>
-        <MetricCard
-          label="Horas semanales"
-          value={formatMinutes(weeklyMinutes)}
-        />
-        <MetricCard
-          label="Dias asistidos semana"
-          value={`${weeklyAttendedDays} dias`}
-        />
-      </View>
-
-      <GlassCard style={styles.historyCard} variant="soft">
-        <SectionHeader
-          actionLabel="Ver todo"
-          actionProps={{
-            onPress: () => router.push('/(tabs)/control-history' as never),
-          }}
-          title="Historial reciente"
-        />
-
-        {recentEvents.length === 0 ? (
-          <ThemedText colorToken="secondary" variant="bodySmall">
-            Todavía no hay registros.
-          </ThemedText>
-        ) : (
-          recentEvents.map((event) => (
-            <View
-              key={event.id}
-              style={[
-                styles.historyRow,
-                {
-                  backgroundColor: theme.surface.glass.soft,
-                  borderColor: theme.surface.glass.border,
-                },
-              ]}
-            >
-              <AttendanceEventIcon type={event.type} />
-
-              <View style={styles.historyInfo}>
-                <ThemedText variant="subtitle">
-                  {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
-                </ThemedText>
-                <ThemedText colorToken="secondary" variant="bodySmall">
-                  {event.officeName}
-                </ThemedText>
+                <View style={styles.historyMeta}>
+                  <ThemedText style={styles.historyTime} variant="subtitle">
+                    {formatTime(event.occurredAt, currentTimezone)}
+                  </ThemedText>
+                  <ThemedText
+                    colorToken="secondary"
+                    style={styles.historyDate}
+                    variant="bodySmall"
+                  >
+                    {formatCompactDate(event.occurredAt, currentTimezone)}
+                  </ThemedText>
+                </View>
               </View>
-
-              <View style={styles.historyMeta}>
-                <ThemedText style={styles.historyTime} variant="subtitle">
-                  {formatTime(event.occurredAt, currentTimezone)}
-                </ThemedText>
-                <ThemedText
-                  colorToken="secondary"
-                  style={styles.historyDate}
-                  variant="bodySmall"
-                >
-                  {formatCompactDate(event.occurredAt, currentTimezone)}
-                </ThemedText>
-              </View>
-            </View>
-          ))
-        )}
-      </GlassCard>
+            ))
+          )}
+        </GlassCard>
+      )}
 
       <Modal
         animationType="fade"
-        onRequestClose={() => setIsOvertimeModalVisible(false)}
+        onRequestClose={dismissOvertimeModal}
         transparent
         visible={isOvertimeModalVisible}
       >
@@ -767,11 +827,11 @@ export default function ControlScreen() {
           style={[styles.modalRoot, { backgroundColor: theme.overlay.modal }]}
         >
           <Pressable
-            onPress={() => setIsOvertimeModalVisible(false)}
+            onPress={dismissOvertimeModal}
             style={styles.modalBackdrop}
           />
 
-          <GlassCard style={styles.modalCard}>
+          <PlainCard style={styles.modalCard}>
             <SectionHeader
               subtitle={overtimeTitle}
               title="Tu jornada habitual ya terminó"
@@ -792,11 +852,11 @@ export default function ControlScreen() {
               onPress={onCloseWithCurrentTime}
             />
             <SecondaryButton
-              label={`Cerrar jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
+              label={`Cerrar con jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
               loading={isSubmitting}
               onPress={onCloseAtStandardTime}
             />
-          </GlassCard>
+          </PlainCard>
         </View>
       </Modal>
     </Screen>
@@ -912,6 +972,119 @@ function FeedbackText({ children, tone }: { children: string; tone: 'error' }) {
   );
 }
 
+function HeroCardSkeleton() {
+  return (
+    <GlassCard style={styles.heroCard}>
+      <SkeletonBlock style={styles.skeletonChip} />
+      <SkeletonBlock style={styles.skeletonClock} />
+      <SkeletonBlock style={styles.skeletonDate} />
+
+      <View style={styles.statusContainer}>
+        <SkeletonBlock style={styles.skeletonHelperLineLong} />
+        <SkeletonBlock style={styles.skeletonHelperLineShort} />
+      </View>
+
+      <View style={styles.actionButtonsRow}>
+        <SkeletonBlock style={[styles.skeletonButton, styles.flexButton]} />
+        <SkeletonBlock style={[styles.skeletonButton, styles.flexButton]} />
+      </View>
+
+      <SkeletonBlock style={styles.skeletonButton} />
+    </GlassCard>
+  );
+}
+
+function MetricsSkeleton() {
+  return (
+    <View style={styles.metricsRow}>
+      <MetricSkeletonCard />
+      <MetricSkeletonCard />
+    </View>
+  );
+}
+
+function MetricSkeletonCard() {
+  return (
+    <GlassCard style={styles.metricCard} variant="soft">
+      <SkeletonBlock style={styles.skeletonMetricIcon} />
+      <SkeletonBlock style={styles.skeletonMetricValue} />
+      <SkeletonBlock style={styles.skeletonMetricLabel} />
+    </GlassCard>
+  );
+}
+
+function HistorySkeleton() {
+  return (
+    <GlassCard style={styles.historyCard} variant="soft">
+      <View style={styles.skeletonHistoryHeader}>
+        <SkeletonBlock style={styles.skeletonHistoryTitle} />
+        <SkeletonBlock style={styles.skeletonHistoryAction} />
+      </View>
+
+      {Array.from({ length: 3 }).map((_, index) => (
+        <View
+          key={`history-skeleton-${index}`}
+          style={styles.skeletonHistoryRow}
+        >
+          <SkeletonBlock style={styles.skeletonHistoryIcon} />
+
+          <View style={styles.skeletonHistoryInfo}>
+            <SkeletonBlock style={styles.skeletonHistoryLinePrimary} />
+            <SkeletonBlock style={styles.skeletonHistoryLineSecondary} />
+          </View>
+
+          <View style={styles.skeletonHistoryMeta}>
+            <SkeletonBlock style={styles.skeletonHistoryLineTime} />
+            <SkeletonBlock style={styles.skeletonHistoryLineDate} />
+          </View>
+        </View>
+      ))}
+    </GlassCard>
+  );
+}
+
+function SkeletonBlock({ style }: { style?: StyleProp<ViewStyle> }) {
+  const theme = useTheme();
+  const opacity = useMemo(() => new Animated.Value(0.45), []);
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.9,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.45,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    pulse.start();
+
+    return () => {
+      pulse.stop();
+    };
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.skeletonBase,
+        {
+          backgroundColor: theme.surface.glass.soft,
+          borderColor: theme.surface.glass.border,
+          opacity,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
 function getBlockedMessage(
   reason?: 'gps_accuracy' | 'permission_denied' | 'location_unavailable',
 ) {
@@ -955,58 +1128,40 @@ function formatCompactDate(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
-function buildRecentHistoryItems(records: AttendanceRecord[]) {
+function buildRecentHistoryItems(
+  records: Array<{
+    id: string;
+    type: (typeof ATTENDANCE_EVENT_TYPE)[keyof typeof ATTENDANCE_EVENT_TYPE];
+    occurredAt: string;
+    workDate: string;
+    officeName?: string | null;
+    officeIsRemote?: boolean;
+  }>,
+) {
   return records
-    .flatMap((record) => {
-      const officeName = formatHistoryOfficeLabel(record);
-      const items: RecentHistoryItem[] = [
-        {
-          id: `${record.id}-in`,
-          type: 'clock_in',
-          occurredAt: record.clockInAt,
-          workDate: record.workDate,
-          officeName,
-          officeIsRemote: record.officeIsRemote,
-        },
-      ];
-
-      if (record.clockOutAt) {
-        items.push({
-          id: `${record.id}-out`,
-          type: 'clock_out',
-          occurredAt: record.clockOutAt,
-          workDate: record.workDate,
-          officeName,
-          officeIsRemote: record.officeIsRemote,
-        });
-      }
-
-      return items;
-    })
-    .sort(
-      (left, right) =>
-        new Date(right.occurredAt).getTime() -
-        new Date(left.occurredAt).getTime(),
-    );
+    .map((record) => ({
+      id: record.id,
+      type: record.type,
+      occurredAt: record.occurredAt,
+      workDate: record.workDate,
+      officeName: formatHistoryOfficeLabel(
+        record.officeName,
+        record.officeIsRemote,
+      ),
+      officeIsRemote: Boolean(record.officeIsRemote),
+    }))
+    .slice(0, 6);
 }
 
-function formatHistoryOfficeLabel(record: AttendanceRecord) {
-  if (record.officeIsRemote) {
+function formatHistoryOfficeLabel(
+  officeName: string | null | undefined,
+  officeIsRemote?: boolean,
+) {
+  if (officeIsRemote) {
     return 'Remoto';
   }
 
-  return record.officeName?.trim() || 'Sin sucursal';
-}
-
-function getRecentHistoryRange(timezone: string) {
-  const endDate = getOrganizationToday(timezone);
-  const start = new Date(`${endDate}T12:00:00Z`);
-  start.setUTCDate(start.getUTCDate() - 45);
-
-  return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate,
-  };
+  return officeName?.trim() || 'Sin sucursal';
 }
 
 function formatTime(value: string, timezone: string) {
@@ -1236,5 +1391,115 @@ const styles = StyleSheet.create({
   },
   historyDate: {
     textAlign: 'right',
+  },
+  skeletonBase: {
+    borderCurve: 'continuous',
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  skeletonChip: {
+    alignSelf: 'center',
+    borderRadius: 999,
+    height: 30,
+    width: 148,
+  },
+  skeletonClock: {
+    borderRadius: 16,
+    height: 48,
+    width: 216,
+  },
+  skeletonDate: {
+    borderRadius: 12,
+    height: 22,
+    width: 252,
+  },
+  skeletonHelperLineLong: {
+    alignSelf: 'center',
+    height: 18,
+    width: '82%',
+  },
+  skeletonHelperLineShort: {
+    alignSelf: 'center',
+    height: 16,
+    width: '62%',
+  },
+  skeletonButton: {
+    borderRadius: 20,
+    height: 50,
+    width: '100%',
+  },
+  skeletonMetricIcon: {
+    borderRadius: 999,
+    height: 36,
+    width: 36,
+  },
+  skeletonMetricValue: {
+    borderRadius: 12,
+    height: 30,
+    width: '72%',
+  },
+  skeletonMetricLabel: {
+    borderRadius: 10,
+    height: 18,
+    width: '58%',
+  },
+  skeletonHistoryHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  skeletonHistoryTitle: {
+    borderRadius: 12,
+    height: 24,
+    width: 180,
+  },
+  skeletonHistoryAction: {
+    borderRadius: 10,
+    height: 16,
+    width: 64,
+  },
+  skeletonHistoryRow: {
+    alignItems: 'center',
+    borderColor: 'transparent',
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    minHeight: 88,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  skeletonHistoryIcon: {
+    borderRadius: 999,
+    height: 40,
+    width: 40,
+  },
+  skeletonHistoryInfo: {
+    flex: 1,
+    gap: 8,
+  },
+  skeletonHistoryLinePrimary: {
+    borderRadius: 10,
+    height: 18,
+    width: '56%',
+  },
+  skeletonHistoryLineSecondary: {
+    borderRadius: 8,
+    height: 14,
+    width: '72%',
+  },
+  skeletonHistoryMeta: {
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  skeletonHistoryLineTime: {
+    borderRadius: 8,
+    height: 16,
+    width: 56,
+  },
+  skeletonHistoryLineDate: {
+    borderRadius: 8,
+    height: 14,
+    width: 74,
   },
 });

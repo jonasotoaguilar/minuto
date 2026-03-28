@@ -440,6 +440,45 @@ describe('attendance proximity functions', () => {
       });
     });
 
+    it('counts attended days even with open shifts', () => {
+      const openRecord = {
+        ...completedRecord,
+        id: 'record-open',
+        workDate: '2026-03-27',
+        clockInAt: '2026-03-27T09:00:00.000Z',
+        clockOutAt: null,
+      };
+
+      expect(
+        calculateWeeklyTotals([openRecord], {
+          includeOpenShiftMinutes: false,
+        }),
+      ).toEqual({
+        totalMinutes: 0,
+        attendedDays: 1,
+      });
+    });
+
+    it('includes open shift minutes when requested', () => {
+      const openRecord = {
+        ...completedRecord,
+        id: 'record-open',
+        workDate: '2026-03-27',
+        clockInAt: '2026-03-27T09:00:00.000Z',
+        clockOutAt: null,
+      };
+
+      expect(
+        calculateWeeklyTotals([openRecord], {
+          includeOpenShiftMinutes: true,
+          now: new Date('2026-03-27T13:00:00.000Z'),
+        }),
+      ).toEqual({
+        totalMinutes: 180,
+        attendedDays: 1,
+      });
+    });
+
     it('subtracts break duration from attendance summaries', () => {
       expect(calculateAttendanceSummary([completedRecord])).toEqual({
         totalMinutes: 480,

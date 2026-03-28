@@ -8,7 +8,7 @@ import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  ATTENDANCE_EVENT_TYPE,
+  type AttendanceHistoryPageItem,
   getAttendanceHistoryPage,
 } from '@/lib/attendance';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
@@ -29,18 +29,23 @@ type AttendancePeriod = {
 
 type HistoryDisplayRow = {
   key: string;
-  type: 'Entrada' | 'Salida';
-  datetime: string;
-  officeName: string;
+  workDate: string;
+  hasRecord: boolean;
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  status: AttendanceHistoryPageItem['status'];
+  workedMinutes: number;
 };
 
 type HistorySummary = {
+  weeklyHours: number;
   workedDays: number;
   totalMinutes: number;
   overtimeMinutes: number;
 };
 
 const EMPTY_SUMMARY: HistorySummary = {
+  weeklyHours: 40,
   workedDays: 0,
   totalMinutes: 0,
   overtimeMinutes: 0,
@@ -98,16 +103,29 @@ export default function ControlHistoryScreen() {
         month: selectedPeriod.month,
       });
 
+      const todayInTimezone = getTodayDateString(currentTimezone);
+      const shouldHideTodayAbsence =
+        selectedPeriod.year === currentPeriod.year &&
+        selectedPeriod.month === currentPeriod.month;
+
       setDisplayRows(
-        response.items.map((item) => ({
-          key: item.id,
-          type:
-            item.eventType === ATTENDANCE_EVENT_TYPE.CLOCK_IN
-              ? 'Entrada'
-              : 'Salida',
-          datetime: item.occurredAt,
-          officeName: formatOfficeLabel(item.officeName, item.officeIsRemote),
-        })),
+        response.items
+          .filter((item) => {
+            if (!shouldHideTodayAbsence || item.hasRecord) {
+              return true;
+            }
+
+            return item.workDate < todayInTimezone;
+          })
+          .map((item) => ({
+            key: item.id,
+            workDate: item.workDate,
+            hasRecord: item.hasRecord,
+            clockInAt: item.clockInAt,
+            clockOutAt: item.clockOutAt,
+            status: item.status,
+            workedMinutes: item.workedMinutes,
+          })),
       );
 
       setAvailablePeriods(
@@ -118,6 +136,7 @@ export default function ControlHistoryScreen() {
       );
 
       setSummary({
+        weeklyHours: response.summary.weeklyHours,
         workedDays: response.summary.workedDays,
         totalMinutes: response.summary.totalMinutes,
         overtimeMinutes: response.summary.overtimeMinutes,
@@ -139,7 +158,15 @@ export default function ControlHistoryScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeOrganization, page, selectedPeriod.month, selectedPeriod.year]);
+  }, [
+    activeOrganization,
+    currentPeriod.month,
+    currentPeriod.year,
+    currentTimezone,
+    page,
+    selectedPeriod.month,
+    selectedPeriod.year,
+  ]);
 
   useEffect(() => {
     void loadRecords();
@@ -247,20 +274,24 @@ export default function ControlHistoryScreen() {
         ) : null}
       </GlassCard>
 
-      <View style={styles.metricsRow}>
+      <View style={styles.metricsGrid}>
         <MetricCard
-          label="Días asistidos"
-          value={`${summary.workedDays} días`}
-        />
-        <MetricCard
-          label="Horas trabajadas"
+          label="Horas totales"
           value={formatMinutes(summary.totalMinutes)}
+          valueToken="success"
         />
-        <MetricCard
-          label="Horas extras"
-          value={formatMinutes(summary.overtimeMinutes)}
-        />
+        <View style={styles.metricsSubRow}>
+          <MetricCard label="Días asistidos" value={`${summary.workedDays}`} />
+          <MetricCard
+            label="Horas extra"
+            value={formatMinutes(summary.overtimeMinutes)}
+            valueToken="error"
+            helper={`+${formatWeeklyHours(summary.weeklyHours)} horas semanal`}
+          />
+        </View>
       </View>
+
+      <SectionHeader title="Detalle de registros" />
 
       <View style={styles.tableCard}>
         {displayRows.length === 0 ? (
@@ -274,40 +305,96 @@ export default function ControlHistoryScreen() {
               : 'No hay registros para el mes seleccionado.'}
           </ThemedText>
         ) : (
-          displayRows.map((row) => (
-            <View
-              key={row.key}
-              style={[
-                styles.historyRow,
-                {
-                  backgroundColor: theme.surface.glass.soft,
-                  borderColor: theme.surface.glass.border,
-                },
-              ]}
-            >
-              <AttendanceTypeIcon tone={row.type} />
+          displayRows.map((row) => {
+            const dayLabel = formatWorkdayLabel(row.workDate, currentTimezone);
 
-              <View style={styles.historyInfo}>
-                <ThemedText variant="subtitle">{row.type}</ThemedText>
-                <ThemedText colorToken="secondary" variant="bodySmall">
-                  {row.officeName}
-                </ThemedText>
-              </View>
-
-              <View style={styles.historyMeta}>
-                <ThemedText style={styles.historyTime} variant="subtitle">
-                  {formatTime(row.datetime, currentTimezone)}
-                </ThemedText>
-                <ThemedText
-                  colorToken="secondary"
-                  style={styles.historyDate}
-                  variant="bodySmall"
+            return (
+              <View
+                key={row.key}
+                style={[
+                  styles.historyRow,
+                  {
+                    backgroundColor: theme.surface.glass.soft,
+                    borderColor: theme.surface.glass.border,
+                  },
+                  !row.hasRecord && {
+                    borderColor: theme.colors.status.error,
+                    opacity: 0.9,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.dayBadge,
+                    {
+                      backgroundColor: row.hasRecord
+                        ? theme.surface.glass.tint
+                        : 'rgba(255, 99, 99, 0.12)',
+                    },
+                  ]}
                 >
-                  {formatDateTime(row.datetime, currentTimezone)}
-                </ThemedText>
+                  <ThemedText
+                    colorToken={row.hasRecord ? 'secondary' : 'error'}
+                    style={styles.dayBadgeWeekday}
+                    variant="bodySmall"
+                  >
+                    {dayLabel.weekday}
+                  </ThemedText>
+                  <ThemedText
+                    colorToken={row.hasRecord ? 'primary' : 'error'}
+                    style={styles.dayBadgeDay}
+                    variant="subtitle"
+                  >
+                    {dayLabel.day}
+                  </ThemedText>
+                </View>
+
+                <View style={styles.historyInfo}>
+                  {row.hasRecord ? (
+                    <View style={styles.journeyTimesRow}>
+                      <JourneyEvent
+                        label={
+                          row.clockInAt
+                            ? formatTime(row.clockInAt, currentTimezone)
+                            : '--:--'
+                        }
+                        tone="Entrada"
+                      />
+                      <JourneyEvent
+                        label={
+                          row.clockOutAt
+                            ? formatTime(row.clockOutAt, currentTimezone)
+                            : '--:--'
+                        }
+                        tone="Salida"
+                      />
+                    </View>
+                  ) : (
+                    <ThemedText colorToken="error" style={styles.noRecordText}>
+                      Sin registro
+                    </ThemedText>
+                  )}
+                  <ThemedText
+                    colorToken={row.hasRecord ? 'secondary' : 'error'}
+                    numberOfLines={1}
+                    style={styles.statusText}
+                    variant="bodySmall"
+                  >
+                    {resolveJourneyStatusLabel(row)}
+                  </ThemedText>
+                </View>
+
+                <View style={styles.historyMeta}>
+                  <ThemedText
+                    style={styles.historyWorkedTime}
+                    variant="heading"
+                  >
+                    {row.hasRecord ? formatMinutes(row.workedMinutes) : '-'}
+                  </ThemedText>
+                </View>
               </View>
-            </View>
-          ))
+            );
+          })
         )}
 
         <View style={styles.paginationRow}>
@@ -343,16 +430,45 @@ export default function ControlHistoryScreen() {
   );
 }
 
-type AttendanceTypeIconProps = {
+type JourneyEventProps = {
   tone: 'Entrada' | 'Salida';
+  label: string;
 };
 
-function AttendanceTypeIcon({ tone }: AttendanceTypeIconProps) {
+function JourneyEvent({ tone, label }: JourneyEventProps) {
   const theme = useTheme();
   const isEntry = tone === 'Entrada';
   const color = isEntry
     ? theme.colors.status.success
     : theme.colors.status.error;
+
+  return (
+    <View
+      style={[
+        styles.journeyEvent,
+        isEntry ? styles.journeyEventLeft : styles.journeyEventRight,
+      ]}
+    >
+      <AttendanceEventIconCompact
+        color={color}
+        direction={isEntry ? 'in' : 'out'}
+      />
+      <ThemedText style={styles.journeyEventLabel} variant="subtitle">
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+function AttendanceEventIconCompact({
+  color,
+  direction,
+}: {
+  color: string;
+  direction: 'in' | 'out';
+}) {
+  const theme = useTheme();
+  const isEntry = direction === 'in';
 
   return (
     <View
@@ -369,46 +485,36 @@ function AttendanceTypeIcon({ tone }: AttendanceTypeIconProps) {
     >
       <View
         style={[
-          styles.typeIconFrameVertical,
-          { left: 11, backgroundColor: color },
+          styles.attendanceIconFrameVerticalCompact,
+          { backgroundColor: color },
         ]}
       />
       <View
         style={[
-          styles.typeIconFrameHorizontal,
-          {
-            left: 11,
-            top: 12,
-            backgroundColor: color,
-          },
+          styles.attendanceIconFrameHorizontalCompact,
+          styles.attendanceIconFrameHorizontalTopCompact,
+          { backgroundColor: color },
         ]}
       />
       <View
         style={[
-          styles.typeIconFrameHorizontal,
-          {
-            left: 11,
-            bottom: 12,
-            backgroundColor: color,
-          },
+          styles.attendanceIconFrameHorizontalCompact,
+          styles.attendanceIconFrameHorizontalBottomCompact,
+          { backgroundColor: color },
         ]}
       />
       <View
         style={[
-          styles.typeIconArrowShaft,
-          {
-            backgroundColor: color,
-            left: 18,
-          },
+          styles.attendanceIconArrowShaftCompact,
+          { backgroundColor: color },
         ]}
       />
       <View
         style={[
-          styles.typeIconArrowHead,
+          styles.attendanceIconArrowHeadCompact,
           {
             borderLeftColor: 'transparent',
             borderRightColor: color,
-            left: 10,
           },
         ]}
       />
@@ -453,37 +559,40 @@ function MonthArrowButton({
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-  const theme = useTheme();
-
+function MetricCard({
+  label,
+  value,
+  valueToken,
+  helper,
+}: {
+  label: string;
+  value: string;
+  valueToken?: 'success' | 'error' | 'secondary' | 'primary';
+  helper?: string;
+}) {
   return (
     <GlassCard style={styles.metricCard} variant="soft">
-      <View
-        style={[
-          styles.metricIcon,
-          {
-            backgroundColor: theme.surface.glass.tint,
-            borderColor: theme.surface.glass.border,
-          },
-        ]}
-      />
-      <ThemedText style={styles.metricValue} variant="heading">
-        {value}
-      </ThemedText>
-      <ThemedText colorToken="secondary" variant="bodySmall">
+      <ThemedText
+        colorToken="secondary"
+        style={styles.metricLabel}
+        variant="bodySmall"
+      >
         {label}
       </ThemedText>
+      <ThemedText
+        colorToken={valueToken}
+        style={styles.metricValue}
+        variant="heading"
+      >
+        {value}
+      </ThemedText>
+      {helper ? (
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          {helper}
+        </ThemedText>
+      ) : null}
     </GlassCard>
   );
-}
-
-function formatDateTime(value: string, timezone: string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    timeZone: timezone,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(new Date(value));
 }
 
 function formatTime(value: string, timezone: string) {
@@ -495,12 +604,47 @@ function formatTime(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
-function formatOfficeLabel(officeName: string | null, officeIsRemote: boolean) {
-  if (officeIsRemote) {
-    return 'Remoto';
+function resolveJourneyStatusLabel(row: HistoryDisplayRow) {
+  if (!row.hasRecord) {
+    return 'Ausencia';
   }
 
-  return officeName?.trim() || 'Sin sucursal';
+  if (row.status === 'auto_closed') {
+    return 'Cierre automático';
+  }
+
+  return row.status === 'complete' ? 'Jornada completa' : 'Jornada incompleta';
+}
+
+function formatWorkdayLabel(workDate: string, timezone: string) {
+  const [yearPart, monthPart, dayPart] = workDate.split('-');
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const dayNumber = Number(dayPart);
+
+  const date =
+    Number.isInteger(year) &&
+    Number.isInteger(month) &&
+    Number.isInteger(dayNumber)
+      ? new Date(Date.UTC(year, month - 1, dayNumber, 12, 0, 0))
+      : new Date(`${workDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    weekday: 'short',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const weekday =
+    parts
+      .find((part) => part.type === 'weekday')
+      ?.value.replace('.', '')
+      .toUpperCase() ?? '---';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '--';
+
+  return {
+    weekday,
+    day,
+  };
 }
 
 function formatAttendanceMonthLabel(year: number, month: number) {
@@ -516,6 +660,17 @@ function formatMinutes(totalMinutes: number) {
   const minutes = totalMinutes % 60;
 
   return `${hours}h ${minutes}m`;
+}
+
+function formatWeeklyHours(weeklyHours: number) {
+  const safeWeeklyHours = Number.isFinite(weeklyHours)
+    ? Math.max(0, weeklyHours)
+    : 40;
+
+  return new Intl.NumberFormat('es-CL', {
+    maximumFractionDigits: Number.isInteger(safeWeeklyHours) ? 0 : 1,
+    minimumFractionDigits: 0,
+  }).format(safeWeeklyHours);
 }
 
 function getCurrentAttendancePeriod(timezone: string): AttendancePeriod {
@@ -538,6 +693,25 @@ function getCurrentAttendancePeriod(timezone: string): AttendancePeriod {
     year: now.getUTCFullYear(),
     month: now.getUTCMonth() + 1,
   };
+}
+
+function getTodayDateString(timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (year && month && day) {
+    return `${year}-${month}-${day}`;
+  }
+
+  return new Date().toISOString().slice(0, 10);
 }
 
 function getAdjacentPeriod(params: {
@@ -608,24 +782,27 @@ const styles = StyleSheet.create({
   monthArrowLabel: {
     lineHeight: 24,
   },
-  metricsRow: {
+  metricsGrid: {
+    gap: 12,
+  },
+  metricsSubRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 12,
   },
   metricCard: {
+    alignItems: 'center',
     flex: 1,
-    gap: 8,
-    justifyContent: 'space-between',
-    minHeight: 138,
+    gap: 6,
+    justifyContent: 'center',
+    paddingVertical: 24,
   },
-  metricIcon: {
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 36,
-    width: 36,
+  metricLabel: {
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   metricValue: {
-    letterSpacing: -0.4,
+    fontSize: 28,
+    letterSpacing: -0.5,
   },
   tableCard: {
     gap: 12,
@@ -640,58 +817,121 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
+  dayBadge: {
+    alignItems: 'center',
+    borderRadius: 999,
+    justifyContent: 'center',
+    minHeight: 58,
+    minWidth: 58,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  dayBadgeWeekday: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  dayBadgeDay: {
+    fontSize: 24,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 26,
+  },
   historyInfo: {
     flex: 1,
+    gap: 3,
+  },
+  journeyTimesRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  journeyEvent: {
+    alignItems: 'center',
+    flexDirection: 'row',
     gap: 4,
+    minWidth: 0,
+  },
+  journeyEventLeft: {
+    justifyContent: 'flex-start',
+  },
+  journeyEventRight: {
+    justifyContent: 'flex-end',
+  },
+  journeyEventLabel: {
+    fontSize: 16,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 18,
+  },
+  noRecordText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 14,
   },
   historyMeta: {
     alignItems: 'flex-end',
-    gap: 4,
+    minWidth: 120,
+    paddingLeft: 8,
   },
-  historyTime: {
+  historyWorkedTime: {
+    fontSize: 22,
+    fontVariant: ['tabular-nums'],
     textAlign: 'right',
-  },
-  historyDate: {
-    textAlign: 'right',
+    width: '100%',
   },
   typeIconShell: {
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
-    height: 40,
+    height: 18,
     justifyContent: 'center',
-    position: 'relative',
-    width: 40,
+    overflow: 'hidden',
+    width: 18,
   },
-  typeIconFrameVertical: {
+  attendanceIconFrameVerticalCompact: {
     borderRadius: 999,
-    height: 16,
+    height: 8,
+    left: 5,
     position: 'absolute',
-    top: 12,
-    width: 2,
+    top: 5,
+    width: 1,
   },
-  typeIconFrameHorizontal: {
+  attendanceIconFrameHorizontalCompact: {
     borderRadius: 999,
-    height: 2,
+    height: 1,
+    left: 5,
     position: 'absolute',
-    width: 10,
+    width: 5,
   },
-  typeIconArrowShaft: {
+  attendanceIconFrameHorizontalTopCompact: {
+    top: 5,
+  },
+  attendanceIconFrameHorizontalBottomCompact: {
+    bottom: 5,
+  },
+  attendanceIconArrowShaftCompact: {
     borderRadius: 999,
-    height: 2,
+    height: 1,
+    left: 8,
     position: 'absolute',
-    top: 19,
-    width: 12,
+    top: 9,
+    width: 5,
   },
-  typeIconArrowHead: {
+  attendanceIconArrowHeadCompact: {
     borderBottomColor: 'transparent',
-    borderBottomWidth: 5,
-    borderLeftWidth: 7,
-    borderRightWidth: 7,
+    borderBottomWidth: 2,
+    borderLeftWidth: 3,
+    borderRightWidth: 3,
     borderTopColor: 'transparent',
-    borderTopWidth: 5,
+    borderTopWidth: 2,
+    left: 4,
     position: 'absolute',
-    top: 14,
+    top: 7,
   },
   emptyText: {
     paddingVertical: 8,
