@@ -8,8 +8,9 @@ export { Chip } from '@/theme/primitives/Chip';
 export type {
   GlassCardProps,
   GlassCardVariant,
+  PlainCardProps,
 } from '@/theme/primitives/GlassCard';
-export { GlassCard } from '@/theme/primitives/GlassCard';
+export { GlassCard, PlainCard } from '@/theme/primitives/GlassCard';
 export type { ScreenProps, ScreenSurface } from '@/theme/primitives/Screen';
 export { Screen } from '@/theme/primitives/Screen';
 export type { SectionHeaderProps } from '@/theme/primitives/SectionHeader';

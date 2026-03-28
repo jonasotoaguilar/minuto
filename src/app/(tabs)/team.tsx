@@ -504,7 +504,7 @@ export default function TeamScreen() {
       <GlassCard style={styles.filtersCard} variant="soft">
         <SectionHeader
           eyebrow="Explorar equipo"
-          subtitle="Filtrá por nombre, rol o departamento sin salir de esta vista."
+          subtitle="Filtrá por nombre o departamento."
           title="Miembros"
         />
 
@@ -577,7 +577,6 @@ export default function TeamScreen() {
             </View>
 
             <View style={styles.memberChipsRow}>
-              <Chip label={member.department} tone="neutral" />
               <Chip label={getRoleLabel(member.role)} tone="brand" />
             </View>
           </View>

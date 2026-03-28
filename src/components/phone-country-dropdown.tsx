@@ -14,7 +14,7 @@ import {
   PHONE_COUNTRIES,
   type PhoneCountryCode,
 } from '@/lib/phone';
-import { GlassCard, ThemedText } from '@/theme/primitives';
+import { PlainCard, ThemedText } from '@/theme/primitives';
 
 type PhoneCountryDropdownProps = {
   countryCode: PhoneCountryCode;
@@ -139,7 +139,7 @@ export function PhoneCountryDropdown({
           onPress={handleClose}
         >
           <Pressable style={styles.cardWrapper} onPress={() => undefined}>
-            <GlassCard
+            <PlainCard
               padding={0}
               style={[
                 styles.card,
@@ -220,7 +220,7 @@ export function PhoneCountryDropdown({
                 maxToRenderPerBatch={30}
                 windowSize={10}
               />
-            </GlassCard>
+            </PlainCard>
           </Pressable>
         </Pressable>
       </Modal>
