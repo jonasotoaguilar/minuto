@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Modal,
   Pressable,
@@ -19,7 +20,7 @@ import { useOrganization } from '@/hooks/use-organization';
 import { useProximityValidation } from '@/hooks/use-proximity-validation';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  ATTENDANCE_EVENT_TYPE,
+  type AttendanceEventType,
   type AttendanceLocation,
   type AttendanceRecord,
   calculateWeeklyTotals,
@@ -35,6 +36,7 @@ import {
   registerClockOut,
   validateProximity,
 } from '@/lib/attendance';
+import { getErrorMessage } from '@/lib/error';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
   Chip,
@@ -62,7 +64,7 @@ type ControlMode = (typeof CONTROL_MODE)[keyof typeof CONTROL_MODE];
 
 type RecentHistoryItem = {
   id: string;
-  type: 'clock_in' | 'clock_out';
+  type: AttendanceEventType;
   occurredAt: string;
   workDate: string;
   officeName: string;
@@ -556,9 +558,18 @@ export default function ControlScreen() {
       return;
     }
 
-    await submitClockOut({ attendanceId: openShiftRecord.recordId });
-    await loadAttendance();
-    proximity.reset();
+    try {
+      await submitClockOut({ attendanceId: openShiftRecord.recordId });
+      await loadAttendance();
+      proximity.reset();
+    } catch (error) {
+      const detail =
+        getErrorMessage(error) ?? 'Ocurrió un problema inesperado.';
+      Alert.alert(
+        'No se pudo cerrar la jornada',
+        `No pudimos cerrar la jornada con la hora actual (${detail}).`,
+      );
+    }
   }, [loadAttendance, openShiftRecord, proximity, submitClockOut]);
 
   const onCloseAtStandardTime = useCallback(async () => {
@@ -566,13 +577,22 @@ export default function ControlScreen() {
       return;
     }
 
-    await submitClockOut({
-      attendanceId: openShiftRecord.recordId,
-      autoClosed: true,
-      customCloseAt: overtimeStandardCloseAt.toISOString(),
-    });
-    await loadAttendance();
-    proximity.reset();
+    try {
+      await submitClockOut({
+        attendanceId: openShiftRecord.recordId,
+        autoClosed: true,
+        customCloseAt: overtimeStandardCloseAt.toISOString(),
+      });
+      await loadAttendance();
+      proximity.reset();
+    } catch (error) {
+      const detail =
+        getErrorMessage(error) ?? 'Ocurrió un problema inesperado.';
+      Alert.alert(
+        'No se pudo cerrar la jornada',
+        `No pudimos cerrar la jornada con el horario habitual (${detail}).`,
+      );
+    }
   }, [
     loadAttendance,
     openShiftRecord,
@@ -1131,7 +1151,7 @@ function formatCompactDate(value: string, timezone: string) {
 function buildRecentHistoryItems(
   records: Array<{
     id: string;
-    type: (typeof ATTENDANCE_EVENT_TYPE)[keyof typeof ATTENDANCE_EVENT_TYPE];
+    type: AttendanceEventType;
     occurredAt: string;
     workDate: string;
     officeName?: string | null;
@@ -1216,28 +1236,6 @@ function formatMinutes(totalMinutes: number) {
   const minutes = totalMinutes % 60;
 
   return `${hours}h ${minutes}m`;
-}
-
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-
-  if (typeof error === 'string' && error.trim()) {
-    return error;
-  }
-
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'message' in error &&
-    typeof error.message === 'string' &&
-    error.message.trim()
-  ) {
-    return error.message;
-  }
-
-  return null;
 }
 
 const styles = StyleSheet.create({

@@ -18,6 +18,7 @@ import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import { getErrorMessage } from '@/lib/error';
 import { supabase } from '@/lib/supabase';
 import {
   Chip,
@@ -80,7 +81,7 @@ interface EditEmployeeFormValues {
   department: string;
   hireDate: string;
   position: string;
-  role: string;
+  role: MembershipRole;
   shiftDurationHours: string;
   weeklyHours: string;
 }
@@ -402,7 +403,9 @@ export default function TeamScreen() {
         );
 
         if (roleError) {
-          throw new Error('No se pudo actualizar el rol del colaborador.');
+          throw new Error(
+            `No se pudo actualizar el rol del colaborador (${roleError.message}).`,
+          );
         }
 
         const roleResult = roleData as {
@@ -1211,28 +1214,6 @@ function mapProfileUpdateError(errorCode?: string) {
   }
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-
-  if (typeof error === 'string' && error.trim()) {
-    return error;
-  }
-
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'message' in error &&
-    typeof error.message === 'string' &&
-    error.message.trim()
-  ) {
-    return error.message;
-  }
-
-  return null;
-}
-
 function mapMembershipRole(role: MembershipRole) {
   if (role === 'owner') return 'Organization Owner';
   if (role === 'admin') return 'Administrator';
@@ -1241,9 +1222,9 @@ function mapMembershipRole(role: MembershipRole) {
 }
 
 function getAllowedRolesForCaller(
-  callerRole: string,
-  targetRole: string,
-): string[] {
+  callerRole: MembershipRole,
+  targetRole: MembershipRole,
+): MembershipRole[] {
   if (targetRole === 'owner') return [];
   if (callerRole === 'owner') return ['admin', 'manager', 'employee'];
   if (callerRole === 'admin' && targetRole !== 'admin')
@@ -1251,7 +1232,7 @@ function getAllowedRolesForCaller(
   return [];
 }
 
-function getRoleLabel(role: string): string {
+function getRoleLabel(role: MembershipRole): string {
   switch (role) {
     case 'owner':
       return 'Owner';
