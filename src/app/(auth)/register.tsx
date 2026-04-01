@@ -1,5 +1,12 @@
 import { type Href, Link, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { z } from 'zod';
 
@@ -85,6 +92,7 @@ const registerSchema = z
 type RegisterFormValues = z.infer<typeof registerSchema>;
 type RegisterFieldErrors = Partial<Record<keyof RegisterFormValues, string>>;
 type TouchedFields = Partial<Record<keyof RegisterFormValues, boolean>>;
+type AppTheme = ReturnType<typeof useTheme>;
 
 const initialFormValues: RegisterFormValues = {
   fullName: '',
@@ -308,293 +316,402 @@ export default function RegisterScreen() {
         },
       ]}
     >
-      <View style={styles.topBar}>
-        <View style={styles.brand}>
-          <View
+      <RegisterBrandHeader theme={theme} />
+      <RegisterFormCard
+        errorMessage={errorMessage}
+        focusedField={focusedField}
+        formValues={formValues}
+        handleSignUp={handleSignUp}
+        infoMessage={infoMessage}
+        isConfirmPasswordVisible={isConfirmPasswordVisible}
+        isPasswordVisible={isPasswordVisible}
+        isSubmitDisabled={isSubmitDisabled}
+        isSubmitting={isSubmitting}
+        setFieldValue={setFieldValue}
+        setFocusedField={setFocusedField}
+        setIsConfirmPasswordVisible={setIsConfirmPasswordVisible}
+        setIsPasswordVisible={setIsPasswordVisible}
+        setTouched={setTouched}
+        theme={theme}
+        touchedFields={touchedFields}
+        validationFieldErrors={validationFieldErrors}
+      />
+    </Screen>
+  );
+}
+
+function RegisterBrandHeader({ theme }: { theme: AppTheme }) {
+  return (
+    <View style={styles.topBar}>
+      <View style={styles.brand}>
+        <View
+          style={[
+            styles.brandIcon,
+            { backgroundColor: theme.colors.brand.primary },
+          ]}
+        >
+          <ThemedText
+            colorToken="inverse"
             style={[
-              styles.brandIcon,
-              { backgroundColor: theme.colors.brand.primary },
+              styles.brandLetter,
+              {
+                fontSize: theme.typography.subtitle.fontSize,
+                fontWeight: theme.typography.subtitle.fontWeight,
+              },
             ]}
           >
-            <ThemedText
-              colorToken="inverse"
-              style={[
-                styles.brandLetter,
-                {
-                  fontSize: theme.typography.subtitle.fontSize,
-                  fontWeight: theme.typography.subtitle.fontWeight,
-                },
-              ]}
-            >
-              M
-            </ThemedText>
-          </View>
-          <ThemedText
-            variant="title"
-            style={[styles.brandText, { fontSize: 20 }]}
-          >
-            Minuto
+            M
           </ThemedText>
         </View>
+        <ThemedText
+          variant="title"
+          style={[styles.brandText, { fontSize: 20 }]}
+        >
+          Minuto
+        </ThemedText>
       </View>
+    </View>
+  );
+}
 
+type RegisterFormCardProps = {
+  errorMessage: string;
+  focusedField: keyof RegisterFormValues | null;
+  formValues: RegisterFormValues;
+  handleSignUp: () => void;
+  infoMessage: string;
+  isConfirmPasswordVisible: boolean;
+  isPasswordVisible: boolean;
+  isSubmitDisabled: boolean;
+  isSubmitting: boolean;
+  setFieldValue: (field: keyof RegisterFormValues, value: string) => void;
+  setFocusedField: (field: keyof RegisterFormValues | null) => void;
+  setIsConfirmPasswordVisible: Dispatch<SetStateAction<boolean>>;
+  setIsPasswordVisible: Dispatch<SetStateAction<boolean>>;
+  setTouched: (field: keyof RegisterFormValues) => void;
+  theme: AppTheme;
+  touchedFields: TouchedFields;
+  validationFieldErrors: RegisterFieldErrors;
+};
+
+function RegisterFormCard({
+  errorMessage,
+  focusedField,
+  formValues,
+  handleSignUp,
+  infoMessage,
+  isConfirmPasswordVisible,
+  isPasswordVisible,
+  isSubmitDisabled,
+  isSubmitting,
+  setFieldValue,
+  setFocusedField,
+  setIsConfirmPasswordVisible,
+  setIsPasswordVisible,
+  setTouched,
+  theme,
+  touchedFields,
+  validationFieldErrors,
+}: RegisterFormCardProps) {
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.background.card,
+          shadowColor: theme.colors.shadow.color,
+        },
+      ]}
+    >
       <View
         style={[
-          styles.card,
-          {
-            backgroundColor: theme.colors.background.card,
-            shadowColor: theme.colors.shadow.color,
-          },
+          styles.cardBanner,
+          { backgroundColor: theme.colors.brand.primary },
         ]}
       >
         <View
           style={[
-            styles.cardBanner,
-            { backgroundColor: theme.colors.brand.primary },
+            styles.cardShield,
+            { backgroundColor: theme.colors.brand.muted },
           ]}
         >
-          <View
-            style={[
-              styles.cardShield,
-              { backgroundColor: theme.colors.brand.muted },
-            ]}
-          >
-            <ThemedText
-              colorToken="brand"
-              style={[
-                styles.cardShieldText,
-                {
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              OK
-            </ThemedText>
-          </View>
-        </View>
-
-        <View style={styles.cardBody}>
-          <ThemedText variant="heading" style={styles.cardTitle}>
-            Crea tu cuenta
-          </ThemedText>
           <ThemedText
-            colorToken="secondary"
+            colorToken="brand"
             style={[
-              styles.cardSubtitle,
-              { fontSize: theme.typography.bodySmall.fontSize },
-            ]}
-          >
-            Registra tu acceso a Minuto
-          </ThemedText>
-
-          <View style={styles.form}>
-            <Field
-              label="Nombre completo"
-              placeholder="Nombre y apellido"
-              icon="A"
-              value={formValues.fullName}
-              onChangeText={(value) => setFieldValue('fullName', value)}
-              onFocus={() => setFocusedField('fullName')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouched('fullName');
-              }}
-              error={
-                touchedFields.fullName ? validationFieldErrors.fullName : ''
-              }
-              isValid={
-                Boolean(touchedFields.fullName) &&
-                Boolean(formValues.fullName.trim()) &&
-                !validationFieldErrors.fullName
-              }
-              isDisabled={isSubmitting}
-              maxLength={MAX_NAME_LENGTH}
-              isFocused={focusedField === 'fullName'}
-            />
-            <Field
-              label="Dirección"
-              placeholder="Av. Siempre Viva 123"
-              icon="D"
-              value={formValues.address}
-              onChangeText={(value) => setFieldValue('address', value)}
-              onFocus={() => setFocusedField('address')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouched('address');
-              }}
-              error={touchedFields.address ? validationFieldErrors.address : ''}
-              isValid={
-                Boolean(touchedFields.address) &&
-                Boolean(formValues.address.trim()) &&
-                !validationFieldErrors.address
-              }
-              isDisabled={isSubmitting}
-              maxLength={MAX_ADDRESS_LENGTH}
-              isFocused={focusedField === 'address'}
-            />
-            <Field
-              label="Email"
-              placeholder="nombre@empresa.com"
-              icon="@"
-              value={formValues.email}
-              onChangeText={(value) => setFieldValue('email', value)}
-              onFocus={() => setFocusedField('email')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouched('email');
-              }}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              error={touchedFields.email ? validationFieldErrors.email : ''}
-              isValid={
-                Boolean(touchedFields.email) &&
-                Boolean(formValues.email.trim()) &&
-                !validationFieldErrors.email
-              }
-              isDisabled={isSubmitting}
-              maxLength={MAX_EMAIL_LENGTH}
-              isFocused={focusedField === 'email'}
-            />
-            <PhoneField
-              label="Teléfono"
-              countryCode={formValues.phoneCountry}
-              nationalNumber={formValues.phone}
-              onChangeCountry={(countryCode) => {
-                setFieldValue('phoneCountry', countryCode);
-                setTouched('phone');
-              }}
-              onChangeNationalNumber={(value) => setFieldValue('phone', value)}
-              onFocus={() => setFocusedField('phone')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouched('phone');
-              }}
-              error={touchedFields.phone ? validationFieldErrors.phone : ''}
-              isValid={
-                Boolean(touchedFields.phone) &&
-                Boolean(formValues.phone.trim()) &&
-                !validationFieldErrors.phone
-              }
-              isDisabled={isSubmitting}
-              isFocused={focusedField === 'phone'}
-            />
-            <Field
-              label="Contraseña"
-              placeholder="********"
-              icon="*"
-              secure={!isPasswordVisible}
-              value={formValues.password}
-              onChangeText={(value) => setFieldValue('password', value)}
-              onFocus={() => setFocusedField('password')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouched('password');
-              }}
-              error={
-                touchedFields.password ? validationFieldErrors.password : ''
-              }
-              isValid={
-                Boolean(touchedFields.password) &&
-                Boolean(formValues.password) &&
-                !validationFieldErrors.password
-              }
-              actionLabel={isPasswordVisible ? 'Ocultar' : 'Mostrar'}
-              onPressAction={() => setIsPasswordVisible((current) => !current)}
-              isDisabled={isSubmitting}
-              maxLength={MAX_PASSWORD_LENGTH}
-              isFocused={focusedField === 'password'}
-            />
-            <Field
-              label="Confirmar contraseña"
-              placeholder="********"
-              icon="*"
-              secure={!isConfirmPasswordVisible}
-              value={formValues.confirmPassword}
-              onChangeText={(value) => setFieldValue('confirmPassword', value)}
-              onFocus={() => setFocusedField('confirmPassword')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouched('confirmPassword');
-              }}
-              error={
-                touchedFields.confirmPassword
-                  ? validationFieldErrors.confirmPassword
-                  : ''
-              }
-              isValid={
-                Boolean(touchedFields.confirmPassword) &&
-                Boolean(formValues.confirmPassword) &&
-                !validationFieldErrors.confirmPassword
-              }
-              actionLabel={isConfirmPasswordVisible ? 'Ocultar' : 'Mostrar'}
-              onPressAction={() =>
-                setIsConfirmPasswordVisible((current) => !current)
-              }
-              isDisabled={isSubmitting}
-              maxLength={MAX_PASSWORD_LENGTH}
-              isFocused={focusedField === 'confirmPassword'}
-            />
-          </View>
-
-          <PrimaryButton
-            disabled={isSubmitDisabled}
-            label={isSubmitting ? 'Registrando...' : 'Crear cuenta →'}
-            loading={isSubmitting}
-            onPress={handleSignUp}
-          />
-
-          {errorMessage ? (
-            <ThemedText
-              colorToken="error"
-              style={[
-                styles.messageText,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              {errorMessage}
-            </ThemedText>
-          ) : null}
-
-          {infoMessage ? (
-            <ThemedText
-              colorToken="secondary"
-              style={[
-                styles.messageText,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              {infoMessage}
-            </ThemedText>
-          ) : null}
-
-          <ThemedText
-            colorToken="secondary"
-            style={[
-              styles.helpText,
-              { fontSize: theme.typography.caption.fontSize },
-            ]}
-          >
-            Ya tienes cuenta?{' '}
-            <Link
-              href="/login"
-              style={{
-                color: theme.colors.brand.primary,
+              styles.cardShieldText,
+              {
+                fontSize: theme.typography.body.fontSize,
                 fontWeight: theme.typography.label.fontWeight,
-              }}
-            >
-              Inicia sesión
-            </Link>
+              },
+            ]}
+          >
+            OK
           </ThemedText>
         </View>
       </View>
-    </Screen>
+
+      <View style={styles.cardBody}>
+        <ThemedText variant="heading" style={styles.cardTitle}>
+          Crea tu cuenta
+        </ThemedText>
+        <ThemedText
+          colorToken="secondary"
+          style={[
+            styles.cardSubtitle,
+            { fontSize: theme.typography.bodySmall.fontSize },
+          ]}
+        >
+          Registra tu acceso a Minuto
+        </ThemedText>
+
+        <RegisterFormFields
+          focusedField={focusedField}
+          formValues={formValues}
+          isConfirmPasswordVisible={isConfirmPasswordVisible}
+          isPasswordVisible={isPasswordVisible}
+          isSubmitting={isSubmitting}
+          setFieldValue={setFieldValue}
+          setFocusedField={setFocusedField}
+          setIsConfirmPasswordVisible={setIsConfirmPasswordVisible}
+          setIsPasswordVisible={setIsPasswordVisible}
+          setTouched={setTouched}
+          touchedFields={touchedFields}
+          validationFieldErrors={validationFieldErrors}
+        />
+
+        <PrimaryButton
+          disabled={isSubmitDisabled}
+          label={isSubmitting ? 'Registrando...' : 'Crear cuenta →'}
+          loading={isSubmitting}
+          onPress={handleSignUp}
+        />
+
+        {errorMessage ? (
+          <ThemedText
+            colorToken="error"
+            style={[
+              styles.messageText,
+              {
+                fontSize: theme.typography.caption.fontSize,
+                fontWeight: theme.typography.label.fontWeight,
+              },
+            ]}
+          >
+            {errorMessage}
+          </ThemedText>
+        ) : null}
+
+        {infoMessage ? (
+          <ThemedText
+            colorToken="secondary"
+            style={[
+              styles.messageText,
+              {
+                fontSize: theme.typography.caption.fontSize,
+                fontWeight: theme.typography.label.fontWeight,
+              },
+            ]}
+          >
+            {infoMessage}
+          </ThemedText>
+        ) : null}
+
+        <ThemedText
+          colorToken="secondary"
+          style={[
+            styles.helpText,
+            { fontSize: theme.typography.caption.fontSize },
+          ]}
+        >
+          Ya tienes cuenta?{' '}
+          <Link
+            href="/login"
+            style={{
+              color: theme.colors.brand.primary,
+              fontWeight: theme.typography.label.fontWeight,
+            }}
+          >
+            Inicia sesión
+          </Link>
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
+type RegisterFormFieldsProps = Pick<
+  RegisterFormCardProps,
+  | 'focusedField'
+  | 'formValues'
+  | 'isConfirmPasswordVisible'
+  | 'isPasswordVisible'
+  | 'isSubmitting'
+  | 'setFieldValue'
+  | 'setFocusedField'
+  | 'setIsConfirmPasswordVisible'
+  | 'setIsPasswordVisible'
+  | 'setTouched'
+  | 'touchedFields'
+  | 'validationFieldErrors'
+>;
+
+function RegisterFormFields({
+  focusedField,
+  formValues,
+  isConfirmPasswordVisible,
+  isPasswordVisible,
+  isSubmitting,
+  setFieldValue,
+  setFocusedField,
+  setIsConfirmPasswordVisible,
+  setIsPasswordVisible,
+  setTouched,
+  touchedFields,
+  validationFieldErrors,
+}: RegisterFormFieldsProps) {
+  return (
+    <View style={styles.form}>
+      <Field
+        label="Nombre completo"
+        placeholder="Nombre y apellido"
+        icon="A"
+        value={formValues.fullName}
+        onChangeText={(value) => setFieldValue('fullName', value)}
+        onFocus={() => setFocusedField('fullName')}
+        onBlur={() => {
+          setFocusedField(null);
+          setTouched('fullName');
+        }}
+        error={touchedFields.fullName ? validationFieldErrors.fullName : ''}
+        isValid={
+          Boolean(touchedFields.fullName) &&
+          Boolean(formValues.fullName.trim()) &&
+          !validationFieldErrors.fullName
+        }
+        isDisabled={isSubmitting}
+        maxLength={MAX_NAME_LENGTH}
+        isFocused={focusedField === 'fullName'}
+      />
+      <Field
+        label="Dirección"
+        placeholder="Av. Siempre Viva 123"
+        icon="D"
+        value={formValues.address}
+        onChangeText={(value) => setFieldValue('address', value)}
+        onFocus={() => setFocusedField('address')}
+        onBlur={() => {
+          setFocusedField(null);
+          setTouched('address');
+        }}
+        error={touchedFields.address ? validationFieldErrors.address : ''}
+        isValid={
+          Boolean(touchedFields.address) &&
+          Boolean(formValues.address.trim()) &&
+          !validationFieldErrors.address
+        }
+        isDisabled={isSubmitting}
+        maxLength={MAX_ADDRESS_LENGTH}
+        isFocused={focusedField === 'address'}
+      />
+      <Field
+        label="Email"
+        placeholder="nombre@empresa.com"
+        icon="@"
+        value={formValues.email}
+        onChangeText={(value) => setFieldValue('email', value)}
+        onFocus={() => setFocusedField('email')}
+        onBlur={() => {
+          setFocusedField(null);
+          setTouched('email');
+        }}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        error={touchedFields.email ? validationFieldErrors.email : ''}
+        isValid={
+          Boolean(touchedFields.email) &&
+          Boolean(formValues.email.trim()) &&
+          !validationFieldErrors.email
+        }
+        isDisabled={isSubmitting}
+        maxLength={MAX_EMAIL_LENGTH}
+        isFocused={focusedField === 'email'}
+      />
+      <PhoneField
+        label="Teléfono"
+        countryCode={formValues.phoneCountry}
+        nationalNumber={formValues.phone}
+        onChangeCountry={(countryCode) => {
+          setFieldValue('phoneCountry', countryCode);
+          setTouched('phone');
+        }}
+        onChangeNationalNumber={(value) => setFieldValue('phone', value)}
+        onFocus={() => setFocusedField('phone')}
+        onBlur={() => {
+          setFocusedField(null);
+          setTouched('phone');
+        }}
+        error={touchedFields.phone ? validationFieldErrors.phone : ''}
+        isValid={
+          Boolean(touchedFields.phone) &&
+          Boolean(formValues.phone.trim()) &&
+          !validationFieldErrors.phone
+        }
+        isDisabled={isSubmitting}
+        isFocused={focusedField === 'phone'}
+      />
+      <Field
+        label="Contraseña"
+        placeholder="********"
+        icon="*"
+        secure={!isPasswordVisible}
+        value={formValues.password}
+        onChangeText={(value) => setFieldValue('password', value)}
+        onFocus={() => setFocusedField('password')}
+        onBlur={() => {
+          setFocusedField(null);
+          setTouched('password');
+        }}
+        error={touchedFields.password ? validationFieldErrors.password : ''}
+        isValid={
+          Boolean(touchedFields.password) &&
+          Boolean(formValues.password) &&
+          !validationFieldErrors.password
+        }
+        actionLabel={isPasswordVisible ? 'Ocultar' : 'Mostrar'}
+        onPressAction={() => setIsPasswordVisible((current) => !current)}
+        isDisabled={isSubmitting}
+        maxLength={MAX_PASSWORD_LENGTH}
+        isFocused={focusedField === 'password'}
+      />
+      <Field
+        label="Confirmar contraseña"
+        placeholder="********"
+        icon="*"
+        secure={!isConfirmPasswordVisible}
+        value={formValues.confirmPassword}
+        onChangeText={(value) => setFieldValue('confirmPassword', value)}
+        onFocus={() => setFocusedField('confirmPassword')}
+        onBlur={() => {
+          setFocusedField(null);
+          setTouched('confirmPassword');
+        }}
+        error={
+          touchedFields.confirmPassword
+            ? validationFieldErrors.confirmPassword
+            : ''
+        }
+        isValid={
+          Boolean(touchedFields.confirmPassword) &&
+          Boolean(formValues.confirmPassword) &&
+          !validationFieldErrors.confirmPassword
+        }
+        actionLabel={isConfirmPasswordVisible ? 'Ocultar' : 'Mostrar'}
+        onPressAction={() => setIsConfirmPasswordVisible((current) => !current)}
+        isDisabled={isSubmitting}
+        maxLength={MAX_PASSWORD_LENGTH}
+        isFocused={focusedField === 'confirmPassword'}
+      />
+    </View>
   );
 }
 

@@ -1,8 +1,10 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { type Href, Link, useRouter } from 'expo-router';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { z } from 'zod';
 import { useTheme } from '@/hooks/use-theme';
+import { getErrorMessage } from '@/lib/error';
 import { supabase } from '@/lib/supabase';
 import { PrimaryButton, Screen, ThemedText } from '@/theme/primitives';
 
@@ -10,6 +12,17 @@ const MAX_EMAIL_LENGTH = 120;
 const MAX_PASSWORD_LENGTH = 72;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_SECONDS = 30;
+const LOGIN_THROTTLE_STORAGE_KEY = 'login_throttle_state';
+
+interface LoginThrottleState {
+  failedAttempts: number;
+  lockoutEndsAt: number | null;
+}
+
+const loginThrottleStateSchema = z.object({
+  failedAttempts: z.number().int().min(0),
+  lockoutEndsAt: z.number().int().nullable(),
+});
 
 const loginSchema = z.object({
   email: z
@@ -32,6 +45,54 @@ const loginSchema = z.object({
 type LoginFormValues = z.infer<typeof loginSchema>;
 type LoginFieldErrors = Partial<Record<keyof LoginFormValues, string>>;
 type TouchedFields = Partial<Record<keyof LoginFormValues, boolean>>;
+
+function getWebStorage() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    return null;
+  }
+
+  return window.localStorage;
+}
+
+async function readStoredLoginThrottleState(): Promise<LoginThrottleState> {
+  const webStorage = getWebStorage();
+  const rawValue = webStorage
+    ? webStorage.getItem(LOGIN_THROTTLE_STORAGE_KEY)
+    : await AsyncStorage.getItem(LOGIN_THROTTLE_STORAGE_KEY);
+
+  if (!rawValue) {
+    return { failedAttempts: 0, lockoutEndsAt: null };
+  }
+
+  try {
+    const parsedValue = loginThrottleStateSchema.safeParse(
+      JSON.parse(rawValue),
+    );
+
+    if (!parsedValue.success) {
+      console.warn('Formato inválido en el throttle de login persistido.');
+    }
+
+    return parsedValue.success
+      ? parsedValue.data
+      : { failedAttempts: 0, lockoutEndsAt: null };
+  } catch (error) {
+    console.warn('No se pudo leer el throttle de login persistido.', error);
+    return { failedAttempts: 0, lockoutEndsAt: null };
+  }
+}
+
+async function writeStoredLoginThrottleState(state: LoginThrottleState) {
+  const serializedValue = JSON.stringify(state);
+  const webStorage = getWebStorage();
+
+  if (webStorage) {
+    webStorage.setItem(LOGIN_THROTTLE_STORAGE_KEY, serializedValue);
+    return;
+  }
+
+  await AsyncStorage.setItem(LOGIN_THROTTLE_STORAGE_KEY, serializedValue);
+}
 
 export default function LoginScreen() {
   const theme = useTheme();
@@ -94,6 +155,46 @@ export default function LoginScreen() {
     !validationResult.success;
 
   useEffect(() => {
+    let isMounted = true;
+
+    const hydrateThrottleState = async () => {
+      const storedState = await readStoredLoginThrottleState();
+      const hasExpiredLockout =
+        typeof storedState.lockoutEndsAt === 'number' &&
+        storedState.lockoutEndsAt <= Date.now();
+
+      const nextState = hasExpiredLockout
+        ? { failedAttempts: 0, lockoutEndsAt: null }
+        : storedState;
+
+      if (hasExpiredLockout) {
+        await writeStoredLoginThrottleState(nextState);
+      }
+
+      if (!isMounted) {
+        return;
+      }
+
+      setFailedAttempts(nextState.failedAttempts);
+      setLockoutEndsAt(nextState.lockoutEndsAt);
+      setLockoutSecondsLeft(
+        nextState.lockoutEndsAt
+          ? Math.max(
+              0,
+              Math.ceil((nextState.lockoutEndsAt - Date.now()) / 1000),
+            )
+          : 0,
+      );
+    };
+
+    void hydrateThrottleState();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!lockoutEndsAt) {
       return undefined;
     }
@@ -108,6 +209,11 @@ export default function LoginScreen() {
 
       if (remainingSeconds === 0) {
         setLockoutEndsAt(null);
+        setFailedAttempts(0);
+        void writeStoredLoginThrottleState({
+          failedAttempts: 0,
+          lockoutEndsAt: null,
+        });
       }
     };
 
@@ -120,12 +226,31 @@ export default function LoginScreen() {
     setFailedAttempts((currentAttempts) => {
       const nextAttempts = currentAttempts + 1;
       if (nextAttempts < MAX_FAILED_ATTEMPTS) {
+        void writeStoredLoginThrottleState({
+          failedAttempts: nextAttempts,
+          lockoutEndsAt: null,
+        });
         return nextAttempts;
       }
 
-      setLockoutEndsAt(Date.now() + LOCKOUT_SECONDS * 1000);
+      const nextLockoutEndsAt = Date.now() + LOCKOUT_SECONDS * 1000;
+      setLockoutEndsAt(nextLockoutEndsAt);
       setLockoutSecondsLeft(LOCKOUT_SECONDS);
+      void writeStoredLoginThrottleState({
+        failedAttempts: 0,
+        lockoutEndsAt: nextLockoutEndsAt,
+      });
       return 0;
+    });
+  };
+
+  const clearThrottleState = () => {
+    setFailedAttempts(0);
+    setLockoutEndsAt(null);
+    setLockoutSecondsLeft(0);
+    void writeStoredLoginThrottleState({
+      failedAttempts: 0,
+      lockoutEndsAt: null,
     });
   };
 
@@ -156,7 +281,7 @@ export default function LoginScreen() {
         return;
       }
 
-      setFailedAttempts(0);
+      clearThrottleState();
 
       if (data.session) {
         const redirectTo = '/(tabs)/home' as Href;
@@ -165,9 +290,10 @@ export default function LoginScreen() {
       }
 
       setInfoMessage('Sesión creada. Continuá para ingresar.');
-    } catch {
+    } catch (error) {
       setErrorMessage(
-        'No se pudo iniciar sesión en este momento. Intentá nuevamente.',
+        getErrorMessage(error) ??
+          'No se pudo iniciar sesión en este momento. Intentá nuevamente.',
       );
     } finally {
       setIsSubmitting(false);
