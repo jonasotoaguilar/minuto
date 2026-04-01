@@ -1,5 +1,5 @@
 import { type Href, Link, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { z } from 'zod';
 
@@ -85,17 +85,6 @@ const registerSchema = z
 type RegisterFormValues = z.infer<typeof registerSchema>;
 type RegisterFieldErrors = Partial<Record<keyof RegisterFormValues, string>>;
 type TouchedFields = Partial<Record<keyof RegisterFormValues, boolean>>;
-type AvailabilityState =
-  | 'idle'
-  | 'checking'
-  | 'available'
-  | 'unavailable'
-  | 'error';
-type FieldAvailability = {
-  state: AvailabilityState;
-  checkedValue: string;
-  message: string;
-};
 
 const initialFormValues: RegisterFormValues = {
   fullName: '',
@@ -112,19 +101,10 @@ export default function RegisterScreen() {
   const router = useRouter();
   const [formValues, setFormValues] =
     useState<RegisterFormValues>(initialFormValues);
-  const [availabilityErrors, setAvailabilityErrors] =
-    useState<RegisterFieldErrors>({});
   const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
   const [errorMessage, setErrorMessage] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [emailAvailability, setEmailAvailability] = useState<FieldAvailability>(
-    {
-      state: 'idle',
-      checkedValue: '',
-      message: '',
-    },
-  );
   const [focusedField, setFocusedField] = useState<
     keyof RegisterFormValues | null
   >(null);
@@ -133,7 +113,6 @@ export default function RegisterScreen() {
     useState(false);
   const isSubmittingRef = useRef(false);
   const lastSubmitAtRef = useRef(0);
-  const emailCheckRequestIdRef = useRef(0);
 
   const normalizedValues = useMemo(
     () => ({
@@ -186,18 +165,8 @@ export default function RegisterScreen() {
     [normalizedValues],
   );
 
-  const isEmailAvailable =
-    Boolean(normalizedValues.email) &&
-    !validationFieldErrors.email &&
-    emailAvailability.state === 'available' &&
-    emailAvailability.checkedValue === normalizedValues.email;
-
   const isSubmitDisabled =
-    !isFormComplete ||
-    !validationResult.success ||
-    Boolean(availabilityErrors.email) ||
-    !isEmailAvailable ||
-    isSubmitting;
+    !isFormComplete || !validationResult.success || isSubmitting;
 
   useEffect(() => {
     if (!infoMessage) {
@@ -231,120 +200,11 @@ export default function RegisterScreen() {
     }
 
     setFormValues((current) => ({ ...current, [field]: value }));
-    if (availabilityErrors[field]) {
-      setAvailabilityErrors((current) => ({ ...current, [field]: undefined }));
-    }
-    if (field === 'email') {
-      const normalizedEmail = value.trim().toLowerCase();
-      setEmailAvailability((current) =>
-        current.checkedValue === normalizedEmail
-          ? current
-          : {
-              state: 'idle',
-              checkedValue: '',
-              message: '',
-            },
-      );
-    }
   };
 
   const setTouched = (field: keyof RegisterFormValues) => {
     setTouchedFields((current) => ({ ...current, [field]: true }));
   };
-
-  const checkAvailability = useCallback(async () => {
-    const targetValue = normalizedValues.email;
-    const requestId = ++emailCheckRequestIdRef.current;
-
-    if (
-      validationFieldErrors.email ||
-      !normalizedValues.email ||
-      emailAvailability.checkedValue === normalizedValues.email
-    ) {
-      return;
-    }
-    setEmailAvailability({
-      state: 'checking',
-      checkedValue: normalizedValues.email,
-      message: 'Validando email...',
-    });
-
-    setErrorMessage('');
-
-    try {
-      const { data, error } = await supabase.rpc(
-        'check_registration_availability',
-        {
-          p_email: normalizedValues.email,
-        },
-      );
-
-      if (requestId !== emailCheckRequestIdRef.current) {
-        return;
-      }
-
-      if (error) {
-        setAvailabilityErrors((current) => ({
-          ...current,
-          email: 'No se pudo validar este campo. Intentá de nuevo.',
-        }));
-        setEmailAvailability({
-          state: 'error',
-          checkedValue: targetValue,
-          message: 'No se pudo validar email.',
-        });
-        return;
-      }
-
-      const firstResult = Array.isArray(data) ? data[0] : data;
-      const isAlreadyRegistered = Boolean(firstResult?.email_exists);
-
-      setAvailabilityErrors((current) => ({
-        ...current,
-        email: isAlreadyRegistered
-          ? 'Este email ya está registrado.'
-          : undefined,
-      }));
-      setEmailAvailability({
-        state: isAlreadyRegistered ? 'unavailable' : 'available',
-        checkedValue: targetValue,
-        message: isAlreadyRegistered ? 'Email en uso' : 'Email válido',
-      });
-    } catch {
-      setAvailabilityErrors((current) => ({
-        ...current,
-        email: 'No se pudo validar este campo. Intentá de nuevo.',
-      }));
-      setEmailAvailability({
-        state: 'error',
-        checkedValue: targetValue,
-        message: 'No se pudo validar email.',
-      });
-    }
-  }, [
-    emailAvailability.checkedValue,
-    normalizedValues.email,
-    validationFieldErrors.email,
-  ]);
-
-  useEffect(() => {
-    if (
-      !normalizedValues.email ||
-      validationFieldErrors.email ||
-      emailAvailability.checkedValue === normalizedValues.email
-    ) {
-      return;
-    }
-    const timeoutId = setTimeout(() => {
-      void checkAvailability();
-    }, 650);
-    return () => clearTimeout(timeoutId);
-  }, [
-    checkAvailability,
-    emailAvailability.checkedValue,
-    normalizedValues.email,
-    validationFieldErrors.email,
-  ]);
 
   const getSignupErrorMessage = (message: string) => {
     const normalizedMessage = message.toLowerCase();
@@ -423,12 +283,6 @@ export default function RegisterScreen() {
 
       setFormValues(initialFormValues);
       setTouchedFields({});
-      setAvailabilityErrors({});
-      setEmailAvailability({
-        state: 'idle',
-        checkedValue: '',
-        message: '',
-      });
       setInfoMessage(signUpSuccessMessage);
     } catch (error) {
       const message =
@@ -441,33 +295,6 @@ export default function RegisterScreen() {
       isSubmittingRef.current = false;
     }
   };
-
-  const emailStatusMessage = useMemo(() => {
-    if (!normalizedValues.email) {
-      return '';
-    }
-    if (validationFieldErrors.email) {
-      return 'Email no válido';
-    }
-    if (emailAvailability.state === 'idle') {
-      return '';
-    }
-    if (emailAvailability.state === 'checking') {
-      return 'Validando email...';
-    }
-    if (availabilityErrors.email) {
-      if (availabilityErrors.email.includes('registrado')) {
-        return 'Email en uso';
-      }
-      return availabilityErrors.email;
-    }
-    return 'Email válido';
-  }, [
-    availabilityErrors.email,
-    emailAvailability.state,
-    normalizedValues.email,
-    validationFieldErrors.email,
-  ]);
 
   return (
     <Screen
@@ -619,24 +446,11 @@ export default function RegisterScreen() {
               }}
               keyboardType="email-address"
               autoCapitalize="none"
-              error={
-                touchedFields.email
-                  ? availabilityErrors.email || validationFieldErrors.email
-                  : ''
-              }
-              statusMessage={emailStatusMessage}
-              statusTone={
-                availabilityErrors.email || validationFieldErrors.email
-                  ? 'error'
-                  : emailAvailability.state === 'available'
-                    ? 'success'
-                    : 'neutral'
-              }
+              error={touchedFields.email ? validationFieldErrors.email : ''}
               isValid={
                 Boolean(touchedFields.email) &&
                 Boolean(formValues.email.trim()) &&
-                !validationFieldErrors.email &&
-                !availabilityErrors.email
+                !validationFieldErrors.email
               }
               isDisabled={isSubmitting}
               maxLength={MAX_EMAIL_LENGTH}
@@ -797,8 +611,6 @@ type FieldProps = {
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   error?: string;
   isValid?: boolean;
-  statusMessage?: string;
-  statusTone?: 'neutral' | 'success' | 'error';
   actionLabel?: string;
   onPressAction?: () => void;
   isDisabled?: boolean;
@@ -819,8 +631,6 @@ function Field({
   autoCapitalize,
   error,
   isValid,
-  statusMessage,
-  statusTone,
   actionLabel,
   onPressAction,
   isDisabled,
@@ -905,20 +715,6 @@ function Field({
           ]}
         >
           {error}
-        </ThemedText>
-      ) : !isFocused && statusMessage ? (
-        <ThemedText
-          variant="caption"
-          colorToken={
-            statusTone === 'error'
-              ? 'error'
-              : statusTone === 'success'
-                ? 'brand'
-                : 'secondary'
-          }
-          style={[styles.fieldStatusText, { fontWeight: '500' }]}
-        >
-          {statusMessage}
         </ThemedText>
       ) : null}
     </View>
@@ -1126,9 +922,6 @@ const styles = StyleSheet.create({
   },
   fieldErrorText: {
     // fontWeight applied inline via theme.typography.label
-  },
-  fieldStatusText: {
-    // fontWeight applied inline via theme.typography.bodyMedium
   },
   messageText: {
     // Typography applied inline via theme.typography.caption with semibold
