@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { supabase } from '@/lib/supabase';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
@@ -9,6 +10,121 @@ export const PROXIMITY_ERROR_CODE = {
   ALREADY_CLOCKED_IN: 'ALREADY_CLOCKED_IN',
   NO_REMOTE_OFFICE: 'NO_REMOTE_OFFICE',
 } as const;
+
+const PROXIMITY_ERROR_CODES = Object.values(PROXIMITY_ERROR_CODE) as [
+  ProximityErrorCode,
+  ...ProximityErrorCode[],
+];
+
+const validateProximityResponseSchema = z.object({
+  valid: z.boolean().optional(),
+  office_id: z.string().min(1).optional(),
+  office_name: z.string().min(1).optional(),
+  error_code: z
+    .enum([
+      PROXIMITY_ERROR_CODE.GPS_ACCURACY_TOO_LOW,
+      PROXIMITY_ERROR_CODE.OUT_OF_RANGE,
+    ])
+    .optional(),
+});
+
+const attendanceClockInResponseSchema = z.object({
+  success: z.boolean().optional(),
+  error_code: z.enum(PROXIMITY_ERROR_CODES).optional(),
+  record_id: z.string().min(1).optional(),
+  office_id: z.string().min(1).optional(),
+  office_name: z.string().min(1).optional(),
+});
+
+const attendanceClockOutResponseSchema = z.object({
+  success: z.boolean().optional(),
+  error_code: z.enum(PROXIMITY_ERROR_CODES).optional(),
+  office_id: z.string().min(1).optional(),
+  office_name: z.string().min(1).optional(),
+});
+
+const openShiftRowSchema = z.object({
+  record_id: z.string().min(1),
+  work_date: z.string().min(1),
+  clock_in_at: z.string().min(1),
+  office_id: z.string().min(1),
+  office_name: z.string().nullable(),
+  office_is_remote: z.boolean(),
+  shift_duration_hours: z.number(),
+  break_duration_hours: z.number(),
+});
+
+const updateEmployeeProfileResponseSchema = z.object({
+  success: z.boolean(),
+  error_code: z.string().optional(),
+});
+
+const attendanceHistoryFilterSchema = z.object({
+  year: z.number().int().nullable(),
+  month: z.number().int().nullable(),
+  period_key: z.string().nullable(),
+  start_date: z.string().nullable(),
+  end_date: z.string().nullable(),
+});
+
+const attendanceHistoryAvailablePeriodSchema = z.object({
+  year: z.number().int(),
+  month: z.number().int(),
+  period_key: z.string().min(1),
+  start_date: z.string().min(1),
+  end_date: z.string().min(1),
+});
+
+const attendanceHistorySummarySchema = z.object({
+  weekly_hours: z.number(),
+  worked_days: z.number().int(),
+  total_minutes: z.number().int(),
+  overtime_minutes: z.number().int(),
+});
+
+const attendanceHistoryItemSchema = z.object({
+  id: z.string().min(1),
+  work_date: z.string().min(1),
+  has_record: z.boolean(),
+  clock_in_at: z.string().nullable(),
+  clock_out_at: z.string().nullable(),
+  auto_closed: z.boolean(),
+  status: z
+    .enum(['complete', 'incomplete', 'auto_closed', 'absence'])
+    .nullable(),
+  worked_minutes: z.number().int(),
+  required_minutes: z.number().int(),
+  office_id: z.string().nullable(),
+  office_name: z.string().nullable(),
+  office_is_remote: z.boolean(),
+});
+
+const attendanceHistoryPayloadSchema = z.object({
+  page: z.number().int(),
+  page_size: z.number().int(),
+  total_items: z.number().int(),
+  total_pages: z.number().int(),
+  has_previous_page: z.boolean(),
+  has_next_page: z.boolean(),
+  filter: attendanceHistoryFilterSchema.nullable(),
+  available_periods: z.array(attendanceHistoryAvailablePeriodSchema),
+  summary: attendanceHistorySummarySchema.nullable(),
+  items: z.array(attendanceHistoryItemSchema),
+});
+
+const attendanceRowSchema = z.object({
+  id: z.string().min(1),
+  work_date: z.string().min(1),
+  clock_in_at: z.string().min(1),
+  clock_out_at: z.string().nullable(),
+  break_duration_hours: z.number().nullable(),
+  office_id: z.string().min(1),
+  office_name: z.string().nullable(),
+  office_is_remote: z.boolean(),
+  created_at: z.string().min(1),
+});
+
+const attendanceRowsSchema = z.array(attendanceRowSchema);
 
 // ─── Internal DB row type (from get_attendance_records RPC) ──────────────────
 
@@ -22,17 +138,6 @@ type AttendanceRow = {
   office_name: string | null;
   office_is_remote: boolean;
   created_at: string;
-};
-
-type OpenShiftRow = {
-  record_id: string;
-  work_date: string;
-  clock_in_at: string;
-  office_id: string;
-  office_name: string | null;
-  office_is_remote: boolean;
-  shift_duration_hours: number;
-  break_duration_hours: number;
 };
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -199,11 +304,14 @@ export interface UpdateEmployeeProfileParams {
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
-export function getOrganizationToday(timezone: string) {
+export function getOrganizationToday(timezone: string): string {
   return formatDateInTimezone(new Date(), timezone);
 }
 
-export function getOrganizationWeekRange(timezone: string) {
+export function getOrganizationWeekRange(timezone: string): {
+  start: string;
+  end: string;
+} {
   const today = getZonedDate(new Date(), timezone);
   const mondayOffset = (today.weekday + 6) % 7;
 
@@ -218,7 +326,10 @@ export function getOrganizationWeekRange(timezone: string) {
   };
 }
 
-export function getOrganizationMonthRange(timezone: string) {
+export function getOrganizationMonthRange(timezone: string): {
+  start: string;
+  end: string;
+} {
   const today = getZonedDate(new Date(), timezone);
   const startDate = new Date(
     Date.UTC(today.utcDate.getUTCFullYear(), today.utcDate.getUTCMonth(), 1),
@@ -249,11 +360,31 @@ function mapProximityErrorMessage(code: ProximityErrorCode): string {
   }
 }
 
+function assertSuccessfulClockRpcResult(
+  result:
+    | z.infer<typeof attendanceClockInResponseSchema>
+    | z.infer<typeof attendanceClockOutResponseSchema>,
+  operation: 'entrada' | 'salida',
+) {
+  if (result.success === false && result.error_code) {
+    throw new ProximityError(
+      result.error_code,
+      mapProximityErrorMessage(result.error_code),
+    );
+  }
+
+  if (result.success !== true) {
+    throw new Error(
+      `La respuesta del registro de ${operation} llegó con un contrato inválido.`,
+    );
+  }
+}
+
 export async function getTodayAttendanceRecord(params: {
   organizationId: string;
   membershipId: string;
   workDate: string;
-}) {
+}): Promise<AttendanceRecord | null> {
   const rows = await fetchAttendanceRows({
     organizationId: params.organizationId,
     membershipId: params.membershipId,
@@ -280,7 +411,15 @@ export async function getOpenShift(
     return null;
   }
 
-  const row = data as OpenShiftRow;
+  const parsedRow = openShiftRowSchema.safeParse(data);
+
+  if (!parsedRow.success) {
+    throw new Error(
+      'La respuesta de jornada abierta llegó con un formato inválido.',
+    );
+  }
+
+  const row = parsedRow.data;
 
   return {
     recordId: row.record_id,
@@ -299,7 +438,7 @@ export async function getAttendanceRecordsForRange(params: {
   membershipId: string;
   startDate: string;
   endDate: string;
-}) {
+}): Promise<AttendanceRecord[]> {
   const rows = await fetchAttendanceRows({
     organizationId: params.organizationId,
     membershipId: params.membershipId,
@@ -320,7 +459,7 @@ export async function getRecentAttendanceEvents(params: {
   membershipId: string;
   recordLimit?: number;
   eventLimit?: number;
-}) {
+}): Promise<AttendanceEvent[]> {
   const rows = await fetchAttendanceRows({
     organizationId: params.organizationId,
     membershipId: params.membershipId,
@@ -357,16 +496,13 @@ export async function validateProximity(
     throw new Error(error.message);
   }
 
-  if (!data || typeof data !== 'object') {
+  const parsedResponse = validateProximityResponseSchema.safeParse(data);
+
+  if (!parsedResponse.success) {
     throw new Error('No se pudo validar la proximidad a la oficina.');
   }
 
-  const result = data as {
-    valid?: boolean;
-    office_id?: string;
-    office_name?: string;
-    error_code?: ValidateProximityResult['errorCode'];
-  };
+  const result = parsedResponse.data;
 
   return {
     valid: result.valid ?? false,
@@ -387,7 +523,7 @@ export async function registerClockIn(params: {
   clockInAt: string;
   clockInLocation: AttendanceLocation;
   officeId?: string;
-}) {
+}): Promise<{ recordId?: string; officeId?: string; officeName?: string }> {
   const existingRecord = await getTodayAttendanceRecord({
     organizationId: params.organizationId,
     membershipId: params.membershipId,
@@ -416,30 +552,21 @@ export async function registerClockIn(params: {
     throw new Error(error.message);
   }
 
-  // Parse RPC JSONB response
-  if (data && typeof data === 'object') {
-    const result = data as {
-      success?: boolean;
-      error_code?: string;
-      record_id?: string;
-      office_id?: string;
-      office_name?: string;
-    };
+  const parsedResponse = attendanceClockInResponseSchema.safeParse(data);
 
-    if (!result.success && result.error_code) {
-      throw new ProximityError(
-        result.error_code as ProximityErrorCode,
-        mapProximityErrorMessage(result.error_code as ProximityErrorCode),
-      );
-    }
-
-    // Success case - return full response
-    return {
-      recordId: result.record_id,
-      officeId: result.office_id,
-      officeName: result.office_name,
-    };
+  if (!parsedResponse.success) {
+    throw new Error('La respuesta del registro de entrada llegó inválida.');
   }
+
+  const result = parsedResponse.data;
+
+  assertSuccessfulClockRpcResult(result, 'entrada');
+
+  return {
+    recordId: result.record_id,
+    officeId: result.office_id,
+    officeName: result.office_name,
+  };
 }
 
 export async function registerClockOut(params: {
@@ -452,7 +579,7 @@ export async function registerClockOut(params: {
   clockOutLocation: AttendanceLocation;
   customCloseAt?: string;
   autoClosed?: boolean;
-}) {
+}): Promise<{ officeId?: string; officeName?: string }> {
   const { data, error } = await supabase.rpc('attendance_clock_out', {
     p_record_id: params.attendanceId,
     p_latitude: params.clockOutLocation.latitude,
@@ -466,28 +593,20 @@ export async function registerClockOut(params: {
     throw new Error(error.message);
   }
 
-  // Parse RPC JSONB response
-  if (data && typeof data === 'object') {
-    const result = data as {
-      success?: boolean;
-      error_code?: string;
-      office_id?: string;
-      office_name?: string;
-    };
+  const parsedResponse = attendanceClockOutResponseSchema.safeParse(data);
 
-    if (!result.success && result.error_code) {
-      throw new ProximityError(
-        result.error_code as ProximityErrorCode,
-        mapProximityErrorMessage(result.error_code as ProximityErrorCode),
-      );
-    }
-
-    // Success case - return office info
-    return {
-      officeId: result.office_id,
-      officeName: result.office_name,
-    };
+  if (!parsedResponse.success) {
+    throw new Error('La respuesta del registro de salida llegó inválida.');
   }
+
+  const result = parsedResponse.data;
+
+  assertSuccessfulClockRpcResult(result, 'salida');
+
+  return {
+    officeId: result.office_id,
+    officeName: result.office_name,
+  };
 }
 
 export async function updateEmployeeProfile(
@@ -507,14 +626,15 @@ export async function updateEmployeeProfile(
     throw error;
   }
 
-  if (!data || typeof data !== 'object') {
-    return { success: false };
+  const parsedResponse = updateEmployeeProfileResponseSchema.safeParse(data);
+
+  if (!parsedResponse.success) {
+    throw new Error(
+      'La respuesta de actualización del perfil llegó con un formato inválido.',
+    );
   }
 
-  const result = data as {
-    success?: boolean;
-    error_code?: string;
-  };
+  const result = parsedResponse.data;
 
   return {
     success: result.success ?? false,
@@ -530,7 +650,7 @@ export async function getPaginatedAttendanceRecords(params: {
   type?: AttendanceTypeFilter;
   startDate?: string;
   endDate?: string;
-}) {
+}): Promise<{ records: AttendanceRecord[]; total: number }> {
   let rows = await fetchAttendanceRows({
     organizationId: params.organizationId,
     membershipId: params.membershipId,
@@ -565,139 +685,19 @@ export async function getAttendanceHistoryPage(params: {
   year?: number;
   month?: number;
 }): Promise<AttendanceHistoryPageResult> {
-  const { data, error } = await supabase.rpc('get_attendance_history_page', {
-    p_organization_id: params.organizationId,
-    p_membership_id: params.membershipId,
-    p_page: params.page,
-    p_page_size: params.pageSize,
-    p_year: params.year ?? null,
-    p_month: params.month ?? null,
-  });
-
-  if (error) {
-    if (
-      error.message.includes('get_attendance_history_page') &&
-      error.message.toLowerCase().includes('schema cache')
-    ) {
-      throw new Error(
-        'El historial mensual no está disponible todavía. Falta aplicar la migración de attendance history en Supabase.',
-      );
-    }
-
-    throw new Error(error.message);
-  }
-
-  if (!data || typeof data !== 'object') {
-    throw new Error('No se pudo cargar el historial de asistencia.');
-  }
-
-  const payload = data as {
-    page?: number;
-    page_size?: number;
-    total_items?: number;
-    total_pages?: number;
-    has_previous_page?: boolean;
-    has_next_page?: boolean;
-    filter?: {
-      year?: number | null;
-      month?: number | null;
-      period_key?: string | null;
-      start_date?: string | null;
-      end_date?: string | null;
-    } | null;
-    available_periods?: Array<{
-      year?: number;
-      month?: number;
-      period_key?: string;
-      start_date?: string;
-      end_date?: string;
-    }>;
-    summary?: {
-      weekly_hours?: number;
-      worked_days?: number;
-      total_minutes?: number;
-      overtime_minutes?: number;
-    } | null;
-    items?: Array<{
-      id?: string;
-      work_date?: string;
-      has_record?: boolean;
-      clock_in_at?: string | null;
-      clock_out_at?: string | null;
-      auto_closed?: boolean;
-      status?: 'complete' | 'incomplete' | 'auto_closed' | 'absence';
-      worked_minutes?: number;
-      required_minutes?: number;
-      office_id?: string | null;
-      office_name?: string | null;
-      office_is_remote?: boolean;
-    }>;
-  };
-
-  const availablePeriods = (payload.available_periods ?? [])
-    .filter((period) => period.year != null && period.month != null)
-    .map((period) => ({
-      year: Number(period.year),
-      month: Number(period.month),
-      periodKey:
-        period.period_key ??
-        `${period.year}-${String(period.month).padStart(2, '0')}`,
-      startDate: period.start_date ?? '',
-      endDate: period.end_date ?? '',
-    }));
-
-  const items = (payload.items ?? []).map((item) => {
-    const hasRecord = Boolean(item.has_record);
-    const autoClosed = Boolean(item.auto_closed);
-    const workedMinutes = ensureNonNegativeInteger(item.worked_minutes);
-    const requiredMinutes = ensureNonNegativeInteger(item.required_minutes);
-
-    return {
-      id: item.id ?? '',
-      workDate: item.work_date ?? '',
-      hasRecord,
-      clockInAt: item.clock_in_at ?? null,
-      clockOutAt: item.clock_out_at ?? null,
-      autoClosed,
-      status: resolveAttendanceDayStatus({
-        status: item.status,
-        hasRecord,
-        autoClosed,
-        workedMinutes,
-        requiredMinutes,
-      }),
-      workedMinutes,
-      requiredMinutes,
-      officeId: item.office_id ?? null,
-      officeName: item.office_name ?? null,
-      officeIsRemote: Boolean(item.office_is_remote),
-    };
-  });
+  const payload = await fetchAttendanceHistoryPayload(params);
 
   return {
-    page: payload.page ?? params.page,
-    pageSize: payload.page_size ?? params.pageSize,
-    totalItems: payload.total_items ?? 0,
-    totalPages: payload.total_pages ?? 0,
-    hasPreviousPage: payload.has_previous_page ?? false,
-    hasNextPage: payload.has_next_page ?? false,
-    filter: {
-      year: payload.filter?.year ?? null,
-      month: payload.filter?.month ?? null,
-      periodKey: payload.filter?.period_key ?? null,
-      startDate: payload.filter?.start_date ?? null,
-      endDate: payload.filter?.end_date ?? null,
-    },
-    availablePeriods,
-    summary: {
-      weeklyHours: ensurePositiveNumber(payload.summary?.weekly_hours, 40),
-      workedDays: ensureNonNegativeInteger(payload.summary?.worked_days),
-      totalMinutes: ensureNonNegativeInteger(payload.summary?.total_minutes),
-      overtimeMinutes: ensureNonNegativeInteger(
-        payload.summary?.overtime_minutes,
-      ),
-    },
-    items,
+    page: payload.page,
+    pageSize: payload.page_size,
+    totalItems: payload.total_items,
+    totalPages: payload.total_pages,
+    hasPreviousPage: payload.has_previous_page,
+    hasNextPage: payload.has_next_page,
+    filter: mapAttendanceHistoryFilter(payload.filter),
+    availablePeriods: payload.available_periods.map(mapAttendanceHistoryPeriod),
+    summary: mapAttendanceHistorySummary(payload.summary),
+    items: payload.items.map(mapAttendanceHistoryItem),
   };
 }
 
@@ -739,7 +739,7 @@ function resolveAttendanceDayStatus(params: {
 export async function getAllAttendanceRecords(params: {
   organizationId: string;
   membershipId: string;
-}) {
+}): Promise<AttendanceRecord[]> {
   const rows = await fetchAttendanceRows(params);
 
   return rows
@@ -755,7 +755,7 @@ export async function getAllAttendanceRecords(params: {
 export function calculateWeeklyTotals(
   records: AttendanceRecord[],
   options: CalculateWeeklyTotalsOptions = {},
-) {
+): { totalMinutes: number; attendedDays: number } {
   const attendedDays = calculateAttendanceDays(records);
   const includeOpenShiftMinutes = options.includeOpenShiftMinutes ?? true;
   const now = options.now ?? new Date();
@@ -779,7 +779,7 @@ export function calculateWeeklyTotals(
   };
 }
 
-export function calculateAttendanceDays(records: AttendanceRecord[]) {
+export function calculateAttendanceDays(records: AttendanceRecord[]): number {
   const attendedDays = new Set(
     records
       .filter((record) => Boolean(record.clockInAt))
@@ -789,7 +789,9 @@ export function calculateAttendanceDays(records: AttendanceRecord[]) {
   return attendedDays.size;
 }
 
-export function getAttendanceMonthOptions(records: AttendanceRecord[]) {
+export function getAttendanceMonthOptions(
+  records: AttendanceRecord[],
+): AttendanceMonthOption[] {
   const monthMap = new Map<string, AttendanceMonthOption>();
 
   for (const record of records) {
@@ -863,7 +865,7 @@ export function calculateAttendanceSummary(
 export function calculateWorkdayStreak(
   records: AttendanceRecord[],
   timezone: string,
-) {
+): number {
   const attendedDays = new Set(
     records
       .filter((record) => Boolean(record.clockInAt))
@@ -954,7 +956,114 @@ async function fetchAttendanceRows(params: {
     throw new Error(error.message);
   }
 
-  return (data as AttendanceRow[] | null) ?? [];
+  const parsedRows = attendanceRowsSchema.safeParse(data ?? []);
+
+  if (!parsedRows.success) {
+    throw new Error(
+      'Los registros de asistencia llegaron con un formato inválido.',
+    );
+  }
+
+  return parsedRows.data;
+}
+
+async function fetchAttendanceHistoryPayload(params: {
+  organizationId: string;
+  membershipId: string;
+  page: number;
+  pageSize: number;
+  year?: number;
+  month?: number;
+}) {
+  const { data, error } = await supabase.rpc('get_attendance_history_page', {
+    p_organization_id: params.organizationId,
+    p_membership_id: params.membershipId,
+    p_page: params.page,
+    p_page_size: params.pageSize,
+    p_year: params.year ?? null,
+    p_month: params.month ?? null,
+  });
+
+  if (error) {
+    if (
+      error.message.includes('get_attendance_history_page') &&
+      error.message.toLowerCase().includes('schema cache')
+    ) {
+      throw new Error(
+        'El historial mensual no está disponible todavía. Falta aplicar la migración de attendance history en Supabase.',
+      );
+    }
+
+    throw new Error(error.message);
+  }
+
+  const parsedPayload = attendanceHistoryPayloadSchema.safeParse(data);
+
+  if (!parsedPayload.success) {
+    throw new Error('No se pudo cargar el historial de asistencia.');
+  }
+
+  return parsedPayload.data;
+}
+
+function mapAttendanceHistoryFilter(
+  filter: z.infer<typeof attendanceHistoryFilterSchema> | null,
+): AttendanceHistoryFilter {
+  return {
+    year: filter?.year ?? null,
+    month: filter?.month ?? null,
+    periodKey: filter?.period_key ?? null,
+    startDate: filter?.start_date ?? null,
+    endDate: filter?.end_date ?? null,
+  };
+}
+
+function mapAttendanceHistoryPeriod(
+  period: z.infer<typeof attendanceHistoryAvailablePeriodSchema>,
+): AttendanceHistoryAvailablePeriod {
+  return {
+    year: period.year,
+    month: period.month,
+    periodKey: period.period_key,
+    startDate: period.start_date,
+    endDate: period.end_date,
+  };
+}
+
+function mapAttendanceHistorySummary(
+  summary: z.infer<typeof attendanceHistorySummarySchema> | null,
+): AttendanceHistoryPageSummary {
+  return {
+    weeklyHours: summary?.weekly_hours ?? 40,
+    workedDays: summary?.worked_days ?? 0,
+    totalMinutes: summary?.total_minutes ?? 0,
+    overtimeMinutes: summary?.overtime_minutes ?? 0,
+  };
+}
+
+function mapAttendanceHistoryItem(
+  item: z.infer<typeof attendanceHistoryItemSchema>,
+): AttendanceHistoryPageItem {
+  return {
+    id: item.id,
+    workDate: item.work_date,
+    hasRecord: item.has_record,
+    clockInAt: item.clock_in_at,
+    clockOutAt: item.clock_out_at,
+    autoClosed: item.auto_closed,
+    status: resolveAttendanceDayStatus({
+      status: item.status,
+      hasRecord: item.has_record,
+      autoClosed: item.auto_closed,
+      workedMinutes: item.worked_minutes,
+      requiredMinutes: item.required_minutes,
+    }),
+    workedMinutes: item.worked_minutes,
+    requiredMinutes: item.required_minutes,
+    officeId: item.office_id,
+    officeName: item.office_name,
+    officeIsRemote: item.office_is_remote,
+  };
 }
 
 // ─── Private date utilities ───────────────────────────────────────────────────
@@ -1091,26 +1200,6 @@ function getWorkedMinutesWithBreak(params: {
   const breakMinutes = Math.max(0, Math.round(breakDurationHours * 60));
 
   return Math.max(0, workedMinutes - breakMinutes);
-}
-
-function ensureNonNegativeInteger(value: unknown) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 0;
-  }
-
-  return Math.floor(parsed);
-}
-
-function ensurePositiveNumber(value: unknown, fallback: number) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
 }
 
 function getWeekStartKey(workDate: string) {

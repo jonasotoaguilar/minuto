@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 const MAPBOX_SEARCH_API_BASE_URL = 'https://api.mapbox.com/search/searchbox/v1';
 
 export const MAPBOX_SEARCH_SESSION = {
@@ -20,10 +22,6 @@ export interface MapboxSuggestion {
   mapboxId: string;
   name: string;
   placeFormatted: string;
-}
-
-interface MapboxSuggestResponse {
-  suggestions?: MapboxSuggestResponseSuggestion[];
 }
 
 interface MapboxSuggestResponseSuggestion {
@@ -56,9 +54,47 @@ interface MapboxRetrieveCoordinates {
   longitude?: number;
 }
 
-interface MapboxRetrieveResponse {
-  features?: MapboxRetrieveFeature[];
-}
+const mapboxSuggestResponseSchema = z.object({
+  suggestions: z
+    .array(
+      z.object({
+        feature_type: z.string().optional(),
+        full_address: z.string().optional(),
+        mapbox_id: z.string().optional(),
+        name: z.string().optional(),
+        place_formatted: z.string().optional(),
+      }),
+    )
+    .optional(),
+});
+
+const mapboxRetrieveResponseSchema = z.object({
+  features: z
+    .array(
+      z.object({
+        geometry: z
+          .object({
+            coordinates: z.array(z.number()).optional(),
+          })
+          .optional(),
+        properties: z
+          .object({
+            address: z.string().optional(),
+            coordinates: z
+              .object({
+                latitude: z.number().optional(),
+                longitude: z.number().optional(),
+              })
+              .optional(),
+            full_address: z.string().optional(),
+            name: z.string().optional(),
+            place_formatted: z.string().optional(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+});
 
 interface MapboxRequestOptions {
   language?: string;
@@ -87,7 +123,7 @@ export class MapboxSearchError extends Error {
   }
 }
 
-export function createMapboxSessionToken() {
+export function createMapboxSessionToken(): string {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
   }
@@ -98,7 +134,7 @@ export function createMapboxSessionToken() {
 export function isMapboxSessionExpired(
   lastInteractionAt: number | null,
   now = Date.now(),
-) {
+): boolean {
   if (!lastInteractionAt) {
     return true;
   }
@@ -106,7 +142,7 @@ export function isMapboxSessionExpired(
   return now - lastInteractionAt >= MAPBOX_SEARCH_SESSION.INACTIVITY_TIMEOUT_MS;
 }
 
-export function getMapboxPublicToken() {
+export function getMapboxPublicToken(): string {
   const token = process.env.EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN?.trim();
 
   if (!token) {
@@ -125,24 +161,26 @@ export async function suggestOfficeLocations({
   query,
   sessionToken,
   signal,
-}: SuggestOfficeLocationOptions) {
+}: SuggestOfficeLocationOptions): Promise<MapboxSuggestion[]> {
   const trimmedQuery = query.trim();
 
   if (trimmedQuery.length < MAPBOX_SEARCH_SESSION.MIN_QUERY_LENGTH) {
     return [] satisfies MapboxSuggestion[];
   }
 
-  const response = await fetchMapbox<MapboxSuggestResponse>(
-    '/suggest',
-    {
-      access_token: getMapboxPublicToken(),
-      country,
-      language,
-      limit: String(limit),
-      q: trimmedQuery,
-      session_token: sessionToken,
-    },
-    signal,
+  const response = mapboxSuggestResponseSchema.parse(
+    await fetchMapbox(
+      '/suggest',
+      {
+        access_token: getMapboxPublicToken(),
+        country,
+        language,
+        limit: String(limit),
+        q: trimmedQuery,
+        session_token: sessionToken,
+      },
+      signal,
+    ),
   );
 
   return (response.suggestions ?? []).flatMap(normalizeSuggestion);
@@ -153,15 +191,17 @@ export async function retrieveOfficeLocation({
   mapboxId,
   sessionToken,
   signal,
-}: RetrieveOfficeLocationOptions) {
-  const response = await fetchMapbox<MapboxRetrieveResponse>(
-    `/retrieve/${encodeURIComponent(mapboxId)}`,
-    {
-      access_token: getMapboxPublicToken(),
-      language,
-      session_token: sessionToken,
-    },
-    signal,
+}: RetrieveOfficeLocationOptions): Promise<SelectedOfficeLocation> {
+  const response = mapboxRetrieveResponseSchema.parse(
+    await fetchMapbox(
+      `/retrieve/${encodeURIComponent(mapboxId)}`,
+      {
+        access_token: getMapboxPublicToken(),
+        language,
+        session_token: sessionToken,
+      },
+      signal,
+    ),
   );
 
   const feature = response.features?.[0];
@@ -229,7 +269,7 @@ function normalizeSelectedOfficeLocation(feature: MapboxRetrieveFeature) {
   } satisfies SelectedOfficeLocation;
 }
 
-async function fetchMapbox<T>(
+async function fetchMapbox(
   path: string,
   query: Record<string, string | undefined>,
   signal?: AbortSignal,
@@ -259,7 +299,7 @@ async function fetchMapbox<T>(
     );
   }
 
-  return (await response.json()) as T;
+  return await response.json();
 }
 
 function getMapboxErrorMessage(status: number) {

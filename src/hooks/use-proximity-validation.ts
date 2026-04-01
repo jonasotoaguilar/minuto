@@ -1,5 +1,6 @@
 import * as Location from 'expo-location';
 import { useCallback, useState } from 'react';
+import { getErrorMessage } from '@/lib/error';
 
 export type ProximityStatus =
   | 'idle'
@@ -19,13 +20,27 @@ export interface ProximityState {
   status: ProximityStatus;
   location: LocationData | null;
   errorReason?: 'gps_accuracy' | 'permission_denied' | 'location_unavailable';
+  errorMessage?: string;
   officeId?: string;
   officeName?: string;
 }
 
+export interface UseProximityValidationResult {
+  reset: () => void;
+  selectRemote: () => void;
+  setValidationResult: (result: {
+    success: boolean;
+    officeId?: string;
+    officeName?: string;
+    errorCode?: string;
+  }) => void;
+  state: ProximityState;
+  validateLocation: () => Promise<LocationData | null>;
+}
+
 const ACCURACY_THRESHOLD = 50; // meters
 
-export function useProximityValidation() {
+export function useProximityValidation(): UseProximityValidationResult {
   const [state, setState] = useState<ProximityState>({
     status: 'idle',
     location: null,
@@ -41,6 +56,8 @@ export function useProximityValidation() {
           status: 'blocked',
           location: null,
           errorReason: 'permission_denied',
+          errorMessage:
+            'Necesitamos acceso a tu ubicación para validar tu zona de trabajo.',
         });
         return null;
       }
@@ -60,6 +77,8 @@ export function useProximityValidation() {
           status: 'blocked',
           location: locationData,
           errorReason: 'gps_accuracy',
+          errorMessage:
+            'La señal GPS es demasiado débil para validar tu zona de trabajo.',
         });
         return null;
       }
@@ -69,13 +88,17 @@ export function useProximityValidation() {
       setState({
         status: 'idle',
         location: locationData,
+        errorMessage: undefined,
       });
       return locationData;
-    } catch (_error) {
+    } catch (error) {
       setState({
         status: 'blocked',
         location: null,
         errorReason: 'location_unavailable',
+        errorMessage:
+          getErrorMessage(error) ??
+          'No pudimos obtener tu ubicación actual. Intentá de nuevo.',
       });
       return null;
     }
@@ -92,6 +115,8 @@ export function useProximityValidation() {
         setState((prev) => ({
           ...prev,
           status: 'valid',
+          errorReason: undefined,
+          errorMessage: undefined,
           officeId: result.officeId,
           officeName: result.officeName,
         }));
@@ -99,12 +124,28 @@ export function useProximityValidation() {
         setState((prev) => ({
           ...prev,
           status: 'out_of_range',
+          errorReason: undefined,
+          errorMessage: undefined,
+          officeId: undefined,
+          officeName: undefined,
         }));
       } else if (result.errorCode === 'GPS_ACCURACY_TOO_LOW') {
         setState((prev) => ({
           ...prev,
           status: 'blocked',
           errorReason: 'gps_accuracy',
+          errorMessage:
+            'La señal GPS es demasiado débil para validar tu zona de trabajo.',
+        }));
+      } else {
+        setState((prev) => ({
+          ...prev,
+          status: 'blocked',
+          errorReason: 'location_unavailable',
+          errorMessage:
+            'La validación de ubicación falló. Intentá obtener tu ubicación otra vez.',
+          officeId: undefined,
+          officeName: undefined,
         }));
       }
     },
@@ -115,6 +156,7 @@ export function useProximityValidation() {
     setState({
       status: 'remote',
       location: null,
+      errorMessage: undefined,
     });
   }, []);
 
@@ -122,6 +164,7 @@ export function useProximityValidation() {
     setState({
       status: 'idle',
       location: null,
+      errorMessage: undefined,
     });
   }, []);
 

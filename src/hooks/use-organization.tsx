@@ -1,7 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   createContext,
+  type Dispatch,
   type ReactNode,
+  type SetStateAction,
   useCallback,
   useContext,
   useEffect,
@@ -34,6 +36,45 @@ interface OrganizationSummaryRow {
 
 type MembershipRole = 'owner' | 'admin' | 'manager' | 'employee';
 
+const membershipRoleSchema = z.enum(['owner', 'admin', 'manager', 'employee']);
+
+const organizationSummaryRowSchema = z.object({
+  default_timezone: z.string().min(1),
+  id: z.string().min(1),
+  name: z.string().min(1),
+  owner_user_id: z.string().min(1),
+  plan: z.enum(['free', 'pro', 'enterprise']),
+});
+
+const organizationMembershipRowSchema = z.object({
+  id: z.string().min(1),
+  role: membershipRoleSchema,
+  organizations: z
+    .union([
+      organizationSummaryRowSchema,
+      z.array(organizationSummaryRowSchema),
+      z.null(),
+    ])
+    .nullable(),
+});
+
+const organizationMembershipRowsSchema = z.array(
+  organizationMembershipRowSchema,
+);
+
+const organizationInvitationRowSchema = z.object({
+  id: z.string().min(1),
+  invited_email: z.string().email(),
+  invitation_expires_at: z
+    .string()
+    .refine((value) => !Number.isNaN(Date.parse(value)), {
+      message: 'Invalid invitation expiration date',
+    })
+    .nullable(),
+  organization_id: z.string().min(1),
+  status: z.literal('invited'),
+});
+
 export type OrganizationSummary = {
   defaultTimezone: string;
   id: string;
@@ -58,6 +99,24 @@ type OrganizationContextValue = {
   createOrganization: (input: CreateOrganizationInput) => Promise<void>;
   joinOrganizationByCodeOrLink: (codeOrLink: string) => Promise<void>;
 };
+
+interface OrganizationState {
+  activeOrganizationId: string | null;
+  isLoadingOrganizations: boolean;
+  isOrganizationSetupOpen: boolean;
+  organizations: OrganizationSummary[];
+  sessionUserId: string | null;
+  setupErrorMessage: string;
+}
+
+interface OrganizationStateSetters {
+  setActiveOrganizationId: Dispatch<SetStateAction<string | null>>;
+  setIsLoadingOrganizations: Dispatch<SetStateAction<boolean>>;
+  setIsOrganizationSetupOpen: Dispatch<SetStateAction<boolean>>;
+  setOrganizations: Dispatch<SetStateAction<OrganizationSummary[]>>;
+  setSessionUserId: Dispatch<SetStateAction<string | null>>;
+  setSetupErrorMessage: Dispatch<SetStateAction<string>>;
+}
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = 'active_organization_id';
 
@@ -115,7 +174,11 @@ function normalizeInvitationCode(rawValue: string) {
       const pathSegments = url.pathname.split('/').filter(Boolean);
       candidate = pathSegments[pathSegments.length - 1] ?? trimmed;
     }
-  } catch {
+  } catch (error) {
+    console.warn(
+      'No se pudo interpretar el link de invitación como URL.',
+      error,
+    );
     candidate = trimmed;
   }
 
@@ -140,7 +203,201 @@ function toOrganizationSummary(row: OrganizationMembershipRow) {
   } satisfies OrganizationSummary;
 }
 
-export function OrganizationProvider({ children }: { children: ReactNode }) {
+function resetOrganizationState(params: {
+  setActiveOrganizationId: (value: string | null) => void;
+  setIsLoadingOrganizations: (value: boolean) => void;
+  setIsOrganizationSetupOpen: (value: boolean) => void;
+  setOrganizations: (value: OrganizationSummary[]) => void;
+}) {
+  params.setOrganizations([]);
+  params.setActiveOrganizationId(null);
+  params.setIsOrganizationSetupOpen(true);
+  params.setIsLoadingOrganizations(false);
+}
+
+async function fetchOrganizationSummaries(userId: string) {
+  const { data, error } = await supabase
+    .from('memberships')
+    .select(
+      'id, role, organizations(id, name, plan, owner_user_id, default_timezone)',
+    )
+    .eq('user_id', userId)
+    .eq('status', 'active');
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const parsedMemberships = organizationMembershipRowsSchema.safeParse(
+    data ?? [],
+  );
+
+  if (!parsedMemberships.success) {
+    throw new Error(
+      'La respuesta de tus organizaciones llegó con un formato inválido.',
+    );
+  }
+
+  return parsedMemberships.data
+    .map((row) => toOrganizationSummary(row))
+    .filter((row): row is OrganizationSummary => row !== null);
+}
+
+async function resolveNextActiveOrganizationId(
+  organizations: OrganizationSummary[],
+) {
+  const storedOrganizationId = await readStoredActiveOrganizationId();
+  const hasStoredOrganization = organizations.some(
+    (organization) => organization.id === storedOrganizationId,
+  );
+
+  return hasStoredOrganization && storedOrganizationId
+    ? storedOrganizationId
+    : organizations[0].id;
+}
+
+function parseCreateOrganizationInput(input: CreateOrganizationInput) {
+  const parsedInput = createOrganizationInputSchema.safeParse(input);
+
+  if (!parsedInput.success) {
+    const fieldErrors = z.flattenError(parsedInput.error).fieldErrors;
+    throw new Error(getFirstValidationError(fieldErrors) || 'Datos inválidos.');
+  }
+
+  return parsedInput.data;
+}
+
+function ensureOrganizationNameIsUnique(params: {
+  organizations: OrganizationSummary[];
+  ownerUserId: string;
+  organizationName: string;
+}) {
+  const normalizedName = params.organizationName.toLowerCase();
+  const duplicateOrganization = params.organizations.some(
+    (organization) =>
+      organization.ownerUserId === params.ownerUserId &&
+      organization.name.toLowerCase() === normalizedName,
+  );
+
+  if (duplicateOrganization) {
+    throw new Error('Ya existe una organización con ese nombre.');
+  }
+}
+
+async function createOrganizationRecord(input: CreateOrganizationInput) {
+  const compatibilityLocation = getDeprecatedOrganizationLocation(input);
+  const office = input.office ?? null;
+
+  const { data: newOrganizationId, error } = await supabase.rpc(
+    'create_organization_with_owner',
+    {
+      p_name: input.name,
+      p_default_timezone: input.defaultTimezone,
+      p_location: compatibilityLocation,
+      p_office_name: office?.name ?? null,
+      p_office_address_label: office?.addressLabel ?? null,
+      p_office_latitude: office?.latitude ?? null,
+      p_office_longitude: office?.longitude ?? null,
+    },
+  );
+
+  if (error || !newOrganizationId) {
+    throw new Error(error?.message || 'No se pudo crear la organización.');
+  }
+
+  return newOrganizationId;
+}
+
+function normalizeRequiredInvitationCode(codeOrLink: string) {
+  const invitationCode = normalizeInvitationCode(codeOrLink);
+
+  if (!invitationCode) {
+    throw new Error('Código/link de invitación inválido.');
+  }
+
+  return invitationCode;
+}
+
+async function fetchInvitationByCode(invitationCode: string) {
+  const { data, error } = await supabase
+    .from('memberships')
+    .select('id, organization_id, invited_email, invitation_expires_at, status')
+    .eq('invitation_code', invitationCode)
+    .eq('status', 'invited')
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('Invitación no encontrada o vencida.');
+  }
+
+  const parsedInvitation = organizationInvitationRowSchema.safeParse(data);
+
+  if (!parsedInvitation.success) {
+    throw new Error('La invitación llegó con un formato inválido.');
+  }
+
+  return parsedInvitation.data;
+}
+
+function validateInvitationRecipient(params: {
+  invitationEmail: string;
+  invitationExpiresAt: string | null;
+  sessionEmail: string;
+}) {
+  if (
+    params.invitationEmail.toLowerCase() !== params.sessionEmail.toLowerCase()
+  ) {
+    throw new Error('Esta invitación no corresponde a tu email.');
+  }
+
+  if (
+    params.invitationExpiresAt &&
+    new Date(params.invitationExpiresAt) < new Date()
+  ) {
+    throw new Error('La invitación está vencida.');
+  }
+}
+
+async function claimInvitation(params: {
+  invitationId: string;
+  invitationEmail: string;
+  invitationExpiresAt: string | null;
+  organizationId: string;
+  userId: string;
+}) {
+  let query = supabase
+    .from('memberships')
+    .update({
+      user_id: params.userId,
+      status: 'active',
+      invitation_code: null,
+      invitation_expires_at: null,
+    })
+    .eq('id', params.invitationId)
+    .eq('organization_id', params.organizationId)
+    .eq('status', 'invited')
+    .eq('invited_email', params.invitationEmail);
+
+  query = params.invitationExpiresAt
+    ? query.eq('invitation_expires_at', params.invitationExpiresAt)
+    : query.is('invitation_expires_at', null);
+
+  const { data, error } = await query.select('id').maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data) {
+    throw new Error('La invitación ya no está disponible para ser aceptada.');
+  }
+}
+
+function useOrganizationState(): [OrganizationState, OrganizationStateSetters] {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
   const [organizations, setOrganizations] = useState<OrganizationSummary[]>([]);
   const [activeOrganizationId, setActiveOrganizationId] = useState<
@@ -149,7 +406,265 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   const [isLoadingOrganizations, setIsLoadingOrganizations] = useState(true);
   const [isOrganizationSetupOpen, setIsOrganizationSetupOpen] = useState(false);
   const [setupErrorMessage, setSetupErrorMessage] = useState('');
+
+  return [
+    {
+      activeOrganizationId,
+      isLoadingOrganizations,
+      isOrganizationSetupOpen,
+      organizations,
+      sessionUserId,
+      setupErrorMessage,
+    },
+    {
+      setActiveOrganizationId,
+      setIsLoadingOrganizations,
+      setIsOrganizationSetupOpen,
+      setOrganizations,
+      setSessionUserId,
+      setSetupErrorMessage,
+    },
+  ];
+}
+
+function useSessionBootstrap(params: {
+  setSessionUserId: Dispatch<SetStateAction<string | null>>;
+  setSetupErrorMessage: Dispatch<SetStateAction<string>>;
+}): void {
+  useEffect(() => {
+    let isMounted = true;
+
+    const bootstrapSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (!isMounted) return;
+
+      if (error) {
+        params.setSetupErrorMessage(error.message);
+        params.setSessionUserId(null);
+        return;
+      }
+
+      params.setSessionUserId(data.session?.user.id ?? null);
+    };
+
+    void bootstrapSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        params.setSessionUserId(session?.user.id ?? null);
+      },
+    );
+
+    return () => {
+      isMounted = false;
+      authListener.subscription.unsubscribe();
+    };
+  }, [params.setSessionUserId, params.setSetupErrorMessage]);
+}
+
+function useOrganizationRefresh(params: {
+  sessionUserId: string | null;
+  setters: Pick<
+    OrganizationStateSetters,
+    | 'setActiveOrganizationId'
+    | 'setIsLoadingOrganizations'
+    | 'setIsOrganizationSetupOpen'
+    | 'setOrganizations'
+    | 'setSetupErrorMessage'
+  >;
+}): () => Promise<void> {
+  const requestIdRef = useRef(0);
+
+  return useCallback(async () => {
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    if (!params.sessionUserId) {
+      resetOrganizationState({
+        setActiveOrganizationId: params.setters.setActiveOrganizationId,
+        setIsLoadingOrganizations: params.setters.setIsLoadingOrganizations,
+        setIsOrganizationSetupOpen: params.setters.setIsOrganizationSetupOpen,
+        setOrganizations: params.setters.setOrganizations,
+      });
+      return;
+    }
+
+    params.setters.setIsLoadingOrganizations(true);
+    params.setters.setSetupErrorMessage('');
+
+    try {
+      const normalizedOrganizations = await fetchOrganizationSummaries(
+        params.sessionUserId,
+      );
+
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      params.setters.setOrganizations(normalizedOrganizations);
+
+      if (normalizedOrganizations.length === 0) {
+        params.setters.setActiveOrganizationId(null);
+        params.setters.setIsOrganizationSetupOpen(true);
+        params.setters.setIsLoadingOrganizations(false);
+        return;
+      }
+
+      const nextActiveOrganizationId = await resolveNextActiveOrganizationId(
+        normalizedOrganizations,
+      );
+
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      params.setters.setActiveOrganizationId(nextActiveOrganizationId);
+      params.setters.setIsOrganizationSetupOpen(false);
+      await writeStoredActiveOrganizationId(nextActiveOrganizationId);
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+    } catch (error) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      params.setters.setSetupErrorMessage(
+        error instanceof Error
+          ? error.message
+          : 'No se pudieron cargar tus organizaciones.',
+      );
+      resetOrganizationState({
+        setActiveOrganizationId: params.setters.setActiveOrganizationId,
+        setIsLoadingOrganizations: params.setters.setIsLoadingOrganizations,
+        setIsOrganizationSetupOpen: params.setters.setIsOrganizationSetupOpen,
+        setOrganizations: params.setters.setOrganizations,
+      });
+      return;
+    }
+
+    if (requestId === requestIdRef.current) {
+      params.setters.setIsLoadingOrganizations(false);
+    }
+  }, [
+    params.sessionUserId,
+    params.setters.setActiveOrganizationId,
+    params.setters.setIsLoadingOrganizations,
+    params.setters.setIsOrganizationSetupOpen,
+    params.setters.setOrganizations,
+    params.setters.setSetupErrorMessage,
+  ]);
+}
+
+function useOrganizationActions(params: {
+  organizations: OrganizationSummary[];
+  refreshOrganizations: () => Promise<void>;
+  requireCurrentUser: () => Promise<{ id: string; email?: string | null }>;
+  setActiveOrganizationId: (organizationId: string) => Promise<void>;
+  setIsOrganizationSetupOpen: Dispatch<SetStateAction<boolean>>;
+  setSetupErrorMessage: Dispatch<SetStateAction<string>>;
+}) {
   const isCreatingOrganizationRef = useRef(false);
+
+  const setActiveOrganizationById = useCallback(
+    async (organizationId: string) => {
+      await params.setActiveOrganizationId(organizationId);
+      params.setIsOrganizationSetupOpen(false);
+    },
+    [params.setActiveOrganizationId, params.setIsOrganizationSetupOpen],
+  );
+
+  const openOrganizationSetup = useCallback(() => {
+    params.setSetupErrorMessage('');
+    params.setIsOrganizationSetupOpen(true);
+  }, [params.setIsOrganizationSetupOpen, params.setSetupErrorMessage]);
+
+  const closeOrganizationSetup = useCallback(() => {
+    params.setSetupErrorMessage('');
+    params.setIsOrganizationSetupOpen(false);
+  }, [params.setIsOrganizationSetupOpen, params.setSetupErrorMessage]);
+
+  const createOrganization = useCallback(
+    async (input: CreateOrganizationInput) => {
+      if (isCreatingOrganizationRef.current) {
+        throw new Error('Ya hay una creación en curso.');
+      }
+
+      const parsedInput = parseCreateOrganizationInput(input);
+      const currentUser = await params.requireCurrentUser();
+      ensureOrganizationNameIsUnique({
+        organizations: params.organizations,
+        ownerUserId: currentUser.id,
+        organizationName: parsedInput.name,
+      });
+
+      isCreatingOrganizationRef.current = true;
+      try {
+        const newOrganizationId = await createOrganizationRecord(parsedInput);
+        await params.refreshOrganizations();
+        await setActiveOrganizationById(newOrganizationId);
+      } finally {
+        isCreatingOrganizationRef.current = false;
+      }
+    },
+    [
+      params.organizations,
+      params.refreshOrganizations,
+      params.requireCurrentUser,
+      setActiveOrganizationById,
+    ],
+  );
+
+  const joinOrganizationByCodeOrLink = useCallback(
+    async (codeOrLink: string) => {
+      const invitationCode = normalizeRequiredInvitationCode(codeOrLink);
+      const currentUser = await params.requireCurrentUser();
+
+      if (!currentUser.email) {
+        throw new Error('No hay sesión activa.');
+      }
+
+      const invitation = await fetchInvitationByCode(invitationCode);
+      validateInvitationRecipient({
+        invitationEmail: invitation.invited_email,
+        invitationExpiresAt: invitation.invitation_expires_at,
+        sessionEmail: currentUser.email,
+      });
+      await claimInvitation({
+        invitationId: invitation.id,
+        invitationEmail: invitation.invited_email,
+        invitationExpiresAt: invitation.invitation_expires_at,
+        organizationId: invitation.organization_id,
+        userId: currentUser.id,
+      });
+
+      await params.refreshOrganizations();
+      await setActiveOrganizationById(invitation.organization_id);
+    },
+    [
+      params.refreshOrganizations,
+      params.requireCurrentUser,
+      setActiveOrganizationById,
+    ],
+  );
+
+  return {
+    closeOrganizationSetup,
+    createOrganization,
+    joinOrganizationByCodeOrLink,
+    openOrganizationSetup,
+    setActiveOrganizationById,
+  };
+}
+
+function useOrganizationController(): OrganizationContextValue {
+  const [state, setters] = useOrganizationState();
+  const {
+    setActiveOrganizationId: setActiveOrganizationIdState,
+    setIsOrganizationSetupOpen,
+    setSessionUserId,
+    setSetupErrorMessage,
+  } = setters;
 
   const requireCurrentUser = useCallback(async () => {
     const { data, error } = await supabase.auth.getUser();
@@ -159,280 +674,76 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
     return data.user;
   }, []);
 
-  const refreshOrganizations = useCallback(async () => {
-    if (!sessionUserId) {
-      setOrganizations([]);
-      setActiveOrganizationId(null);
-      setIsOrganizationSetupOpen(true);
-      setIsLoadingOrganizations(false);
-      return;
-    }
+  useSessionBootstrap({
+    setSessionUserId,
+    setSetupErrorMessage,
+  });
 
-    setIsLoadingOrganizations(true);
-    setSetupErrorMessage('');
-
-    const { data, error } = await supabase
-      .from('memberships')
-      .select(
-        'id, role, organizations(id, name, plan, owner_user_id, default_timezone)',
-      )
-      .eq('user_id', sessionUserId)
-      .eq('status', 'active');
-
-    if (error) {
-      setSetupErrorMessage(error.message);
-      setOrganizations([]);
-      setActiveOrganizationId(null);
-      setIsOrganizationSetupOpen(true);
-      setIsLoadingOrganizations(false);
-      return;
-    }
-
-    const normalizedOrganizations = (data ?? [])
-      .map((row) => toOrganizationSummary(row as never))
-      .filter((row): row is OrganizationSummary => row !== null);
-
-    setOrganizations(normalizedOrganizations);
-
-    if (normalizedOrganizations.length === 0) {
-      setActiveOrganizationId(null);
-      setIsOrganizationSetupOpen(true);
-      setIsLoadingOrganizations(false);
-      return;
-    }
-
-    const storedOrganizationId = await readStoredActiveOrganizationId();
-    const hasStoredOrganization = normalizedOrganizations.some(
-      (organization) => organization.id === storedOrganizationId,
-    );
-
-    const nextActiveOrganizationId =
-      hasStoredOrganization && storedOrganizationId
-        ? storedOrganizationId
-        : normalizedOrganizations[0].id;
-
-    setActiveOrganizationId(nextActiveOrganizationId);
-    setIsOrganizationSetupOpen(false);
-    await writeStoredActiveOrganizationId(nextActiveOrganizationId);
-    setIsLoadingOrganizations(false);
-  }, [sessionUserId]);
+  const refreshOrganizations = useOrganizationRefresh({
+    sessionUserId: state.sessionUserId,
+    setters,
+  });
 
   useEffect(() => {
-    let isMounted = true;
-
-    const bootstrapSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!isMounted) return;
-      const currentSession = data.session;
-      setSessionUserId(currentSession?.user.id ?? null);
-    };
-
-    bootstrapSession();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setSessionUserId(session?.user.id ?? null);
-      },
-    );
-
-    return () => {
-      isMounted = false;
-      authListener.subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    refreshOrganizations();
+    void refreshOrganizations();
   }, [refreshOrganizations]);
 
-  const setActiveOrganizationById = useCallback(
+  const setActiveOrganizationId = useCallback(
     async (organizationId: string) => {
-      setActiveOrganizationId(organizationId);
+      setActiveOrganizationIdState(organizationId);
       await writeStoredActiveOrganizationId(organizationId);
-      setIsOrganizationSetupOpen(false);
     },
-    [],
+    [setActiveOrganizationIdState],
   );
 
-  const openOrganizationSetup = useCallback(() => {
-    setSetupErrorMessage('');
-    setIsOrganizationSetupOpen(true);
-  }, []);
-
-  const closeOrganizationSetup = useCallback(() => {
-    setSetupErrorMessage('');
-    setIsOrganizationSetupOpen(false);
-  }, []);
-
-  const createOrganization = useCallback(
-    async (input: CreateOrganizationInput) => {
-      if (isCreatingOrganizationRef.current) {
-        throw new Error('Ya hay una creación en curso.');
-      }
-
-      const parsedInput = createOrganizationInputSchema.safeParse(input);
-      if (!parsedInput.success) {
-        const fieldErrors = z.flattenError(parsedInput.error).fieldErrors;
-        throw new Error(
-          getFirstValidationError(fieldErrors) || 'Datos inválidos.',
-        );
-      }
-
-      const currentUser = await requireCurrentUser();
-      const normalizedName = parsedInput.data.name.toLowerCase();
-      const duplicateOrganization = organizations.some(
-        (organization) =>
-          organization.ownerUserId === currentUser.id &&
-          organization.name.toLowerCase() === normalizedName,
-      );
-
-      if (duplicateOrganization) {
-        throw new Error('Ya existe una organización con ese nombre.');
-      }
-
-      isCreatingOrganizationRef.current = true;
-      try {
-        const compatibilityLocation = getDeprecatedOrganizationLocation(
-          parsedInput.data,
-        );
-        const office = parsedInput.data.office ?? null;
-
-        const { data: newOrganizationId, error: createOrganizationError } =
-          await supabase.rpc('create_organization_with_owner', {
-            p_name: parsedInput.data.name,
-            p_default_timezone: parsedInput.data.defaultTimezone,
-            p_location: compatibilityLocation,
-            p_office_name: office?.name ?? null,
-            p_office_address_label: office?.addressLabel ?? null,
-            p_office_latitude: office?.latitude ?? null,
-            p_office_longitude: office?.longitude ?? null,
-          });
-
-        if (createOrganizationError || !newOrganizationId) {
-          throw new Error(
-            createOrganizationError?.message ||
-              'No se pudo crear la organización.',
-          );
-        }
-
-        await refreshOrganizations();
-        await setActiveOrganizationById(newOrganizationId);
-        setIsOrganizationSetupOpen(false);
-      } finally {
-        isCreatingOrganizationRef.current = false;
-      }
-    },
-    [
-      organizations,
-      refreshOrganizations,
-      requireCurrentUser,
-      setActiveOrganizationById,
-    ],
-  );
-
-  const joinOrganizationByCodeOrLink = useCallback(
-    async (codeOrLink: string) => {
-      const invitationCode = normalizeInvitationCode(codeOrLink);
-      if (!invitationCode) {
-        throw new Error('Código/link de invitación inválido.');
-      }
-      const currentUser = await requireCurrentUser();
-      const currentUserEmail = currentUser.email;
-      if (!currentUserEmail) {
-        throw new Error('No hay sesión activa.');
-      }
-
-      const { data: invitation, error: findInvitationError } = await supabase
-        .from('memberships')
-        .select(
-          'id, organization_id, invited_email, invitation_expires_at, status',
-        )
-        .ilike('invitation_code', invitationCode)
-        .eq('status', 'invited')
-        .maybeSingle();
-
-      if (findInvitationError) {
-        throw new Error(findInvitationError.message);
-      }
-
-      if (!invitation) {
-        throw new Error('Invitación no encontrada o vencida.');
-      }
-
-      const normalizedSessionEmail = currentUserEmail.toLowerCase();
-      const normalizedInvitedEmail = invitation.invited_email?.toLowerCase();
-      if (
-        !normalizedInvitedEmail ||
-        normalizedInvitedEmail !== normalizedSessionEmail
-      ) {
-        throw new Error('Esta invitación no corresponde a tu email.');
-      }
-
-      if (
-        invitation.invitation_expires_at &&
-        new Date(invitation.invitation_expires_at) < new Date()
-      ) {
-        throw new Error('La invitación está vencida.');
-      }
-
-      const { error: claimInvitationError } = await supabase
-        .from('memberships')
-        .update({
-          user_id: currentUser.id,
-          status: 'active',
-          invitation_code: null,
-          invitation_expires_at: null,
-        })
-        .eq('id', invitation.id);
-
-      if (claimInvitationError) {
-        throw new Error(claimInvitationError.message);
-      }
-
-      await refreshOrganizations();
-      await setActiveOrganizationById(invitation.organization_id);
-      setIsOrganizationSetupOpen(false);
-    },
-    [refreshOrganizations, requireCurrentUser, setActiveOrganizationById],
-  );
+  const actions = useOrganizationActions({
+    organizations: state.organizations,
+    refreshOrganizations,
+    requireCurrentUser,
+    setActiveOrganizationId,
+    setIsOrganizationSetupOpen,
+    setSetupErrorMessage,
+  });
 
   const activeOrganization = useMemo(
     () =>
-      organizations.find(
-        (organization) => organization.id === activeOrganizationId,
+      state.organizations.find(
+        (organization) => organization.id === state.activeOrganizationId,
       ) ?? null,
-    [activeOrganizationId, organizations],
+    [state.activeOrganizationId, state.organizations],
   );
 
-  const contextValue = useMemo(
+  return useMemo(
     () => ({
-      organizations,
+      organizations: state.organizations,
       activeOrganization,
-      isLoadingOrganizations,
-      isOrganizationSetupOpen,
-      setupErrorMessage,
+      isLoadingOrganizations: state.isLoadingOrganizations,
+      isOrganizationSetupOpen: state.isOrganizationSetupOpen,
+      setupErrorMessage: state.setupErrorMessage,
       setSetupErrorMessage,
-      setActiveOrganizationById,
+      setActiveOrganizationById: actions.setActiveOrganizationById,
       refreshOrganizations,
-      openOrganizationSetup,
-      closeOrganizationSetup,
-      createOrganization,
-      joinOrganizationByCodeOrLink,
+      openOrganizationSetup: actions.openOrganizationSetup,
+      closeOrganizationSetup: actions.closeOrganizationSetup,
+      createOrganization: actions.createOrganization,
+      joinOrganizationByCodeOrLink: actions.joinOrganizationByCodeOrLink,
     }),
     [
-      organizations,
       activeOrganization,
-      isLoadingOrganizations,
-      isOrganizationSetupOpen,
-      setupErrorMessage,
-      setActiveOrganizationById,
+      actions,
       refreshOrganizations,
-      openOrganizationSetup,
-      closeOrganizationSetup,
-      createOrganization,
-      joinOrganizationByCodeOrLink,
+      setSetupErrorMessage,
+      state,
     ],
   );
+}
+
+export function OrganizationProvider({
+  children,
+}: {
+  children: ReactNode;
+}): ReactNode {
+  const contextValue = useOrganizationController();
 
   return (
     <OrganizationContext.Provider value={contextValue}>
@@ -441,7 +752,7 @@ export function OrganizationProvider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useOrganization() {
+export function useOrganization(): OrganizationContextValue {
   const context = useContext(OrganizationContext);
   if (!context) {
     throw new Error('useOrganization must be used inside OrganizationProvider');

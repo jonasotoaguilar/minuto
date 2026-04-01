@@ -3,7 +3,14 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import {
   Alert,
   Modal,
@@ -12,6 +19,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { z } from 'zod';
 
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
@@ -31,36 +39,50 @@ import {
   ThemedText,
 } from '@/theme/primitives';
 
-type MembershipRole = 'owner' | 'admin' | 'manager' | 'employee';
+const MEMBERSHIP_ROLES = ['owner', 'admin', 'manager', 'employee'] as const;
+const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended'] as const;
 
-interface EmployeeProfileRecord {
-  break_duration_hours: number | null;
-  department: string | null;
-  hire_date: string | null;
-  position: string | null;
-  shift_duration_hours: number | null;
-  weekly_hours: number | null;
-}
+type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
+type AppTheme = ReturnType<typeof useTheme>;
 
-type EmployeeProfileRow =
-  | EmployeeProfileRecord
-  | EmployeeProfileRecord[]
-  | null;
+const employeeProfileRecordSchema = z.object({
+  break_duration_hours: z.number().nullable(),
+  department: z.string().nullable(),
+  hire_date: z.string().nullable(),
+  position: z.string().nullable(),
+  shift_duration_hours: z.number().nullable(),
+  weekly_hours: z.number().nullable(),
+});
 
-type MembershipRow = {
-  employee_profiles: EmployeeProfileRow;
-  id: string;
-  invited_email: string | null;
-  organization_id: string;
-  role: MembershipRole;
-  status: 'invited' | 'active' | 'suspended';
-  user_id: string | null;
-};
+const membershipRowSchema = z.object({
+  employee_profiles: z
+    .union([
+      employeeProfileRecordSchema,
+      z.array(employeeProfileRecordSchema),
+      z.null(),
+    ])
+    .nullable(),
+  id: z.string().min(1),
+  invited_email: z.string().nullable(),
+  organization_id: z.string().min(1),
+  role: z.enum(MEMBERSHIP_ROLES),
+  status: z.enum(MEMBERSHIP_STATUSES),
+  user_id: z.string().nullable(),
+});
 
-type UserProfileRow = {
-  full_name: string | null;
-  id: string;
-};
+const membershipRowsSchema = z.array(membershipRowSchema);
+
+const userProfileRowSchema = z.object({
+  full_name: z.string().nullable(),
+  id: z.string().min(1),
+});
+
+const userProfileRowsSchema = z.array(userProfileRowSchema);
+
+const roleUpdateResponseSchema = z.object({
+  success: z.boolean().optional(),
+  error_code: z.string().optional(),
+});
 
 type TeamMember = {
   breakDurationHours: number;
@@ -185,7 +207,18 @@ export default function TeamScreen() {
       return;
     }
 
-    const memberships = (data ?? []) as MembershipRow[];
+    const parsedMemberships = membershipRowsSchema.safeParse(data ?? []);
+
+    if (!parsedMemberships.success) {
+      setErrorMessage(
+        'La lista de miembros llegó con un formato inválido. Recargá e intentá de nuevo.',
+      );
+      setMembers([]);
+      setIsLoadingMembers(false);
+      return;
+    }
+
+    const memberships = parsedMemberships.data;
     const userIds = memberships
       .map((membership) => membership.user_id)
       .filter((userId): userId is string => Boolean(userId));
@@ -205,8 +238,20 @@ export default function TeamScreen() {
         return;
       }
 
-      (userProfiles ?? []).forEach((profile) => {
-        const userProfile = profile as UserProfileRow;
+      const parsedUserProfiles = userProfileRowsSchema.safeParse(
+        userProfiles ?? [],
+      );
+
+      if (!parsedUserProfiles.success) {
+        setErrorMessage(
+          'Los perfiles del equipo llegaron con un formato inválido. Recargá e intentá de nuevo.',
+        );
+        setMembers([]);
+        setIsLoadingMembers(false);
+        return;
+      }
+
+      parsedUserProfiles.data.forEach((userProfile) => {
         if (userProfile.full_name?.trim()) {
           userNamesById.set(userProfile.id, userProfile.full_name.trim());
         }
@@ -408,10 +453,15 @@ export default function TeamScreen() {
           );
         }
 
-        const roleResult = roleData as {
-          success?: boolean;
-          error_code?: string;
-        } | null;
+        const parsedRoleResult = roleUpdateResponseSchema.safeParse(roleData);
+
+        if (!parsedRoleResult.success) {
+          throw new Error(
+            'La actualización del rol devolvió un formato inválido.',
+          );
+        }
+
+        const roleResult = parsedRoleResult.data;
         if (!roleResult?.success) {
           throw new Error(mapRoleUpdateError(roleResult?.error_code));
         }
@@ -563,330 +613,402 @@ export default function TeamScreen() {
       ) : null}
 
       {filteredMembers.map((member) => (
-        <GlassCard key={member.id} style={styles.memberCard} variant="soft">
-          <View style={styles.memberTopRow}>
-            <View
-              style={[
-                styles.avatar,
-                {
-                  backgroundColor: theme.surface.glass.tint,
-                  borderColor: theme.surface.glass.border,
-                },
-              ]}
-            >
-              <ThemedText colorToken="accent" variant="subtitle">
-                {member.initials}
-              </ThemedText>
-            </View>
-
-            <View style={styles.memberChipsRow}>
-              <Chip label={getRoleLabel(member.role)} tone="brand" />
-            </View>
-          </View>
-
-          <View style={styles.memberCopy}>
-            <ThemedText style={styles.memberName} variant="heading">
-              {member.name}
-            </ThemedText>
-            <ThemedText colorToken="secondary" variant="subtitle">
-              {member.roleLabel}
-            </ThemedText>
-            <ThemedText colorToken="secondary" variant="bodySmall">
-              Departamento: {member.department}
-            </ThemedText>
-          </View>
-
-          {canManageOrganization ? (
-            <View style={styles.memberActions}>
-              <SecondaryButton
-                fullWidth={false}
-                label="Editar"
-                onPress={() => onEditMember(member)}
-              />
-            </View>
-          ) : null}
-        </GlassCard>
+        <TeamMemberCard
+          canManageOrganization={canManageOrganization}
+          key={member.id}
+          member={member}
+          onEditMember={onEditMember}
+          theme={theme}
+        />
       ))}
 
-      <Modal
-        animationType="fade"
-        onRequestClose={onCloseEditModal}
-        transparent
+      <EditMemberModal
+        activeOrganizationRole={
+          activeOrganization?.membershipRole ?? 'employee'
+        }
+        editFormErrors={editFormErrors}
+        editFormMessage={editFormMessage}
+        editFormValues={editFormValues}
+        isHireDatePickerVisible={isHireDatePickerVisible}
+        isSavingProfile={isSavingProfile}
+        onCloseEditModal={onCloseEditModal}
+        onHireDateChange={onHireDateChange}
+        onOpenHireDatePicker={onOpenHireDatePicker}
+        onSaveMemberProfile={onSaveMemberProfile}
+        selectedMember={selectedMember}
+        setEditFormValues={setEditFormValues}
+        setIsHireDatePickerVisible={setIsHireDatePickerVisible}
+        theme={theme}
         visible={isEditModalVisible}
-      >
+      />
+    </Screen>
+  );
+}
+
+type TeamMemberCardProps = {
+  canManageOrganization: boolean;
+  member: TeamMember;
+  onEditMember: (member: TeamMember) => void;
+  theme: AppTheme;
+};
+
+function TeamMemberCard({
+  canManageOrganization,
+  member,
+  onEditMember,
+  theme,
+}: TeamMemberCardProps) {
+  return (
+    <GlassCard style={styles.memberCard} variant="soft">
+      <View style={styles.memberTopRow}>
         <View
-          style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
+          style={[
+            styles.avatar,
+            {
+              backgroundColor: theme.surface.glass.tint,
+              borderColor: theme.surface.glass.border,
+            },
+          ]}
         >
-          <Pressable onPress={onCloseEditModal} style={styles.modalBackdrop} />
+          <ThemedText colorToken="accent" variant="subtitle">
+            {member.initials}
+          </ThemedText>
+        </View>
 
-          <GlassCard
-            style={[
-              styles.modalCard,
-              { backgroundColor: theme.colors.background.card },
-            ]}
+        <View style={styles.memberChipsRow}>
+          <Chip label={getRoleLabel(member.role)} tone="brand" />
+        </View>
+      </View>
+
+      <View style={styles.memberCopy}>
+        <ThemedText style={styles.memberName} variant="heading">
+          {member.name}
+        </ThemedText>
+        <ThemedText colorToken="secondary" variant="subtitle">
+          {member.roleLabel}
+        </ThemedText>
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          Departamento: {member.department}
+        </ThemedText>
+      </View>
+
+      {canManageOrganization ? (
+        <View style={styles.memberActions}>
+          <SecondaryButton
+            fullWidth={false}
+            label="Editar"
+            onPress={() => onEditMember(member)}
+          />
+        </View>
+      ) : null}
+    </GlassCard>
+  );
+}
+
+type EditMemberModalProps = {
+  activeOrganizationRole: MembershipRole;
+  editFormErrors: EditEmployeeFormErrors;
+  editFormMessage: string;
+  editFormValues: EditEmployeeFormValues;
+  isHireDatePickerVisible: boolean;
+  isSavingProfile: boolean;
+  onCloseEditModal: () => void;
+  onHireDateChange: (event: DateTimePickerEvent, selectedDate?: Date) => void;
+  onOpenHireDatePicker: () => void;
+  onSaveMemberProfile: () => void;
+  selectedMember: TeamMember | null;
+  setEditFormValues: Dispatch<SetStateAction<EditEmployeeFormValues>>;
+  setIsHireDatePickerVisible: Dispatch<SetStateAction<boolean>>;
+  theme: AppTheme;
+  visible: boolean;
+};
+
+function EditMemberModal({
+  activeOrganizationRole,
+  editFormErrors,
+  editFormMessage,
+  editFormValues,
+  isHireDatePickerVisible,
+  isSavingProfile,
+  onCloseEditModal,
+  onHireDateChange,
+  onOpenHireDatePicker,
+  onSaveMemberProfile,
+  selectedMember,
+  setEditFormValues,
+  setIsHireDatePickerVisible,
+  theme,
+  visible,
+}: EditMemberModalProps) {
+  const allowedRoles = getAllowedRolesForCaller(
+    activeOrganizationRole,
+    selectedMember?.role ?? 'employee',
+  );
+
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onCloseEditModal}
+      transparent
+      visible={visible}
+    >
+      <View
+        style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
+      >
+        <Pressable onPress={onCloseEditModal} style={styles.modalBackdrop} />
+
+        <GlassCard
+          style={[
+            styles.modalCard,
+            { backgroundColor: theme.colors.background.card },
+          ]}
+        >
+          <SectionHeader
+            eyebrow="Editar colaborador"
+            subtitle={
+              selectedMember?.name ?? 'Actualizá los datos del perfil laboral.'
+            }
+            title="Perfil del empleado"
+          />
+
+          <ThemedText
+            colorToken="secondary"
+            style={styles.modalBody}
+            variant="bodySmall"
           >
-            <SectionHeader
-              eyebrow="Editar colaborador"
-              subtitle={
-                selectedMember?.name ??
-                'Actualizá los datos del perfil laboral.'
-              }
-              title="Perfil del empleado"
-            />
+            Ajustá la jornada, colación y datos del perfil laboral en una sola
+            vista.
+          </ThemedText>
 
-            <ThemedText
-              colorToken="secondary"
-              style={styles.modalBody}
-              variant="bodySmall"
-            >
-              Ajustá la jornada, colación y datos del perfil laboral en una sola
-              vista.
-            </ThemedText>
+          <TextField
+            keyboardType="numbers-and-punctuation"
+            label="Jornada laboral"
+            onChangeText={(value) =>
+              setEditFormValues((current) => ({
+                ...current,
+                shiftDurationHours: value,
+              }))
+            }
+            onBlur={() =>
+              setEditFormValues((current) => ({
+                ...current,
+                shiftDurationHours: formatTimeInputOnBlur(
+                  current.shiftDurationHours,
+                ),
+              }))
+            }
+            errorMessage={editFormErrors.shiftDurationHours}
+            helperText="Horas diarias del contrato, por ejemplo 08:00."
+            placeholder="08:00"
+            value={editFormValues.shiftDurationHours}
+          />
 
+          <TextField
+            keyboardType="numbers-and-punctuation"
+            label="Colación"
+            onChangeText={(value) =>
+              setEditFormValues((current) => ({
+                ...current,
+                breakDurationHours: value,
+              }))
+            }
+            onBlur={() =>
+              setEditFormValues((current) => ({
+                ...current,
+                breakDurationHours: formatTimeInputOnBlur(
+                  current.breakDurationHours,
+                ),
+              }))
+            }
+            errorMessage={editFormErrors.breakDurationHours}
+            helperText="Horas de colación del contrato, por ejemplo 00:45."
+            placeholder="00:45"
+            value={editFormValues.breakDurationHours}
+          />
+
+          <TextField
+            keyboardType="numeric"
+            label="Jornada semanal"
+            onChangeText={(value) =>
+              setEditFormValues((current) => ({
+                ...current,
+                weeklyHours: value,
+              }))
+            }
+            errorMessage={editFormErrors.weeklyHours}
+            helperText="Horas semanales del contrato, por ejemplo 40."
+            placeholder="40"
+            value={editFormValues.weeklyHours}
+          />
+
+          <TextField
+            label="Cargo"
+            onChangeText={(value) =>
+              setEditFormValues((current) => ({ ...current, position: value }))
+            }
+            placeholder="Ej: Supervisor de turno"
+            value={editFormValues.position}
+          />
+
+          <TextField
+            label="Departamento"
+            onChangeText={(value) =>
+              setEditFormValues((current) => ({
+                ...current,
+                department: value,
+              }))
+            }
+            placeholder="Ej: Operaciones"
+            value={editFormValues.department}
+          />
+
+          {allowedRoles.length > 0 ? (
+            <View style={styles.fieldGroup}>
+              <ThemedText variant="label">Rol (permisos)</ThemedText>
+              <View style={styles.roleChipsRow}>
+                {allowedRoles.map((roleOption) => (
+                  <Chip
+                    key={roleOption}
+                    label={getRoleLabel(roleOption)}
+                    onPress={() =>
+                      setEditFormValues((current) => ({
+                        ...current,
+                        role: roleOption,
+                      }))
+                    }
+                    selected={editFormValues.role === roleOption}
+                    tone="brand"
+                  />
+                ))}
+              </View>
+              {editFormErrors.role ? (
+                <ThemedText colorToken="error" variant="caption">
+                  {editFormErrors.role}
+                </ThemedText>
+              ) : null}
+              <ThemedText colorToken="secondary" variant="caption">
+                Seleccioná el nivel de permisos del colaborador.
+              </ThemedText>
+            </View>
+          ) : null}
+
+          {process.env.EXPO_OS === 'web' ? (
             <TextField
-              keyboardType="numbers-and-punctuation"
-              label="Jornada laboral"
+              label="Fecha de contratación"
               onChangeText={(value) =>
                 setEditFormValues((current) => ({
                   ...current,
-                  shiftDurationHours: value,
+                  hireDate: value,
                 }))
               }
               onBlur={() =>
                 setEditFormValues((current) => ({
                   ...current,
-                  shiftDurationHours: formatTimeInputOnBlur(
-                    current.shiftDurationHours,
-                  ),
+                  hireDate: formatDateInputOnBlur(current.hireDate),
                 }))
               }
-              errorMessage={editFormErrors.shiftDurationHours}
-              helperText="Horas diarias del contrato, por ejemplo 08:00."
-              placeholder="08:00"
-              value={editFormValues.shiftDurationHours}
-            />
-
-            <TextField
+              errorMessage={editFormErrors.hireDate}
+              helperText="Formato DD/MM/YYYY, por ejemplo 15/01/2024."
               keyboardType="numbers-and-punctuation"
-              label="Colación"
-              onChangeText={(value) =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  breakDurationHours: value,
-                }))
-              }
-              onBlur={() =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  breakDurationHours: formatTimeInputOnBlur(
-                    current.breakDurationHours,
-                  ),
-                }))
-              }
-              errorMessage={editFormErrors.breakDurationHours}
-              helperText="Horas de colación del contrato, por ejemplo 00:45."
-              placeholder="00:45"
-              value={editFormValues.breakDurationHours}
+              placeholder="15/01/2024"
+              value={editFormValues.hireDate}
             />
+          ) : (
+            <View style={styles.dateFieldWrapper}>
+              <ThemedText variant="label">Fecha de contratación</ThemedText>
 
-            <TextField
-              keyboardType="numeric"
-              label="Jornada semanal"
-              onChangeText={(value) =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  weeklyHours: value,
-                }))
-              }
-              errorMessage={editFormErrors.weeklyHours}
-              helperText="Horas semanales del contrato, por ejemplo 40."
-              placeholder="40"
-              value={editFormValues.weeklyHours}
-            />
+              <Pressable
+                accessibilityHint="Abre el selector nativo de fecha"
+                accessibilityLabel="Fecha de contratación"
+                accessibilityRole="button"
+                accessibilityState={{ expanded: isHireDatePickerVisible }}
+                onPress={onOpenHireDatePicker}
+                style={({ pressed }) => [
+                  styles.dateFieldButton,
+                  theme.elevation.card,
+                  {
+                    backgroundColor: theme.colors.background.card,
+                    borderColor: editFormErrors.hireDate
+                      ? theme.colors.status.error
+                      : theme.colors.border.default,
+                    borderRadius: theme.radius.lg,
+                    minHeight: theme.spacing['4xl'] + theme.spacing.sm,
+                    opacity: pressed ? 0.92 : 1,
+                    paddingHorizontal: theme.spacing.lg,
+                    shadowColor: theme.colors.shadow.color,
+                  },
+                ]}
+              >
+                <ThemedText
+                  colorToken={editFormValues.hireDate ? 'primary' : 'secondary'}
+                  variant="body"
+                >
+                  {editFormValues.hireDate || 'Seleccionar fecha'}
+                </ThemedText>
+                <ThemedText colorToken="secondary" variant="caption">
+                  DD/MM/YYYY
+                </ThemedText>
+              </Pressable>
 
-            <TextField
-              label="Cargo"
-              onChangeText={(value) =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  position: value,
-                }))
-              }
-              placeholder="Ej: Supervisor de turno"
-              value={editFormValues.position}
-            />
+              <ThemedText
+                colorToken={editFormErrors.hireDate ? 'error' : 'secondary'}
+                variant="caption"
+              >
+                {editFormErrors.hireDate ||
+                  'Selecciona la fecha de contratación.'}
+              </ThemedText>
 
-            <TextField
-              label="Departamento"
-              onChangeText={(value) =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  department: value,
-                }))
-              }
-              placeholder="Ej: Operaciones"
-              value={editFormValues.department}
-            />
-
-            {(() => {
-              const allowedRoles = getAllowedRolesForCaller(
-                activeOrganization?.membershipRole ?? 'employee',
-                selectedMember?.role ?? 'employee',
-              );
-
-              if (allowedRoles.length === 0) return null;
-
-              return (
-                <View style={styles.fieldGroup}>
-                  <ThemedText variant="label">Rol (permisos)</ThemedText>
-                  <View style={styles.roleChipsRow}>
-                    {allowedRoles.map((roleOption) => (
-                      <Chip
-                        key={roleOption}
-                        label={getRoleLabel(roleOption)}
-                        onPress={() =>
-                          setEditFormValues((current) => ({
-                            ...current,
-                            role: roleOption,
-                          }))
-                        }
-                        selected={editFormValues.role === roleOption}
-                        tone="brand"
-                      />
-                    ))}
-                  </View>
-                  {editFormErrors.role ? (
-                    <ThemedText colorToken="error" variant="caption">
-                      {editFormErrors.role}
-                    </ThemedText>
-                  ) : null}
-                  <ThemedText colorToken="secondary" variant="caption">
-                    Seleccioná el nivel de permisos del colaborador.
-                  </ThemedText>
-                </View>
-              );
-            })()}
-
-            {process.env.EXPO_OS === 'web' ? (
-              <TextField
-                label="Fecha de contratación"
-                onChangeText={(value) =>
-                  setEditFormValues((current) => ({
-                    ...current,
-                    hireDate: value,
-                  }))
-                }
-                onBlur={() =>
-                  setEditFormValues((current) => ({
-                    ...current,
-                    hireDate: formatDateInputOnBlur(current.hireDate),
-                  }))
-                }
-                errorMessage={editFormErrors.hireDate}
-                helperText="Formato DD/MM/YYYY, por ejemplo 15/01/2024."
-                keyboardType="numbers-and-punctuation"
-                placeholder="15/01/2024"
-                value={editFormValues.hireDate}
-              />
-            ) : (
-              <View style={styles.dateFieldWrapper}>
-                <ThemedText variant="label">Fecha de contratación</ThemedText>
-
-                <Pressable
-                  accessibilityHint="Abre el selector nativo de fecha"
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: isHireDatePickerVisible }}
-                  accessibilityLabel="Fecha de contratación"
-                  onPress={onOpenHireDatePicker}
-                  style={({ pressed }) => [
-                    styles.dateFieldButton,
-                    theme.elevation.card,
+              {process.env.EXPO_OS === 'ios' && isHireDatePickerVisible ? (
+                <View
+                  style={[
+                    styles.datePickerCard,
                     {
                       backgroundColor: theme.colors.background.card,
-                      borderColor: editFormErrors.hireDate
-                        ? theme.colors.status.error
-                        : theme.colors.border.default,
+                      borderColor: theme.colors.border.default,
                       borderRadius: theme.radius.lg,
-                      minHeight: theme.spacing['4xl'] + theme.spacing.sm,
-                      opacity: pressed ? 0.92 : 1,
-                      paddingHorizontal: theme.spacing.lg,
-                      shadowColor: theme.colors.shadow.color,
                     },
                   ]}
                 >
-                  <ThemedText
-                    colorToken={
-                      editFormValues.hireDate ? 'primary' : 'secondary'
-                    }
-                    variant="body"
-                  >
-                    {editFormValues.hireDate || 'Seleccionar fecha'}
-                  </ThemedText>
-                  <ThemedText colorToken="secondary" variant="caption">
-                    DD/MM/YYYY
-                  </ThemedText>
-                </Pressable>
-
-                <ThemedText
-                  colorToken={editFormErrors.hireDate ? 'error' : 'secondary'}
-                  variant="caption"
-                >
-                  {editFormErrors.hireDate ||
-                    'Selecciona la fecha de contratación.'}
-                </ThemedText>
-
-                {process.env.EXPO_OS === 'ios' && isHireDatePickerVisible ? (
-                  <View
-                    style={[
-                      styles.datePickerCard,
-                      {
-                        backgroundColor: theme.colors.background.card,
-                        borderColor: theme.colors.border.default,
-                        borderRadius: theme.radius.lg,
-                      },
-                    ]}
-                  >
-                    <DateTimePicker
-                      display="spinner"
-                      maximumDate={getTodayPickerMaximumDate()}
-                      mode="date"
-                      onChange={onHireDateChange}
-                      value={getDatePickerValue(editFormValues.hireDate)}
+                  <DateTimePicker
+                    display="spinner"
+                    maximumDate={getTodayPickerMaximumDate()}
+                    mode="date"
+                    onChange={onHireDateChange}
+                    value={getDatePickerValue(editFormValues.hireDate)}
+                  />
+                  <View style={styles.dateFieldActions}>
+                    <SecondaryButton
+                      fullWidth={false}
+                      label="Listo"
+                      onPress={() => setIsHireDatePickerVisible(false)}
                     />
-                    <View style={styles.dateFieldActions}>
-                      <SecondaryButton
-                        fullWidth={false}
-                        label="Listo"
-                        onPress={() => setIsHireDatePickerVisible(false)}
-                      />
-                    </View>
                   </View>
-                ) : null}
-              </View>
-            )}
-
-            {editFormMessage ? (
-              <FeedbackCard tone="error">{editFormMessage}</FeedbackCard>
-            ) : null}
-
-            <View style={styles.modalActions}>
-              <PrimaryButton
-                label="Guardar"
-                loading={isSavingProfile}
-                onPress={onSaveMemberProfile}
-                style={styles.modalActionButton}
-              />
-              <SecondaryButton
-                disabled={isSavingProfile}
-                label="Cancelar"
-                onPress={onCloseEditModal}
-                style={styles.modalActionButton}
-              />
+                </View>
+              ) : null}
             </View>
-          </GlassCard>
-        </View>
-      </Modal>
-    </Screen>
+          )}
+
+          {editFormMessage ? (
+            <FeedbackCard tone="error">{editFormMessage}</FeedbackCard>
+          ) : null}
+
+          <View style={styles.modalActions}>
+            <PrimaryButton
+              label="Guardar"
+              loading={isSavingProfile}
+              onPress={onSaveMemberProfile}
+              style={styles.modalActionButton}
+            />
+            <SecondaryButton
+              disabled={isSavingProfile}
+              label="Cancelar"
+              onPress={onCloseEditModal}
+              style={styles.modalActionButton}
+            />
+          </View>
+        </GlassCard>
+      </View>
+    </Modal>
   );
 }
 

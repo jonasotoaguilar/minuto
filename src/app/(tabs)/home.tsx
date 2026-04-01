@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppHeader } from '@/components/header-user-menu';
@@ -6,6 +7,7 @@ import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import { supabase } from '@/lib/supabase';
 import {
   Chip,
   GlassCard,
@@ -20,6 +22,20 @@ const QUICK_ACTIONS: ReadonlyArray<{ href?: '/(tabs)/team'; label: string }> = [
   { href: '/(tabs)/team', label: 'Team' },
 ];
 
+type HomeUserSnapshot = {
+  email: string;
+  fullName: string;
+  initials: string;
+  phone: string;
+};
+
+const initialHomeUserSnapshot: HomeUserSnapshot = {
+  email: '',
+  fullName: 'Usuario Minuto',
+  initials: 'UM',
+  phone: '',
+};
+
 export default function HomeScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -28,6 +44,50 @@ export default function HomeScreen() {
     isLoadingOrganizations,
     isOrganizationSetupOpen,
   } = useOrganization();
+  const [userSnapshot, setUserSnapshot] = useState<HomeUserSnapshot>(
+    initialHomeUserSnapshot,
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadHomeUser = async () => {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data.user || !isMounted) {
+        return;
+      }
+
+      const displayName =
+        typeof data.user.user_metadata.display_name === 'string' &&
+        data.user.user_metadata.display_name.trim().length > 0
+          ? data.user.user_metadata.display_name.trim()
+          : deriveNameFromEmail(data.user.email) || 'Usuario Minuto';
+
+      const phone =
+        typeof data.user.user_metadata.phone === 'string'
+          ? data.user.user_metadata.phone.trim()
+          : '';
+
+      setUserSnapshot({
+        email: data.user.email ?? '',
+        fullName: displayName,
+        initials: deriveInitials(displayName),
+        phone,
+      });
+    };
+
+    void loadHomeUser();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const membershipRoleLabel = useMemo(
+    () => formatMembershipRole(activeOrganization?.membershipRole),
+    [activeOrganization?.membershipRole],
+  );
 
   if (isLoadingOrganizations) {
     return (
@@ -69,7 +129,7 @@ export default function HomeScreen() {
             ]}
           >
             <ThemedText colorToken="accent" variant="heading">
-              TO
+              {userSnapshot.initials}
             </ThemedText>
             <View
               style={[
@@ -84,10 +144,10 @@ export default function HomeScreen() {
 
           <View style={styles.profileCopy}>
             <ThemedText style={styles.profileName} variant="heading">
-              Thiago Oliveira
+              {userSnapshot.fullName}
             </ThemedText>
             <ThemedText colorToken="secondary" variant="subtitle">
-              Senior Product Designer
+              {membershipRoleLabel}
             </ThemedText>
           </View>
 
@@ -95,8 +155,10 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.profileFooter}>
-          <ContactItem label="thiago@minut..." />
-          <ContactItem label="+55 11 9882..." />
+          <ContactItem label={userSnapshot.email || 'Sin correo registrado'} />
+          <ContactItem
+            label={userSnapshot.phone || 'Sin teléfono registrado'}
+          />
         </View>
       </GlassCard>
 
@@ -212,6 +274,47 @@ export default function HomeScreen() {
       </View>
     </Screen>
   );
+}
+
+function deriveNameFromEmail(email: string | null | undefined) {
+  if (!email) return '';
+
+  return email
+    .split('@')[0]
+    ?.split(/[._-]+/)
+    .filter(Boolean)
+    .map((token) => token[0]?.toUpperCase() + token.slice(1).toLowerCase())
+    .join(' ')
+    .trim();
+}
+
+function deriveInitials(fullName: string) {
+  const segments = fullName.trim().split(/\s+/).filter(Boolean);
+
+  if (segments.length === 0) {
+    return 'UM';
+  }
+
+  if (segments.length === 1) {
+    return segments[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${segments[0][0] ?? ''}${segments[1][0] ?? ''}`.toUpperCase();
+}
+
+function formatMembershipRole(role?: string | null) {
+  switch (role) {
+    case 'owner':
+      return 'Propietario';
+    case 'admin':
+      return 'Administrador';
+    case 'manager':
+      return 'Manager';
+    case 'employee':
+      return 'Colaborador';
+    default:
+      return 'Miembro del equipo';
+  }
 }
 
 function ContactItem({ label }: { label: string }) {

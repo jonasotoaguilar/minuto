@@ -10,6 +10,7 @@ import { useTheme } from '@/hooks/use-theme';
 import {
   PROFILE_UPDATE_STATUS,
   type ProfileUpdateFeedback,
+  parseProfileUpdateFeedbackRouteParams,
 } from '@/lib/profile-update-feedback';
 import { supabase } from '@/lib/supabase';
 import {
@@ -91,24 +92,16 @@ export default function ProfileTabScreen() {
   }, [activeOrganization]);
 
   useEffect(() => {
-    const profileUpdateMessage =
-      typeof profileUpdateMessageParam === 'string'
-        ? profileUpdateMessageParam.trim()
-        : '';
-    const profileUpdateStatus =
-      profileUpdateStatusParam === PROFILE_UPDATE_STATUS.SUCCESS ||
-      profileUpdateStatusParam === PROFILE_UPDATE_STATUS.ERROR
-        ? profileUpdateStatusParam
-        : null;
+    const nextFeedback = parseProfileUpdateFeedbackRouteParams({
+      message: profileUpdateMessageParam,
+      status: profileUpdateStatusParam,
+    });
 
-    if (!profileUpdateMessage || !profileUpdateStatus) {
+    if (!nextFeedback) {
       return;
     }
 
-    setProfileUpdateFeedback({
-      message: profileUpdateMessage,
-      status: profileUpdateStatus,
-    });
+    setProfileUpdateFeedback(nextFeedback);
     router.setParams({
       profileUpdateMessage: undefined,
       profileUpdateStatus: undefined,
@@ -141,7 +134,15 @@ export default function ProfileTabScreen() {
   );
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    setErrorMessage('');
+
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      setErrorMessage(`No se pudo cerrar la sesión. ${error.message}`);
+      return;
+    }
+
     router.replace('/(auth)/login');
   };
 

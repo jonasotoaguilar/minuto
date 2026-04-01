@@ -71,6 +71,20 @@ type RecentHistoryItem = {
   officeIsRemote: boolean;
 };
 
+type AppTheme = ReturnType<typeof useTheme>;
+
+type ControlStatusViewModel = {
+  chipLabel: string;
+  chipTone: 'brand' | 'success' | 'warning' | 'danger' | 'neutral';
+  helper?: string;
+};
+
+type ControlButtonState = {
+  disabled: boolean;
+  helper: string;
+  label: string;
+};
+
 const VALIDATION_TIMEOUT_MS = 5 * 60 * 1000;
 
 export default function ControlScreen() {
@@ -432,7 +446,7 @@ export default function ControlScreen() {
     submitClockOut,
   ]);
 
-  const proximityStatus = useMemo(() => {
+  const proximityStatus = useMemo<ControlStatusViewModel>(() => {
     switch (controlMode) {
       case CONTROL_MODE.VALIDATING:
         return {
@@ -458,7 +472,9 @@ export default function ControlScreen() {
         return {
           chipLabel: 'Error de GPS',
           chipTone: 'danger' as const,
-          helper: getBlockedMessage(proximity.state.errorReason),
+          helper:
+            proximity.state.errorMessage ??
+            getBlockedMessage(proximity.state.errorReason),
         };
       case CONTROL_MODE.REMOTE:
         return {
@@ -496,6 +512,7 @@ export default function ControlScreen() {
     }
   }, [
     controlMode,
+    proximity.state.errorMessage,
     proximity.state.errorReason,
     proximity.state.officeName,
     isCrossDateOpenShift,
@@ -503,7 +520,7 @@ export default function ControlScreen() {
     openShiftRecord?.officeName,
   ]);
 
-  const buttonState = useMemo(() => {
+  const buttonState = useMemo<ControlButtonState>(() => {
     if (controlMode === CONTROL_MODE.CLOCKED_IN) {
       return {
         label: isCrossDateOpenShift
@@ -632,137 +649,22 @@ export default function ControlScreen() {
       {isLoadingAttendance ? (
         <HeroCardSkeleton />
       ) : (
-        <GlassCard style={styles.heroCard}>
-          <Chip
-            label={proximityStatus.chipLabel}
-            selected={controlMode !== CONTROL_MODE.VALIDATING}
-            style={styles.statusChip}
-            tone={proximityStatus.chipTone}
-          />
-          <ThemedText style={styles.clock} variant="display">
-            {formatClock(now, currentTimezone)}
-          </ThemedText>
-          <ThemedText colorToken="secondary" style={styles.date} variant="body">
-            {formatLongDate(now, currentTimezone)}
-          </ThemedText>
-
-          <View style={styles.statusContainer}>
-            {controlMode === CONTROL_MODE.VALIDATING ? (
-              <View style={styles.loadingRow}>
-                <ActivityIndicator
-                  color={theme.colors.brand.primary}
-                  size="small"
-                />
-                <ThemedText variant="body">Obteniendo ubicación...</ThemedText>
-              </View>
-            ) : null}
-
-            <ThemedText
-              colorToken={
-                controlMode === CONTROL_MODE.VALID ||
-                controlMode === CONTROL_MODE.CLOCKED_IN
-                  ? 'success'
-                  : controlMode === CONTROL_MODE.OUT_OF_RANGE
-                    ? 'warning'
-                    : controlMode === CONTROL_MODE.GPS_ERROR
-                      ? 'error'
-                      : controlMode === CONTROL_MODE.REMOTE
-                        ? 'accent'
-                        : 'secondary'
-              }
-              style={styles.helper}
-              variant="bodySmall"
-            >
-              {proximityStatus.helper}
-            </ThemedText>
-
-            {isCrossDateOpenShift && openShiftRecord ? (
-              <ThemedText
-                colorToken="warning"
-                style={styles.helper}
-                variant="body"
-              >
-                {`Tenés una jornada abierta del ${formatDisplayDate(openShiftRecord.workDate, currentTimezone)}.`}
-              </ThemedText>
-            ) : null}
-
-            {controlMode === CONTROL_MODE.IDLE ? (
-              <View style={styles.actionButtonsRow}>
-                <PrimaryButton
-                  label="Validar ubicación"
-                  loading={isSubmitting}
-                  onPress={onValidateLocation}
-                  style={styles.flexButton}
-                />
-                <SecondaryButton
-                  label="Trabajo Remoto"
-                  onPress={proximity.selectRemote}
-                  style={styles.flexButton}
-                />
-              </View>
-            ) : null}
-
-            {controlMode === CONTROL_MODE.OUT_OF_RANGE ||
-            controlMode === CONTROL_MODE.GPS_ERROR ? (
-              <View style={styles.actionButtonsRow}>
-                <PrimaryButton
-                  label="Reintentar"
-                  loading={isSubmitting}
-                  onPress={onValidateLocation}
-                  style={styles.flexButton}
-                />
-                <SecondaryButton
-                  label="Trabajo Remoto"
-                  onPress={proximity.selectRemote}
-                  style={styles.flexButton}
-                />
-              </View>
-            ) : null}
-          </View>
-
-          {controlMode === CONTROL_MODE.VALID ||
-          controlMode === CONTROL_MODE.REMOTE ? (
-            <>
-              <PrimaryButton
-                disabled={buttonState.disabled}
-                label={buttonState.label}
-                loading={isSubmitting}
-                onPress={onRegisterAction}
-              />
-              <SecondaryButton label="← Volver" onPress={proximity.reset} />
-              <ThemedText
-                colorToken="secondary"
-                style={styles.helper}
-                variant="bodySmall"
-              >
-                {buttonState.helper}
-              </ThemedText>
-            </>
-          ) : null}
-
-          {controlMode === CONTROL_MODE.CLOCKED_IN ||
-          controlMode === CONTROL_MODE.COMPLETED ? (
-            <>
-              <PrimaryButton
-                disabled={buttonState.disabled}
-                label={buttonState.label}
-                loading={isSubmitting}
-                onPress={onRegisterAction}
-              />
-              <ThemedText
-                colorToken="secondary"
-                style={styles.helper}
-                variant="bodySmall"
-              >
-                {buttonState.helper}
-              </ThemedText>
-            </>
-          ) : null}
-
-          {errorMessage ? (
-            <FeedbackText tone="error">{errorMessage}</FeedbackText>
-          ) : null}
-        </GlassCard>
+        <ControlHeroCard
+          buttonState={buttonState}
+          controlMode={controlMode}
+          currentTimezone={currentTimezone}
+          errorMessage={errorMessage}
+          isCrossDateOpenShift={isCrossDateOpenShift}
+          isSubmitting={isSubmitting}
+          now={now}
+          onRegisterAction={onRegisterAction}
+          onResetValidation={proximity.reset}
+          onSelectRemote={proximity.selectRemote}
+          onValidateLocation={onValidateLocation}
+          openShiftRecord={openShiftRecord}
+          proximityStatus={proximityStatus}
+          theme={theme}
+        />
       )}
 
       {isLoadingAttendance ? (
@@ -783,103 +685,324 @@ export default function ControlScreen() {
       {isLoadingAttendance ? (
         <HistorySkeleton />
       ) : (
-        <GlassCard style={styles.historyCard} variant="soft">
-          <SectionHeader
-            actionLabel="Ver todo"
-            actionProps={{
-              onPress: () => router.push('/(tabs)/control-history' as never),
-            }}
-            title="Historial reciente"
-          />
-
-          {recentEvents.length === 0 ? (
-            <ThemedText colorToken="secondary" variant="bodySmall">
-              Todavía no hay registros.
-            </ThemedText>
-          ) : (
-            recentEvents.map((event) => (
-              <View
-                key={event.id}
-                style={[
-                  styles.historyRow,
-                  {
-                    backgroundColor: theme.surface.glass.soft,
-                    borderColor: theme.surface.glass.border,
-                  },
-                ]}
-              >
-                <AttendanceEventIcon type={event.type} />
-
-                <View style={styles.historyInfo}>
-                  <ThemedText variant="subtitle">
-                    {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
-                  </ThemedText>
-                  <ThemedText colorToken="secondary" variant="bodySmall">
-                    {event.officeName}
-                  </ThemedText>
-                </View>
-
-                <View style={styles.historyMeta}>
-                  <ThemedText style={styles.historyTime} variant="subtitle">
-                    {formatTime(event.occurredAt, currentTimezone)}
-                  </ThemedText>
-                  <ThemedText
-                    colorToken="secondary"
-                    style={styles.historyDate}
-                    variant="bodySmall"
-                  >
-                    {formatCompactDate(event.occurredAt, currentTimezone)}
-                  </ThemedText>
-                </View>
-              </View>
-            ))
-          )}
-        </GlassCard>
+        <RecentHistoryCard
+          currentTimezone={currentTimezone}
+          onPressViewAll={() => router.push('/(tabs)/control-history' as never)}
+          recentEvents={recentEvents}
+          theme={theme}
+        />
       )}
 
-      <Modal
-        animationType="fade"
-        onRequestClose={dismissOvertimeModal}
-        transparent
+      <OvertimeActionsModal
+        currentTimezone={currentTimezone}
+        isSubmitting={isSubmitting}
+        onCloseAtStandardTime={onCloseAtStandardTime}
+        onCloseWithCurrentTime={onCloseWithCurrentTime}
+        onDismiss={dismissOvertimeModal}
+        overtimeStandardCloseAt={overtimeStandardCloseAt}
+        overtimeTitle={overtimeTitle}
+        theme={theme}
         visible={isOvertimeModalVisible}
-      >
-        <View
-          style={[styles.modalRoot, { backgroundColor: theme.overlay.modal }]}
-        >
-          <Pressable
-            onPress={dismissOvertimeModal}
-            style={styles.modalBackdrop}
-          />
+      />
+    </Screen>
+  );
+}
 
-          <PlainCard style={styles.modalCard}>
-            <SectionHeader
-              subtitle={overtimeTitle}
-              title="Tu jornada habitual ya terminó"
+type ControlHeroCardProps = {
+  buttonState: ControlButtonState;
+  controlMode: ControlMode;
+  currentTimezone: string;
+  errorMessage: string;
+  isCrossDateOpenShift: boolean;
+  isSubmitting: boolean;
+  now: Date;
+  onRegisterAction: () => void;
+  onResetValidation: () => void;
+  onSelectRemote: () => void;
+  onValidateLocation: () => void;
+  openShiftRecord: OpenShift | null;
+  proximityStatus: ControlStatusViewModel;
+  theme: AppTheme;
+};
+
+function ControlHeroCard({
+  buttonState,
+  controlMode,
+  currentTimezone,
+  errorMessage,
+  isCrossDateOpenShift,
+  isSubmitting,
+  now,
+  onRegisterAction,
+  onResetValidation,
+  onSelectRemote,
+  onValidateLocation,
+  openShiftRecord,
+  proximityStatus,
+  theme,
+}: ControlHeroCardProps) {
+  const helperTone =
+    controlMode === CONTROL_MODE.VALID ||
+    controlMode === CONTROL_MODE.CLOCKED_IN
+      ? 'success'
+      : controlMode === CONTROL_MODE.OUT_OF_RANGE
+        ? 'warning'
+        : controlMode === CONTROL_MODE.GPS_ERROR
+          ? 'error'
+          : controlMode === CONTROL_MODE.REMOTE
+            ? 'accent'
+            : 'secondary';
+
+  return (
+    <GlassCard style={styles.heroCard}>
+      <Chip
+        label={proximityStatus.chipLabel}
+        selected={controlMode !== CONTROL_MODE.VALIDATING}
+        style={styles.statusChip}
+        tone={proximityStatus.chipTone}
+      />
+      <ThemedText style={styles.clock} variant="display">
+        {formatClock(now, currentTimezone)}
+      </ThemedText>
+      <ThemedText colorToken="secondary" style={styles.date} variant="body">
+        {formatLongDate(now, currentTimezone)}
+      </ThemedText>
+
+      <View style={styles.statusContainer}>
+        {controlMode === CONTROL_MODE.VALIDATING ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator
+              color={theme.colors.brand.primary}
+              size="small"
             />
+            <ThemedText variant="body">Obteniendo ubicación...</ThemedText>
+          </View>
+        ) : null}
 
-            <ThemedText
-              colorToken="secondary"
-              style={styles.modalBody}
-              variant="bodySmall"
-            >
-              Si te olvidaste de marcar la salida, podés cerrarla con la hora
-              actual o con el horario habitual calculado.
-            </ThemedText>
+        <ThemedText
+          colorToken={helperTone}
+          style={styles.helper}
+          variant="bodySmall"
+        >
+          {proximityStatus.helper}
+        </ThemedText>
 
+        {isCrossDateOpenShift && openShiftRecord ? (
+          <ThemedText colorToken="warning" style={styles.helper} variant="body">
+            {`Tenés una jornada abierta del ${formatDisplayDate(openShiftRecord.workDate, currentTimezone)}.`}
+          </ThemedText>
+        ) : null}
+
+        {controlMode === CONTROL_MODE.IDLE ? (
+          <View style={styles.actionButtonsRow}>
             <PrimaryButton
-              label="Cerrar con hora actual"
+              label="Validar ubicación"
               loading={isSubmitting}
-              onPress={onCloseWithCurrentTime}
+              onPress={onValidateLocation}
+              style={styles.flexButton}
             />
             <SecondaryButton
-              label={`Cerrar con jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
-              loading={isSubmitting}
-              onPress={onCloseAtStandardTime}
+              label="Trabajo Remoto"
+              onPress={onSelectRemote}
+              style={styles.flexButton}
             />
-          </PlainCard>
-        </View>
-      </Modal>
-    </Screen>
+          </View>
+        ) : null}
+
+        {controlMode === CONTROL_MODE.OUT_OF_RANGE ||
+        controlMode === CONTROL_MODE.GPS_ERROR ? (
+          <View style={styles.actionButtonsRow}>
+            <PrimaryButton
+              label="Reintentar"
+              loading={isSubmitting}
+              onPress={onValidateLocation}
+              style={styles.flexButton}
+            />
+            <SecondaryButton
+              label="Trabajo Remoto"
+              onPress={onSelectRemote}
+              style={styles.flexButton}
+            />
+          </View>
+        ) : null}
+      </View>
+
+      {controlMode === CONTROL_MODE.VALID ||
+      controlMode === CONTROL_MODE.REMOTE ? (
+        <>
+          <PrimaryButton
+            disabled={buttonState.disabled}
+            label={buttonState.label}
+            loading={isSubmitting}
+            onPress={onRegisterAction}
+          />
+          <SecondaryButton label="← Volver" onPress={onResetValidation} />
+          <ThemedText
+            colorToken="secondary"
+            style={styles.helper}
+            variant="bodySmall"
+          >
+            {buttonState.helper}
+          </ThemedText>
+        </>
+      ) : null}
+
+      {controlMode === CONTROL_MODE.CLOCKED_IN ||
+      controlMode === CONTROL_MODE.COMPLETED ? (
+        <>
+          <PrimaryButton
+            disabled={buttonState.disabled}
+            label={buttonState.label}
+            loading={isSubmitting}
+            onPress={onRegisterAction}
+          />
+          <ThemedText
+            colorToken="secondary"
+            style={styles.helper}
+            variant="bodySmall"
+          >
+            {buttonState.helper}
+          </ThemedText>
+        </>
+      ) : null}
+
+      {errorMessage ? (
+        <FeedbackText tone="error">{errorMessage}</FeedbackText>
+      ) : null}
+    </GlassCard>
+  );
+}
+
+type RecentHistoryCardProps = {
+  currentTimezone: string;
+  onPressViewAll: () => void;
+  recentEvents: RecentHistoryItem[];
+  theme: AppTheme;
+};
+
+function RecentHistoryCard({
+  currentTimezone,
+  onPressViewAll,
+  recentEvents,
+  theme,
+}: RecentHistoryCardProps) {
+  return (
+    <GlassCard style={styles.historyCard} variant="soft">
+      <SectionHeader
+        actionLabel="Ver todo"
+        actionProps={{ onPress: onPressViewAll }}
+        title="Historial reciente"
+      />
+
+      {recentEvents.length === 0 ? (
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          Todavía no hay registros.
+        </ThemedText>
+      ) : (
+        recentEvents.map((event) => (
+          <View
+            key={event.id}
+            style={[
+              styles.historyRow,
+              {
+                backgroundColor: theme.surface.glass.soft,
+                borderColor: theme.surface.glass.border,
+              },
+            ]}
+          >
+            <AttendanceEventIcon type={event.type} />
+
+            <View style={styles.historyInfo}>
+              <ThemedText variant="subtitle">
+                {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
+              </ThemedText>
+              <ThemedText colorToken="secondary" variant="bodySmall">
+                {event.officeName}
+              </ThemedText>
+            </View>
+
+            <View style={styles.historyMeta}>
+              <ThemedText style={styles.historyTime} variant="subtitle">
+                {formatTime(event.occurredAt, currentTimezone)}
+              </ThemedText>
+              <ThemedText
+                colorToken="secondary"
+                style={styles.historyDate}
+                variant="bodySmall"
+              >
+                {formatCompactDate(event.occurredAt, currentTimezone)}
+              </ThemedText>
+            </View>
+          </View>
+        ))
+      )}
+    </GlassCard>
+  );
+}
+
+type OvertimeActionsModalProps = {
+  currentTimezone: string;
+  isSubmitting: boolean;
+  onCloseAtStandardTime: () => void;
+  onCloseWithCurrentTime: () => void;
+  onDismiss: () => void;
+  overtimeStandardCloseAt: Date | null;
+  overtimeTitle: string;
+  theme: AppTheme;
+  visible: boolean;
+};
+
+function OvertimeActionsModal({
+  currentTimezone,
+  isSubmitting,
+  onCloseAtStandardTime,
+  onCloseWithCurrentTime,
+  onDismiss,
+  overtimeStandardCloseAt,
+  overtimeTitle,
+  theme,
+  visible,
+}: OvertimeActionsModalProps) {
+  return (
+    <Modal
+      animationType="fade"
+      onRequestClose={onDismiss}
+      transparent
+      visible={visible}
+    >
+      <View
+        style={[styles.modalRoot, { backgroundColor: theme.overlay.modal }]}
+      >
+        <Pressable onPress={onDismiss} style={styles.modalBackdrop} />
+
+        <PlainCard style={styles.modalCard}>
+          <SectionHeader
+            subtitle={overtimeTitle}
+            title="Tu jornada habitual ya terminó"
+          />
+
+          <ThemedText
+            colorToken="secondary"
+            style={styles.modalBody}
+            variant="bodySmall"
+          >
+            Si te olvidaste de marcar la salida, podés cerrarla con la hora
+            actual o con el horario habitual calculado.
+          </ThemedText>
+
+          <PrimaryButton
+            label="Cerrar con hora actual"
+            loading={isSubmitting}
+            onPress={onCloseWithCurrentTime}
+          />
+          <SecondaryButton
+            label={`Cerrar con jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
+            loading={isSubmitting}
+            onPress={onCloseAtStandardTime}
+          />
+        </PlainCard>
+      </View>
+    </Modal>
   );
 }
 
