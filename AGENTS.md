@@ -1,29 +1,78 @@
-# Agent Skills Index
+# Code Review Rules
 
-When working on this project, load the relevant skill(s) BEFORE writing any code.
+## Review Goals
 
-## How to Use
+Every review must optimize for:
 
-1. Check the trigger column to find skills that match your current task
-2. Load the skill by reading the SKILL.md file at the listed path
-3. Follow ALL patterns and rules from the loaded skill
-4. Multiple skills can apply simultaneously
+1. **Correctness** — the code must work for happy path and edge cases.
+2. **Security** — no secrets, no unsafe sinks, no trust in unvalidated input.
+3. **Maintainability** — readable names, small units, low duplication.
+4. **Operational safety** — clear errors, bounded behavior, sensible defaults.
 
-## Skills
+## Skill Directory
 
-| Skill                              | Trigger                                                                                 | Path                                                                   |
-| ---------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `android-e2e-testing`              | Test Expo Router features on Android emulators using ADB.                               | [`SKILL.md`](.agents/skills/android-e2e-testing/SKILL.md)              |
-| `building-native-ui`               | Building UI with Expo Router: styling, components, navigation, animations, native tabs. | [`SKILL.md`](.agents/skills/building-native-ui/SKILL.md)               |
-| `expo-api-routes`                  | Creating API routes in Expo Router with EAS Hosting.                                    | [`SKILL.md`](.agents/skills/expo-api-routes/SKILL.md)                  |
-| `expo-cicd-workflows`              | Writing EAS workflow YAML files, CI/CD pipelines, or deployment automation.             | [`SKILL.md`](.agents/skills/expo-cicd-workflows/SKILL.md)              |
-| `expo-deployment`                  | Deploying to iOS App Store, Android Play Store, web hosting, and API routes.            | [`SKILL.md`](.agents/skills/expo-deployment/SKILL.md)                  |
-| `expo-dev-client`                  | Building and distributing Expo development clients locally or via TestFlight.           | [`SKILL.md`](.agents/skills/expo-dev-client/SKILL.md)                  |
-| `expo-tailwind-setup`              | Setting up Tailwind CSS v4 with NativeWind v5 in Expo for universal styling.            | [`SKILL.md`](.agents/skills/expo-tailwind-setup/SKILL.md)              |
-| `native-data-fetching`             | Any network request, API call, data fetching, React Query, SWR, offline support.        | [`SKILL.md`](.agents/skills/native-data-fetching/SKILL.md)             |
-| `typescript`                       | Writing TypeScript code — types, interfaces, generics, strict patterns.                 | [`SKILL.md`](.agents/skills/typescript/SKILL.md)                       |
-| `upgrading-expo`                   | Upgrading Expo SDK versions or fixing dependency issues.                                | [`SKILL.md`](.agents/skills/upgrading-expo/SKILL.md)                   |
-| `use-dom`                          | Using Expo DOM components to run web code in a webview on native.                       | [`SKILL.md`](.agents/skills/use-dom/SKILL.md)                          |
-| `zod-4`                            | Using Zod for schema validation and type inference.                                     | [`SKILL.md`](.agents/skills/zod-4/SKILL.md)                            |
-| `postgresql-optimization`          | Optimizing PostgreSQL queries and database performance.                                 | [`SKILL.md`](.agents/skills/postgresql-optimization/SKILL.md)          |
-| `supabase-postgres-best-practices` | Best practices for using Supabase and PostgreSQL.                                       | [`SKILL.md`](.agents/skills/supabase-postgres-best-practices/SKILL.md) |
+Load the most relevant skill documents based on the touched files and review context.
+
+| Trigger                                                                         | Skill              | Path                        |
+| ------------------------------------------------------------------------------- | ------------------ | --------------------------- |
+| `*.ts`, `*.tsx`, `*.mts`, `*.cts`                                               | TypeScript         | `docs/skills/typescript.md` |
+| `*.tsx`, `*.jsx`                                                                | React              | `docs/skills/react.md`      |
+| `*.css`, `*.scss`, `tailwind.config.*`, `className=`, `class=`                  | Tailwind / Styling | `docs/skills/tailwind.md`   |
+
+## Global Rules (always active)
+
+REJECT if:
+
+- Hardcoded secrets, credentials, tokens, private keys, or connection strings with embedded secrets.
+- Trusting user-controlled input without validation, sanitization, or allowlisting where required.
+- Dangerous code execution or injection patterns:
+  - `eval`, `new Function`, string-based timers
+  - `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `dangerouslySetInnerHTML` with untrusted data
+  - shell execution built from untrusted input
+- Empty `catch` / `except` / ignored errors / silent fallbacks that hide failures.
+- Missing authz checks on privileged actions.
+- Broad wildcard security bypasses such as permissive CORS + credentials, `InsecureSkipVerify`, or disabling checksum/security controls without documented reason.
+- Logging sensitive data or dumping full configs/env vars.
+
+REQUIRE:
+
+- Descriptive variable, function, component, and file names.
+- Errors that preserve debugging value without leaking secrets.
+- Small, composable units instead of giant multi-purpose functions (max 50 lines per function).
+- Clear input/output contracts for exported functions and modules.
+- Consistent formatting and structure.
+- Evidence-based review comments: cite file and line, and explain WHY it matters.
+
+## Review Workflow
+
+1. Identify touched languages and load the matching skill docs from `docs/skills/`.
+2. Review security-critical surfaces first:
+   - auth/session handling
+   - untrusted input
+   - HTML/DOM rendering
+   - external commands, queries, network calls
+   - secrets/config
+3. Review correctness and error handling.
+4. Review maintainability and duplication.
+5. Review tests and operational impact.
+
+## Response Format
+
+The first line MUST be exactly one of:
+
+```text
+STATUS: PASSED
+STATUS: FAILED
+```
+
+If the review fails, list findings in this exact format:
+
+```text
+path/to/file:line - rule violated - why it matters
+```
+
+## Severity Heuristic
+
+- **Blocker**: security issue, data loss, broken behavior, or missing critical validation.
+- **Major**: maintainability or correctness issue likely to produce bugs soon.
+- **Minor**: readability, consistency, or design improvement that should be addressed but is not immediately dangerous.

@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { SecondaryScreenHeader } from '@/components/secondary-screen-header';
@@ -8,14 +8,11 @@ import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  type AttendanceRecord,
-  calculateAttendanceSummary,
-  getAllAttendanceRecords,
-  getAttendanceMonthOptions,
+  type AttendanceHistoryPageItem,
+  getAttendanceHistoryPage,
 } from '@/lib/attendance';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
-  Chip,
   GlassCard,
   Screen,
   SecondaryButton,
@@ -24,19 +21,34 @@ import {
 } from '@/theme/primitives';
 
 const PAGE_SIZE = 10;
-const ALL_HISTORY_FILTER_KEY = 'all-history';
-const SUMMARY_CARD_VARIANT = {
-  featured: 'featured',
-  accent: 'accent',
-  default: 'default',
-} as const;
 
-type SummaryCardVariant =
-  (typeof SUMMARY_CARD_VARIANT)[keyof typeof SUMMARY_CARD_VARIANT];
-
-type YearFilterOption = {
+type AttendancePeriod = {
   year: number;
-  label: string;
+  month: number;
+};
+
+type HistoryDisplayRow = {
+  key: string;
+  workDate: string;
+  hasRecord: boolean;
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  status: AttendanceHistoryPageItem['status'];
+  workedMinutes: number;
+};
+
+type HistorySummary = {
+  weeklyHours: number;
+  workedDays: number;
+  totalMinutes: number;
+  overtimeMinutes: number;
+};
+
+const EMPTY_SUMMARY: HistorySummary = {
+  weeklyHours: 40,
+  workedDays: 0,
+  totalMinutes: 0,
+  overtimeMinutes: 0,
 };
 
 export default function ControlHistoryScreen() {
@@ -51,15 +63,29 @@ export default function ControlHistoryScreen() {
     activeOrganization?.defaultTimezone,
   );
 
-  const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([]);
+  const currentPeriod = useMemo(
+    () => getCurrentAttendancePeriod(currentTimezone),
+    [currentTimezone],
+  );
+
+  const [availablePeriods, setAvailablePeriods] = useState<AttendancePeriod[]>(
+    [],
+  );
+  const [selectedPeriod, setSelectedPeriod] =
+    useState<AttendancePeriod>(currentPeriod);
+  const [displayRows, setDisplayRows] = useState<HistoryDisplayRow[]>([]);
+  const [summary, setSummary] = useState<HistorySummary>(EMPTY_SUMMARY);
+  const [totalPages, setTotalPages] = useState(0);
+  const [hasPreviousPage, setHasPreviousPage] = useState(false);
+  const [hasNextPage, setHasNextPage] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-
   const [page, setPage] = useState(0);
-  const [selectedMonthKey, setSelectedMonthKey] = useState(
-    ALL_HISTORY_FILTER_KEY,
-  );
-  const [visibleYear, setVisibleYear] = useState<number | null>(null);
+
+  useEffect(() => {
+    setSelectedPeriod(currentPeriod);
+    setPage(0);
+  }, [currentPeriod]);
 
   const loadRecords = useCallback(async () => {
     if (!activeOrganization) return;
@@ -68,141 +94,115 @@ export default function ControlHistoryScreen() {
     setErrorMessage('');
 
     try {
-      const response = await getAllAttendanceRecords({
+      const response = await getAttendanceHistoryPage({
         organizationId: activeOrganization.id,
         membershipId: activeOrganization.membershipId,
+        page,
+        pageSize: PAGE_SIZE,
+        year: selectedPeriod.year,
+        month: selectedPeriod.month,
       });
 
-      setAllRecords(response);
+      const todayInTimezone = getTodayDateString(currentTimezone);
+      const shouldHideTodayAbsence =
+        selectedPeriod.year === currentPeriod.year &&
+        selectedPeriod.month === currentPeriod.month;
+
+      setDisplayRows(
+        response.items
+          .filter((item) => {
+            if (!shouldHideTodayAbsence || item.hasRecord) {
+              return true;
+            }
+
+            return item.workDate < todayInTimezone;
+          })
+          .map((item) => ({
+            key: item.id,
+            workDate: item.workDate,
+            hasRecord: item.hasRecord,
+            clockInAt: item.clockInAt,
+            clockOutAt: item.clockOutAt,
+            status: item.status,
+            workedMinutes: item.workedMinutes,
+          })),
+      );
+
+      setAvailablePeriods(
+        response.availablePeriods.map((period) => ({
+          year: period.year,
+          month: period.month,
+        })),
+      );
+
+      setSummary({
+        weeklyHours: response.summary.weeklyHours,
+        workedDays: response.summary.workedDays,
+        totalMinutes: response.summary.totalMinutes,
+        overtimeMinutes: response.summary.overtimeMinutes,
+      });
+      setTotalPages(response.totalPages);
+      setHasPreviousPage(response.hasPreviousPage);
+      setHasNextPage(response.hasNextPage);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
           ? error.message
-          : 'No se pudo cargar el historial completo.',
+          : 'No se pudo cargar el historial.',
       );
+      setDisplayRows([]);
+      setSummary(EMPTY_SUMMARY);
+      setTotalPages(0);
+      setHasPreviousPage(false);
+      setHasNextPage(false);
     } finally {
       setIsLoading(false);
     }
-  }, [activeOrganization]);
+  }, [
+    activeOrganization,
+    currentPeriod.month,
+    currentPeriod.year,
+    currentTimezone,
+    page,
+    selectedPeriod.month,
+    selectedPeriod.year,
+  ]);
 
   useEffect(() => {
     void loadRecords();
   }, [loadRecords]);
 
-  const monthOptions = useMemo(
-    () => getAttendanceMonthOptions(allRecords),
-    [allRecords],
-  );
-
-  const yearOptions = useMemo<YearFilterOption[]>(() => {
-    const years = new Set<number>();
-
-    for (const option of monthOptions) {
-      years.add(option.year);
-    }
-
-    return Array.from(years)
-      .sort((left, right) => right - left)
-      .map((year) => ({ year, label: String(year) }));
-  }, [monthOptions]);
-
-  const latestYear = yearOptions[0]?.year ?? null;
-
   useEffect(() => {
-    if (selectedMonthKey === ALL_HISTORY_FILTER_KEY) {
-      return;
-    }
-
-    const isValidMonth = monthOptions.some(
-      (option) => option.key === selectedMonthKey,
-    );
-
-    if (!isValidMonth) {
-      setSelectedMonthKey(ALL_HISTORY_FILTER_KEY);
-    }
-  }, [monthOptions, selectedMonthKey]);
-
-  useEffect(() => {
-    if (selectedMonthKey !== ALL_HISTORY_FILTER_KEY) {
-      const selectedMonth = monthOptions.find(
-        (option) => option.key === selectedMonthKey,
-      );
-
-      if (selectedMonth && selectedMonth.year !== visibleYear) {
-        setVisibleYear(selectedMonth.year);
-      }
-
-      return;
-    }
-
-    if (visibleYear === null && latestYear !== null) {
-      setVisibleYear(latestYear);
-      return;
-    }
-
-    if (
-      visibleYear !== null &&
-      !yearOptions.some((option) => option.year === visibleYear)
-    ) {
-      setVisibleYear(latestYear);
-    }
-  }, [latestYear, monthOptions, selectedMonthKey, visibleYear, yearOptions]);
-
-  const filteredRecords = useMemo(() => {
-    if (selectedMonthKey === ALL_HISTORY_FILTER_KEY) {
-      return allRecords;
-    }
-
-    return allRecords.filter((record) =>
-      record.workDate.startsWith(selectedMonthKey),
-    );
-  }, [allRecords, selectedMonthKey]);
-
-  const summary = useMemo(
-    () => calculateAttendanceSummary(filteredRecords),
-    [filteredRecords],
-  );
-
-  const totalPages = Math.max(1, Math.ceil(filteredRecords.length / PAGE_SIZE));
-  const paginatedRecords = useMemo(() => {
-    const from = page * PAGE_SIZE;
-    return filteredRecords.slice(from, from + PAGE_SIZE);
-  }, [filteredRecords, page]);
-
-  useEffect(() => {
-    if (page < totalPages) {
+    if (totalPages === 0 || page < totalPages) {
       return;
     }
 
     setPage(Math.max(0, totalPages - 1));
   }, [page, totalPages]);
 
-  const activeFilterLabel = useMemo(() => {
-    if (selectedMonthKey === ALL_HISTORY_FILTER_KEY) {
-      return 'Todo el historial';
-    }
+  const previousPeriod = useMemo(
+    () =>
+      getAdjacentPeriod({
+        periods: availablePeriods,
+        current: selectedPeriod,
+        direction: 'previous',
+      }),
+    [availablePeriods, selectedPeriod],
+  );
 
-    return (
-      monthOptions.find((option) => option.key === selectedMonthKey)?.label ??
-      'Todo el historial'
-    );
-  }, [monthOptions, selectedMonthKey]);
+  const nextPeriod = useMemo(
+    () =>
+      getAdjacentPeriod({
+        periods: availablePeriods,
+        current: selectedPeriod,
+        direction: 'next',
+      }),
+    [availablePeriods, selectedPeriod],
+  );
 
-  const visibleMonthOptions = useMemo(() => {
-    if (visibleYear === null) {
-      return [];
-    }
-
-    return monthOptions.filter((option) => option.year === visibleYear);
-  }, [monthOptions, visibleYear]);
-
-  const handleSelectFilter = useCallback((monthKey: string) => {
-    setSelectedMonthKey(monthKey);
+  const handleChangePeriod = useCallback((period: AttendancePeriod) => {
+    setSelectedPeriod(period);
     setPage(0);
-  }, []);
-
-  const handleSelectYear = useCallback((year: number) => {
-    setVisibleYear(year);
   }, []);
 
   if (isLoadingOrganizations) {
@@ -233,86 +233,39 @@ export default function ControlHistoryScreen() {
     >
       <SecondaryScreenHeader
         title="Historial control"
-        subtitle="Revisá tus marcaciones y filtrá por mes y año."
+        subtitle="Revisá tus marcaciones del mes y navegá entre períodos con actividad."
         onBack={() => router.replace('/(tabs)/control' as never)}
       />
 
-      <View style={styles.metricsRow}>
-        <SummaryCard
-          hint={
-            selectedMonthKey === ALL_HISTORY_FILTER_KEY
-              ? 'Todo el historial'
-              : activeFilterLabel
-          }
-          label="Horas totales"
-          value={formatMinutes(summary.totalMinutes)}
-          variant={SUMMARY_CARD_VARIANT.featured}
-        />
-        <SummaryCard
-          hint="+40 h por semana"
-          label="Horas extras"
-          value={formatMinutes(summary.overtimeMinutes)}
-          variant={SUMMARY_CARD_VARIANT.accent}
-        />
-        <SummaryCard
-          hint={
-            selectedMonthKey === ALL_HISTORY_FILTER_KEY
-              ? 'Todo el historial'
-              : activeFilterLabel
-          }
-          label="Días trabajados"
-          value={String(summary.workedDays)}
-          variant={SUMMARY_CARD_VARIANT.default}
-        />
-      </View>
-
-      <GlassCard style={styles.filtersCard} variant="soft">
-        <SectionHeader
-          eyebrow="Periodo"
-          subtitle="Solo podés elegir meses con registros reales."
-          title={activeFilterLabel}
-        />
-
-        <View style={styles.filterToolbar}>
-          <FilterChip
-            label="Todo el historial"
-            isActive={selectedMonthKey === ALL_HISTORY_FILTER_KEY}
-            onPress={() => handleSelectFilter(ALL_HISTORY_FILTER_KEY)}
+      <GlassCard style={styles.periodCard} variant="soft">
+        <View style={styles.monthNavigationRow}>
+          <MonthArrowButton
+            accessibilityLabel="Mes anterior"
+            direction="previous"
+            disabled={!previousPeriod || isLoading}
+            onPress={() =>
+              previousPeriod ? handleChangePeriod(previousPeriod) : undefined
+            }
           />
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.yearChipsRow}
-          >
-            {yearOptions.map((option) => (
-              <FilterChip
-                key={option.year}
-                label={option.label}
-                isActive={visibleYear === option.year}
-                onPress={() => handleSelectYear(option.year)}
-                variant="secondary"
-              />
-            ))}
-          </ScrollView>
-        </View>
-
-        {visibleMonthOptions.length > 0 ? (
-          <View style={styles.monthGrid}>
-            {visibleMonthOptions.map((option) => (
-              <FilterChip
-                key={option.key}
-                label={option.label}
-                isActive={selectedMonthKey === option.key}
-                onPress={() => handleSelectFilter(option.key)}
-              />
-            ))}
+          <View style={styles.monthLabelContainer}>
+            <ThemedText selectable style={styles.monthLabel} variant="heading">
+              {formatAttendanceMonthLabel(
+                selectedPeriod.year,
+                selectedPeriod.month,
+              )}
+            </ThemedText>
           </View>
-        ) : (
-          <ThemedText colorToken="secondary" variant="bodySmall">
-            Todavía no hay meses disponibles para filtrar.
-          </ThemedText>
-        )}
+
+          <MonthArrowButton
+            accessibilityLabel="Mes siguiente"
+            direction="next"
+            disabled={!nextPeriod || isLoading}
+            onPress={() =>
+              nextPeriod ? handleChangePeriod(nextPeriod) : undefined
+            }
+          />
+        </View>
 
         {errorMessage ? (
           <ThemedText colorToken="error" variant="bodySmall">
@@ -321,45 +274,27 @@ export default function ControlHistoryScreen() {
         ) : null}
       </GlassCard>
 
-      <GlassCard style={styles.tableCard} variant="soft">
-        <View
-          style={[
-            styles.tableRow,
-            styles.tableHeader,
-            { borderBottomColor: theme.colors.border.default },
-          ]}
-        >
-          <ThemedText
-            colorToken="secondary"
-            style={[styles.headerCell, styles.dateColumn]}
-            variant="label"
-          >
-            Fecha
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            style={styles.headerCell}
-            variant="label"
-          >
-            Entrada
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            style={styles.headerCell}
-            variant="label"
-          >
-            Salida
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            style={[styles.headerCell, styles.statusColumn]}
-            variant="label"
-          >
-            Estado
-          </ThemedText>
+      <View style={styles.metricsGrid}>
+        <MetricCard
+          label="Horas totales"
+          value={formatMinutes(summary.totalMinutes)}
+          valueToken="success"
+        />
+        <View style={styles.metricsSubRow}>
+          <MetricCard label="Días asistidos" value={`${summary.workedDays}`} />
+          <MetricCard
+            label="Horas extra"
+            value={formatMinutes(summary.overtimeMinutes)}
+            valueToken="error"
+            helper={`+${formatWeeklyHours(summary.weeklyHours)} horas semanal`}
+          />
         </View>
+      </View>
 
-        {paginatedRecords.length === 0 ? (
+      <SectionHeader title="Detalle de registros" />
+
+      <View style={styles.tableCard}>
+        {displayRows.length === 0 ? (
           <ThemedText
             colorToken="secondary"
             style={styles.emptyText}
@@ -367,45 +302,95 @@ export default function ControlHistoryScreen() {
           >
             {isLoading
               ? 'Cargando...'
-              : selectedMonthKey === ALL_HISTORY_FILTER_KEY
-                ? 'Todavía no hay registros en el historial.'
-                : 'No hay registros para el mes seleccionado.'}
+              : 'No hay registros para el mes seleccionado.'}
           </ThemedText>
         ) : (
-          paginatedRecords.map((record, index) => {
-            const isCompleted = Boolean(record.clockOutAt);
+          displayRows.map((row) => {
+            const dayLabel = formatWorkdayLabel(row.workDate, currentTimezone);
 
             return (
               <View
-                key={record.id}
+                key={row.key}
                 style={[
-                  styles.tableRow,
-                  index > 0 && {
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderTopColor: theme.colors.border.default,
+                  styles.historyRow,
+                  {
+                    backgroundColor: theme.surface.glass.soft,
+                    borderColor: theme.surface.glass.border,
+                  },
+                  !row.hasRecord && {
+                    borderColor: theme.colors.status.error,
+                    opacity: 0.9,
                   },
                 ]}
               >
-                <ThemedText
-                  style={[styles.bodyCell, styles.dateColumn]}
-                  variant="bodySmall"
+                <View
+                  style={[
+                    styles.dayBadge,
+                    {
+                      backgroundColor: row.hasRecord
+                        ? theme.surface.glass.tint
+                        : 'rgba(255, 99, 99, 0.12)',
+                    },
+                  ]}
                 >
-                  {record.workDate}
-                </ThemedText>
-                <ThemedText style={styles.bodyCell} variant="bodySmall">
-                  {formatTime(record.clockInAt, currentTimezone)}
-                </ThemedText>
-                <ThemedText style={styles.bodyCell} variant="bodySmall">
-                  {record.clockOutAt
-                    ? formatTime(record.clockOutAt, currentTimezone)
-                    : '--:--'}
-                </ThemedText>
-                <View style={[styles.statusColumn, styles.statusCell]}>
-                  <Chip
-                    label={isCompleted ? 'Completo' : 'Abierto'}
-                    selected={isCompleted}
-                    tone={isCompleted ? 'success' : 'neutral'}
-                  />
+                  <ThemedText
+                    colorToken={row.hasRecord ? 'secondary' : 'error'}
+                    style={styles.dayBadgeWeekday}
+                    variant="bodySmall"
+                  >
+                    {dayLabel.weekday}
+                  </ThemedText>
+                  <ThemedText
+                    colorToken={row.hasRecord ? 'primary' : 'error'}
+                    style={styles.dayBadgeDay}
+                    variant="subtitle"
+                  >
+                    {dayLabel.day}
+                  </ThemedText>
+                </View>
+
+                <View style={styles.historyInfo}>
+                  {row.hasRecord ? (
+                    <View style={styles.journeyTimesRow}>
+                      <JourneyEvent
+                        label={
+                          row.clockInAt
+                            ? formatTime(row.clockInAt, currentTimezone)
+                            : '--:--'
+                        }
+                        tone="Entrada"
+                      />
+                      <JourneyEvent
+                        label={
+                          row.clockOutAt
+                            ? formatTime(row.clockOutAt, currentTimezone)
+                            : '--:--'
+                        }
+                        tone="Salida"
+                      />
+                    </View>
+                  ) : (
+                    <ThemedText colorToken="error" style={styles.noRecordText}>
+                      Sin registro
+                    </ThemedText>
+                  )}
+                  <ThemedText
+                    colorToken={row.hasRecord ? 'secondary' : 'error'}
+                    numberOfLines={1}
+                    style={styles.statusText}
+                    variant="bodySmall"
+                  >
+                    {resolveJourneyStatusLabel(row)}
+                  </ThemedText>
+                </View>
+
+                <View style={styles.historyMeta}>
+                  <ThemedText
+                    style={styles.historyWorkedTime}
+                    variant="heading"
+                  >
+                    {row.hasRecord ? formatMinutes(row.workedMinutes) : '-'}
+                  </ThemedText>
                 </View>
               </View>
             );
@@ -414,7 +399,7 @@ export default function ControlHistoryScreen() {
 
         <View style={styles.paginationRow}>
           <SecondaryButton
-            disabled={page === 0}
+            disabled={!hasPreviousPage || isLoading}
             fullWidth={false}
             label="Anterior"
             onPress={() =>
@@ -424,42 +409,174 @@ export default function ControlHistoryScreen() {
           />
 
           <ThemedText colorToken="secondary" variant="bodySmall">
-            Pagina {Math.min(page + 1, totalPages)} de {totalPages}
+            Página {Math.min(page + 1, Math.max(totalPages, 1))} de{' '}
+            {Math.max(totalPages, 1)}
           </ThemedText>
 
           <SecondaryButton
-            disabled={page + 1 >= totalPages}
+            disabled={!hasNextPage || isLoading}
             fullWidth={false}
             label="Siguiente"
             onPress={() =>
               setPage((currentPage) =>
-                currentPage + 1 < totalPages ? currentPage + 1 : currentPage,
+                hasNextPage ? currentPage + 1 : currentPage,
               )
             }
             style={styles.paginationButton}
           />
         </View>
-      </GlassCard>
+      </View>
     </Screen>
   );
 }
 
-type SummaryCardProps = {
-  hint: string;
+type JourneyEventProps = {
+  tone: 'Entrada' | 'Salida';
   label: string;
-  value: string;
-  variant: SummaryCardVariant;
 };
 
-function SummaryCard({ hint, label, value, variant }: SummaryCardProps) {
+function JourneyEvent({ tone, label }: JourneyEventProps) {
   const theme = useTheme();
-  const cardStyle = getSummaryCardStyle(theme, variant);
-  const valueToken =
-    variant === SUMMARY_CARD_VARIANT.accent ? 'accent' : 'primary';
+  const isEntry = tone === 'Entrada';
+  const color = isEntry
+    ? theme.colors.status.success
+    : theme.colors.status.error;
 
   return (
-    <GlassCard style={[styles.metricCard, cardStyle]} variant="soft">
-      <ThemedText colorToken="secondary" variant="label">
+    <View
+      style={[
+        styles.journeyEvent,
+        isEntry ? styles.journeyEventLeft : styles.journeyEventRight,
+      ]}
+    >
+      <AttendanceEventIconCompact
+        color={color}
+        direction={isEntry ? 'in' : 'out'}
+      />
+      <ThemedText style={styles.journeyEventLabel} variant="subtitle">
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+function AttendanceEventIconCompact({
+  color,
+  direction,
+}: {
+  color: string;
+  direction: 'in' | 'out';
+}) {
+  const theme = useTheme();
+  const isEntry = direction === 'in';
+
+  return (
+    <View
+      style={[
+        styles.typeIconShell,
+        {
+          backgroundColor: isEntry
+            ? theme.surface.glass.tint
+            : theme.surface.glass.soft,
+          borderColor: color,
+          transform: [{ scaleX: isEntry ? -1 : 1 }],
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.attendanceIconFrameVerticalCompact,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconFrameHorizontalCompact,
+          styles.attendanceIconFrameHorizontalTopCompact,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconFrameHorizontalCompact,
+          styles.attendanceIconFrameHorizontalBottomCompact,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconArrowShaftCompact,
+          { backgroundColor: color },
+        ]}
+      />
+      <View
+        style={[
+          styles.attendanceIconArrowHeadCompact,
+          {
+            borderLeftColor: 'transparent',
+            borderRightColor: color,
+          },
+        ]}
+      />
+    </View>
+  );
+}
+
+type MonthArrowButtonProps = {
+  accessibilityLabel: string;
+  direction: 'previous' | 'next';
+  disabled: boolean;
+  onPress: () => void;
+};
+
+function MonthArrowButton({
+  accessibilityLabel,
+  direction,
+  disabled,
+  onPress,
+}: MonthArrowButtonProps) {
+  const theme = useTheme();
+
+  return (
+    <Pressable
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.monthArrowButton,
+        {
+          backgroundColor: theme.surface.glass.soft,
+          borderColor: theme.surface.glass.border,
+          opacity: disabled ? 0.45 : pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      <ThemedText style={styles.monthArrowLabel} variant="heading">
+        {direction === 'previous' ? '‹' : '›'}
+      </ThemedText>
+    </Pressable>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  valueToken,
+  helper,
+}: {
+  label: string;
+  value: string;
+  valueToken?: 'success' | 'error' | 'secondary' | 'primary';
+  helper?: string;
+}) {
+  return (
+    <GlassCard style={styles.metricCard} variant="soft">
+      <ThemedText
+        colorToken="secondary"
+        style={styles.metricLabel}
+        variant="bodySmall"
+      >
         {label}
       </ThemedText>
       <ThemedText
@@ -469,33 +586,12 @@ function SummaryCard({ hint, label, value, variant }: SummaryCardProps) {
       >
         {value}
       </ThemedText>
-      <ThemedText colorToken="secondary" variant="bodySmall">
-        {hint}
-      </ThemedText>
+      {helper ? (
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          {helper}
+        </ThemedText>
+      ) : null}
     </GlassCard>
-  );
-}
-
-type FilterChipProps = {
-  isActive: boolean;
-  label: string;
-  onPress: () => void;
-  variant?: 'default' | 'secondary';
-};
-
-function FilterChip({
-  isActive,
-  label,
-  onPress,
-  variant = 'default',
-}: FilterChipProps) {
-  return (
-    <Chip
-      label={label}
-      onPress={onPress}
-      selected={isActive}
-      tone={variant === 'secondary' ? 'neutral' : 'brand'}
-    />
   );
 }
 
@@ -508,6 +604,57 @@ function formatTime(value: string, timezone: string) {
   }).format(new Date(value));
 }
 
+function resolveJourneyStatusLabel(row: HistoryDisplayRow) {
+  if (!row.hasRecord) {
+    return 'Ausencia';
+  }
+
+  if (row.status === 'auto_closed') {
+    return 'Cierre automático';
+  }
+
+  return row.status === 'complete' ? 'Jornada completa' : 'Jornada incompleta';
+}
+
+function formatWorkdayLabel(workDate: string, timezone: string) {
+  const [yearPart, monthPart, dayPart] = workDate.split('-');
+  const year = Number(yearPart);
+  const month = Number(monthPart);
+  const dayNumber = Number(dayPart);
+
+  const date =
+    Number.isInteger(year) &&
+    Number.isInteger(month) &&
+    Number.isInteger(dayNumber)
+      ? new Date(Date.UTC(year, month - 1, dayNumber, 12, 0, 0))
+      : new Date(`${workDate}T12:00:00Z`);
+  const parts = new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    weekday: 'short',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const weekday =
+    parts
+      .find((part) => part.type === 'weekday')
+      ?.value.replace('.', '')
+      .toUpperCase() ?? '---';
+  const day = parts.find((part) => part.type === 'day')?.value ?? '--';
+
+  return {
+    weekday,
+    day,
+  };
+}
+
+function formatAttendanceMonthLabel(year: number, month: number) {
+  return new Intl.DateTimeFormat('es-CL', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
 function formatMinutes(totalMinutes: number) {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
@@ -515,28 +662,84 @@ function formatMinutes(totalMinutes: number) {
   return `${hours}h ${minutes}m`;
 }
 
-function getSummaryCardStyle(
-  theme: ReturnType<typeof useTheme>,
-  variant: SummaryCardVariant,
-) {
-  if (variant === SUMMARY_CARD_VARIANT.accent) {
-    return {
-      backgroundColor: theme.colors.brand.muted,
-      borderColor: theme.colors.brand.muted,
-    };
+function formatWeeklyHours(weeklyHours: number) {
+  const safeWeeklyHours = Number.isFinite(weeklyHours)
+    ? Math.max(0, weeklyHours)
+    : 40;
+
+  return new Intl.NumberFormat('es-CL', {
+    maximumFractionDigits: Number.isInteger(safeWeeklyHours) ? 0 : 1,
+    minimumFractionDigits: 0,
+  }).format(safeWeeklyHours);
+}
+
+function getCurrentAttendancePeriod(timezone: string): AttendancePeriod {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+
+  const year = Number(parts.find((part) => part.type === 'year')?.value);
+  const month = Number(parts.find((part) => part.type === 'month')?.value);
+
+  if (Number.isInteger(year) && Number.isInteger(month)) {
+    return { year, month };
   }
 
-  if (variant === SUMMARY_CARD_VARIANT.default) {
-    return {
-      backgroundColor: theme.surface.glass.soft,
-      borderColor: theme.surface.glass.border,
-    };
-  }
+  const now = new Date();
 
   return {
-    backgroundColor: theme.surface.glass.strong,
-    borderColor: theme.surface.glass.border,
+    year: now.getUTCFullYear(),
+    month: now.getUTCMonth() + 1,
   };
+}
+
+function getTodayDateString(timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (year && month && day) {
+    return `${year}-${month}-${day}`;
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getAdjacentPeriod(params: {
+  periods: AttendancePeriod[];
+  current: AttendancePeriod;
+  direction: 'previous' | 'next';
+}): AttendancePeriod | null {
+  const currentValue = params.current.year * 100 + params.current.month;
+
+  if (params.direction === 'previous') {
+    const previous = [...params.periods]
+      .filter((period) => period.year * 100 + period.month < currentValue)
+      .sort(
+        (left, right) =>
+          right.year * 100 + right.month - (left.year * 100 + left.month),
+      )[0];
+
+    return previous ?? null;
+  }
+
+  const next = [...params.periods]
+    .filter((period) => period.year * 100 + period.month > currentValue)
+    .sort(
+      (left, right) =>
+        left.year * 100 + left.month - (right.year * 100 + right.month),
+    )[0];
+
+  return next ?? null;
 }
 
 const styles = StyleSheet.create({
@@ -552,62 +755,183 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  metricsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  metricCard: {
-    flexGrow: 1,
-    gap: 8,
-    minWidth: '30%',
-  },
-  metricValue: {
-    letterSpacing: -0.4,
-  },
-  filtersCard: {
+  periodCard: {
     gap: 16,
   },
-  filterToolbar: {
-    gap: 12,
-  },
-  yearChipsRow: {
-    gap: 8,
-    paddingRight: 4,
-  },
-  monthGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  tableCard: {
-    gap: 16,
-  },
-  tableHeader: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: 12,
-  },
-  tableRow: {
+  monthNavigationRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    minHeight: 52,
+    gap: 12,
+  },
+  monthLabelContainer: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+  },
+  monthLabel: {
+    textTransform: 'capitalize',
+  },
+  monthArrowButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  monthArrowLabel: {
+    lineHeight: 24,
+  },
+  metricsGrid: {
+    gap: 12,
+  },
+  metricsSubRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  metricCard: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 6,
+    justifyContent: 'center',
+    paddingVertical: 24,
+  },
+  metricLabel: {
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  metricValue: {
+    fontSize: 28,
+    letterSpacing: -0.5,
+  },
+  tableCard: {
+    gap: 12,
+  },
+  historyRow: {
+    alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 14,
+    minHeight: 88,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  dayBadge: {
+    alignItems: 'center',
+    borderRadius: 999,
+    justifyContent: 'center',
+    minHeight: 58,
+    minWidth: 58,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  dayBadgeWeekday: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+  },
+  dayBadgeDay: {
+    fontSize: 24,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 26,
+  },
+  historyInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  journeyTimesRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     width: '100%',
   },
-  headerCell: {
-    flex: 1,
+  journeyEvent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    minWidth: 0,
   },
-  bodyCell: {
-    flex: 1,
+  journeyEventLeft: {
+    justifyContent: 'flex-start',
   },
-  dateColumn: {
-    flex: 1.2,
+  journeyEventRight: {
+    justifyContent: 'flex-end',
   },
-  statusColumn: {
-    flex: 1,
+  journeyEventLabel: {
+    fontSize: 16,
+    fontVariant: ['tabular-nums'],
+    lineHeight: 18,
+  },
+  noRecordText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '600',
+    lineHeight: 14,
+  },
+  historyMeta: {
     alignItems: 'flex-end',
+    minWidth: 120,
+    paddingLeft: 8,
   },
-  statusCell: {
+  historyWorkedTime: {
+    fontSize: 22,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+    width: '100%',
+  },
+  typeIconShell: {
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 18,
     justifyContent: 'center',
+    overflow: 'hidden',
+    width: 18,
+  },
+  attendanceIconFrameVerticalCompact: {
+    borderRadius: 999,
+    height: 8,
+    left: 5,
+    position: 'absolute',
+    top: 5,
+    width: 1,
+  },
+  attendanceIconFrameHorizontalCompact: {
+    borderRadius: 999,
+    height: 1,
+    left: 5,
+    position: 'absolute',
+    width: 5,
+  },
+  attendanceIconFrameHorizontalTopCompact: {
+    top: 5,
+  },
+  attendanceIconFrameHorizontalBottomCompact: {
+    bottom: 5,
+  },
+  attendanceIconArrowShaftCompact: {
+    borderRadius: 999,
+    height: 1,
+    left: 8,
+    position: 'absolute',
+    top: 9,
+    width: 5,
+  },
+  attendanceIconArrowHeadCompact: {
+    borderBottomColor: 'transparent',
+    borderBottomWidth: 2,
+    borderLeftWidth: 3,
+    borderRightWidth: 3,
+    borderTopColor: 'transparent',
+    borderTopWidth: 2,
+    left: 4,
+    position: 'absolute',
+    top: 7,
   },
   emptyText: {
     paddingVertical: 8,

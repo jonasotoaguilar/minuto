@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
@@ -8,13 +8,10 @@ import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  calculateAttendanceDays,
-  calculateWorkdayStreak,
-  getAttendanceRecordsForRange,
-  getOrganizationMonthRange,
-} from '@/lib/attendance';
+  PROFILE_UPDATE_STATUS,
+  type ProfileUpdateFeedback,
+} from '@/lib/profile-update-feedback';
 import { supabase } from '@/lib/supabase';
-import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
   GlassCard,
   PrimaryButton,
@@ -27,20 +24,25 @@ import {
 type UserProfileSnapshot = {
   fullName: string;
   email: string;
-  roleLabel: string;
   initials: string;
 };
 
 const initialProfileSnapshot: UserProfileSnapshot = {
   fullName: 'Usuario Minuto',
   email: '',
-  roleLabel: 'Sin rol',
   initials: 'UM',
 };
 
 export default function ProfileTabScreen() {
   const theme = useTheme();
   const router = useRouter();
+  const {
+    profileUpdateMessage: profileUpdateMessageParam,
+    profileUpdateStatus: profileUpdateStatusParam,
+  } = useLocalSearchParams<{
+    profileUpdateMessage?: string;
+    profileUpdateStatus?: string;
+  }>();
   const {
     activeOrganization,
     isLoadingOrganizations,
@@ -50,9 +52,9 @@ export default function ProfileTabScreen() {
   const [profileSnapshot, setProfileSnapshot] = useState<UserProfileSnapshot>(
     initialProfileSnapshot,
   );
-  const [attendanceDays, setAttendanceDays] = useState(0);
-  const [streakDays, setStreakDays] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
+  const [profileUpdateFeedback, setProfileUpdateFeedback] =
+    useState<ProfileUpdateFeedback | null>(null);
 
   const loadProfileData = useCallback(async () => {
     if (!activeOrganization) {
@@ -60,13 +62,8 @@ export default function ProfileTabScreen() {
     }
 
     setErrorMessage('');
-    setAttendanceDays(0);
-    setStreakDays(0);
 
     try {
-      const currentTimezone = resolveOrganizationTimezone(
-        activeOrganization.defaultTimezone,
-      );
       const { data: authData, error: authError } =
         await supabase.auth.getUser();
 
@@ -84,57 +81,39 @@ export default function ProfileTabScreen() {
       setProfileSnapshot({
         fullName,
         email: user.email ?? '',
-        roleLabel: mapMembershipRole(activeOrganization.membershipRole),
         initials: deriveInitials(fullName),
       });
-
-      const monthRange = getOrganizationMonthRange(currentTimezone);
-      const streakStartDate = shiftDateString(monthRange.end, -365);
-      const [monthRecordsResult, streakRecordsResult] =
-        await Promise.allSettled([
-          getAttendanceRecordsForRange({
-            organizationId: activeOrganization.id,
-            membershipId: activeOrganization.membershipId,
-            startDate: monthRange.start,
-            endDate: monthRange.end,
-          }),
-          getAttendanceRecordsForRange({
-            organizationId: activeOrganization.id,
-            membershipId: activeOrganization.membershipId,
-            startDate: streakStartDate,
-            endDate: monthRange.end,
-          }),
-        ]);
-
-      if (
-        monthRecordsResult.status === 'fulfilled' &&
-        streakRecordsResult.status === 'fulfilled'
-      ) {
-        setAttendanceDays(calculateAttendanceDays(monthRecordsResult.value));
-        setStreakDays(
-          calculateWorkdayStreak(streakRecordsResult.value, currentTimezone),
-        );
-        return;
-      }
-
-      const attendanceError =
-        monthRecordsResult.status === 'rejected'
-          ? monthRecordsResult.reason
-          : streakRecordsResult.status === 'rejected'
-            ? streakRecordsResult.reason
-            : null;
-
-      setErrorMessage(
-        attendanceError instanceof Error
-          ? `Perfil cargado, pero no se pudieron obtener las métricas de asistencia (${attendanceError.message}).`
-          : 'Perfil cargado, pero no se pudieron obtener las métricas de asistencia.',
-      );
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : 'No se pudo cargar el perfil.',
       );
     }
   }, [activeOrganization]);
+
+  useEffect(() => {
+    const profileUpdateMessage =
+      typeof profileUpdateMessageParam === 'string'
+        ? profileUpdateMessageParam.trim()
+        : '';
+    const profileUpdateStatus =
+      profileUpdateStatusParam === PROFILE_UPDATE_STATUS.SUCCESS ||
+      profileUpdateStatusParam === PROFILE_UPDATE_STATUS.ERROR
+        ? profileUpdateStatusParam
+        : null;
+
+    if (!profileUpdateMessage || !profileUpdateStatus) {
+      return;
+    }
+
+    setProfileUpdateFeedback({
+      message: profileUpdateMessage,
+      status: profileUpdateStatus,
+    });
+    router.setParams({
+      profileUpdateMessage: undefined,
+      profileUpdateStatus: undefined,
+    });
+  }, [profileUpdateMessageParam, profileUpdateStatusParam, router]);
 
   useEffect(() => {
     void loadProfileData();
@@ -199,20 +178,6 @@ export default function ProfileTabScreen() {
           <ThemedText colorToken="accent" variant="eyebrow">
             Perfil
           </ThemedText>
-
-          <View
-            style={[
-              styles.roleChip,
-              {
-                backgroundColor: theme.surface.glass.soft,
-                borderColor: theme.surface.glass.border,
-              },
-            ]}
-          >
-            <ThemedText colorToken="secondary" variant="label">
-              {profileSnapshot.roleLabel}
-            </ThemedText>
-          </View>
         </View>
 
         <View
@@ -254,36 +219,6 @@ export default function ProfileTabScreen() {
           style={styles.editButton}
         />
       </GlassCard>
-
-      <View style={styles.metricsRow}>
-        <GlassCard style={styles.metricCard} variant="soft">
-          <ThemedText colorToken="secondary" variant="label">
-            Asistencia
-          </ThemedText>
-          <ThemedText
-            colorToken="brand"
-            style={styles.metricValue}
-            variant="heading"
-          >
-            {attendanceDays}
-          </ThemedText>
-          <ThemedText colorToken="secondary" variant="bodySmall">
-            días este mes
-          </ThemedText>
-        </GlassCard>
-
-        <GlassCard style={styles.metricCard} variant="soft">
-          <ThemedText colorToken="secondary" variant="label">
-            Racha
-          </ThemedText>
-          <ThemedText style={styles.metricValue} variant="heading">
-            {streakDays}
-          </ThemedText>
-          <ThemedText colorToken="secondary" variant="bodySmall">
-            días hábiles
-          </ThemedText>
-        </GlassCard>
-      </View>
 
       <GlassCard style={styles.settingsCard}>
         <SectionHeader title="Configuración" />
@@ -343,6 +278,36 @@ export default function ProfileTabScreen() {
           </View>
         ))}
       </GlassCard>
+
+      {profileUpdateFeedback ? (
+        <View
+          style={[
+            styles.messageCard,
+            {
+              backgroundColor:
+                profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+                  ? theme.surface.danger
+                  : theme.colors.brand.muted,
+              borderColor:
+                profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+                  ? theme.surface.glass.border
+                  : theme.colors.border.default,
+            },
+          ]}
+        >
+          <ThemedText
+            colorToken={
+              profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+                ? 'error'
+                : 'primary'
+            }
+            style={styles.messageText}
+            variant="bodySmall"
+          >
+            {profileUpdateFeedback.message}
+          </ThemedText>
+        </View>
+      ) : null}
 
       {errorMessage ? (
         <View
@@ -404,31 +369,6 @@ function deriveInitials(fullName: string) {
   return `${segments[0][0] ?? ''}${segments[1][0] ?? ''}`.toUpperCase();
 }
 
-function mapMembershipRole(role: 'owner' | 'admin' | 'manager' | 'employee') {
-  switch (role) {
-    case 'owner':
-      return 'Owner';
-    case 'admin':
-      return 'Administrador';
-    case 'manager':
-      return 'Manager';
-    default:
-      return 'Empleado';
-  }
-}
-
-function shiftDateString(dateString: string, days: number) {
-  const [year, month, day] = dateString.split('-').map((part) => Number(part));
-  const date = new Date(Date.UTC(year, (month ?? 1) - 1, day ?? 1));
-  date.setUTCDate(date.getUTCDate() + days);
-
-  const nextYear = date.getUTCFullYear();
-  const nextMonth = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const nextDay = String(date.getUTCDate()).padStart(2, '0');
-
-  return `${nextYear}-${nextMonth}-${nextDay}`;
-}
-
 const styles = StyleSheet.create({
   container: {
     gap: 16,
@@ -448,18 +388,7 @@ const styles = StyleSheet.create({
   },
   profileHeader: {
     width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  roleChip: {
-    minHeight: 32,
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
   },
   heroAvatar: {
     width: 112,
@@ -485,16 +414,6 @@ const styles = StyleSheet.create({
   editButton: {
     minWidth: 196,
   },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  metricCard: {
-    flex: 1,
-    minHeight: 140,
-    justifyContent: 'space-between',
-  },
-  metricValue: {},
   settingsCard: {
     gap: 12,
   },

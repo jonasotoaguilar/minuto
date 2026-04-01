@@ -19,6 +19,11 @@ export interface GlassCardProps extends PropsWithChildren<ViewProps> {
   variant?: GlassCardVariant;
 }
 
+export interface PlainCardProps extends PropsWithChildren<ViewProps> {
+  padding?: number;
+  style?: StyleProp<ViewStyle>;
+}
+
 export function GlassCard({
   children,
   padding,
@@ -46,8 +51,39 @@ export function GlassCard({
   );
 }
 
+export function PlainCard({
+  children,
+  padding,
+  style,
+  ...props
+}: PlainCardProps) {
+  const theme = useTheme();
+
+  return (
+    <View
+      {...props}
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.background.card,
+          borderColor: theme.colors.border.default,
+          borderRadius: theme.radius.xl,
+          borderWidth: 1,
+          padding: padding ?? theme.spacing.lg,
+          shadowColor: theme.colors.shadow.color,
+          ...theme.elevation.card,
+        },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   card: {
+    borderCurve: 'continuous',
     overflow: 'hidden',
   },
 });

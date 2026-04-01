@@ -97,11 +97,21 @@ export interface OpenShift {
   breakDurationHours: number;
 }
 
+export const ATTENDANCE_EVENT_TYPE = {
+  CLOCK_IN: 'clock_in',
+  CLOCK_OUT: 'clock_out',
+} as const;
+
+export type AttendanceEventType =
+  (typeof ATTENDANCE_EVENT_TYPE)[keyof typeof ATTENDANCE_EVENT_TYPE];
+
 export type AttendanceEvent = {
   id: string;
-  type: 'clock_in' | 'clock_out';
+  type: AttendanceEventType;
   occurredAt: string;
   workDate: string;
+  officeName?: string | null;
+  officeIsRemote?: boolean;
 };
 
 export type AttendanceTypeFilter = 'all' | 'clock_in' | 'clock_out';
@@ -121,10 +131,67 @@ export type AttendanceSummary = {
   workedDays: number;
 };
 
+export interface AttendanceHistoryFilter {
+  year: number | null;
+  month: number | null;
+  periodKey: string | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+export interface AttendanceHistoryAvailablePeriod {
+  year: number;
+  month: number;
+  periodKey: string;
+  startDate: string;
+  endDate: string;
+}
+
+export interface AttendanceHistoryPageItem {
+  id: string;
+  workDate: string;
+  hasRecord: boolean;
+  clockInAt: string | null;
+  clockOutAt: string | null;
+  autoClosed: boolean;
+  status: 'complete' | 'incomplete' | 'auto_closed' | 'absence';
+  workedMinutes: number;
+  requiredMinutes: number;
+  officeId: string | null;
+  officeName: string | null;
+  officeIsRemote: boolean;
+}
+
+export interface AttendanceHistoryPageSummary {
+  weeklyHours: number;
+  workedDays: number;
+  totalMinutes: number;
+  overtimeMinutes: number;
+}
+
+interface CalculateWeeklyTotalsOptions {
+  includeOpenShiftMinutes?: boolean;
+  now?: Date;
+}
+
+export interface AttendanceHistoryPageResult {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+  filter: AttendanceHistoryFilter;
+  availablePeriods: AttendanceHistoryAvailablePeriod[];
+  summary: AttendanceHistoryPageSummary;
+  items: AttendanceHistoryPageItem[];
+}
+
 export interface UpdateEmployeeProfileParams {
   membershipId: string;
   shiftDurationHours?: number;
   breakDurationHours?: number;
+  weeklyHours?: number;
   position?: string;
   department?: string;
   hireDate?: string;
@@ -430,6 +497,7 @@ export async function updateEmployeeProfile(
     p_membership_id: params.membershipId,
     p_shift_duration_hours: params.shiftDurationHours,
     p_break_duration_hours: params.breakDurationHours,
+    p_weekly_hours: params.weeklyHours,
     p_position: params.position,
     p_department: params.department,
     p_hire_date: params.hireDate,
@@ -489,6 +557,185 @@ export async function getPaginatedAttendanceRecords(params: {
   };
 }
 
+export async function getAttendanceHistoryPage(params: {
+  organizationId: string;
+  membershipId: string;
+  page: number;
+  pageSize: number;
+  year?: number;
+  month?: number;
+}): Promise<AttendanceHistoryPageResult> {
+  const { data, error } = await supabase.rpc('get_attendance_history_page', {
+    p_organization_id: params.organizationId,
+    p_membership_id: params.membershipId,
+    p_page: params.page,
+    p_page_size: params.pageSize,
+    p_year: params.year ?? null,
+    p_month: params.month ?? null,
+  });
+
+  if (error) {
+    if (
+      error.message.includes('get_attendance_history_page') &&
+      error.message.toLowerCase().includes('schema cache')
+    ) {
+      throw new Error(
+        'El historial mensual no está disponible todavía. Falta aplicar la migración de attendance history en Supabase.',
+      );
+    }
+
+    throw new Error(error.message);
+  }
+
+  if (!data || typeof data !== 'object') {
+    throw new Error('No se pudo cargar el historial de asistencia.');
+  }
+
+  const payload = data as {
+    page?: number;
+    page_size?: number;
+    total_items?: number;
+    total_pages?: number;
+    has_previous_page?: boolean;
+    has_next_page?: boolean;
+    filter?: {
+      year?: number | null;
+      month?: number | null;
+      period_key?: string | null;
+      start_date?: string | null;
+      end_date?: string | null;
+    } | null;
+    available_periods?: Array<{
+      year?: number;
+      month?: number;
+      period_key?: string;
+      start_date?: string;
+      end_date?: string;
+    }>;
+    summary?: {
+      weekly_hours?: number;
+      worked_days?: number;
+      total_minutes?: number;
+      overtime_minutes?: number;
+    } | null;
+    items?: Array<{
+      id?: string;
+      work_date?: string;
+      has_record?: boolean;
+      clock_in_at?: string | null;
+      clock_out_at?: string | null;
+      auto_closed?: boolean;
+      status?: 'complete' | 'incomplete' | 'auto_closed' | 'absence';
+      worked_minutes?: number;
+      required_minutes?: number;
+      office_id?: string | null;
+      office_name?: string | null;
+      office_is_remote?: boolean;
+    }>;
+  };
+
+  const availablePeriods = (payload.available_periods ?? [])
+    .filter((period) => period.year != null && period.month != null)
+    .map((period) => ({
+      year: Number(period.year),
+      month: Number(period.month),
+      periodKey:
+        period.period_key ??
+        `${period.year}-${String(period.month).padStart(2, '0')}`,
+      startDate: period.start_date ?? '',
+      endDate: period.end_date ?? '',
+    }));
+
+  const items = (payload.items ?? []).map((item) => {
+    const hasRecord = Boolean(item.has_record);
+    const autoClosed = Boolean(item.auto_closed);
+    const workedMinutes = ensureNonNegativeInteger(item.worked_minutes);
+    const requiredMinutes = ensureNonNegativeInteger(item.required_minutes);
+
+    return {
+      id: item.id ?? '',
+      workDate: item.work_date ?? '',
+      hasRecord,
+      clockInAt: item.clock_in_at ?? null,
+      clockOutAt: item.clock_out_at ?? null,
+      autoClosed,
+      status: resolveAttendanceDayStatus({
+        status: item.status,
+        hasRecord,
+        autoClosed,
+        workedMinutes,
+        requiredMinutes,
+      }),
+      workedMinutes,
+      requiredMinutes,
+      officeId: item.office_id ?? null,
+      officeName: item.office_name ?? null,
+      officeIsRemote: Boolean(item.office_is_remote),
+    };
+  });
+
+  return {
+    page: payload.page ?? params.page,
+    pageSize: payload.page_size ?? params.pageSize,
+    totalItems: payload.total_items ?? 0,
+    totalPages: payload.total_pages ?? 0,
+    hasPreviousPage: payload.has_previous_page ?? false,
+    hasNextPage: payload.has_next_page ?? false,
+    filter: {
+      year: payload.filter?.year ?? null,
+      month: payload.filter?.month ?? null,
+      periodKey: payload.filter?.period_key ?? null,
+      startDate: payload.filter?.start_date ?? null,
+      endDate: payload.filter?.end_date ?? null,
+    },
+    availablePeriods,
+    summary: {
+      weeklyHours: ensurePositiveNumber(payload.summary?.weekly_hours, 40),
+      workedDays: ensureNonNegativeInteger(payload.summary?.worked_days),
+      totalMinutes: ensureNonNegativeInteger(payload.summary?.total_minutes),
+      overtimeMinutes: ensureNonNegativeInteger(
+        payload.summary?.overtime_minutes,
+      ),
+    },
+    items,
+  };
+}
+
+function isAttendanceDayStatus(
+  value: unknown,
+): value is AttendanceHistoryPageItem['status'] {
+  return (
+    value === 'complete' ||
+    value === 'incomplete' ||
+    value === 'auto_closed' ||
+    value === 'absence'
+  );
+}
+
+function resolveAttendanceDayStatus(params: {
+  status: unknown;
+  hasRecord: boolean;
+  autoClosed: boolean;
+  workedMinutes: number;
+  requiredMinutes: number;
+}): AttendanceHistoryPageItem['status'] {
+  if (isAttendanceDayStatus(params.status)) {
+    return params.status;
+  }
+
+  if (!params.hasRecord) {
+    return 'absence';
+  }
+
+  if (params.autoClosed) {
+    return 'auto_closed';
+  }
+
+  return params.workedMinutes >= params.requiredMinutes
+    ? 'complete'
+    : 'incomplete';
+}
+
 export async function getAllAttendanceRecords(params: {
   organizationId: string;
   membershipId: string;
@@ -505,13 +752,19 @@ export async function getAllAttendanceRecords(params: {
 
 // ─── Pure calculation helpers ─────────────────────────────────────────────────
 
-export function calculateWeeklyTotals(records: AttendanceRecord[]) {
-  const completedDays = records.filter(
-    (record) => Boolean(record.clockInAt) && Boolean(record.clockOutAt),
-  );
+export function calculateWeeklyTotals(
+  records: AttendanceRecord[],
+  options: CalculateWeeklyTotalsOptions = {},
+) {
+  const attendedDays = calculateAttendanceDays(records);
+  const includeOpenShiftMinutes = options.includeOpenShiftMinutes ?? true;
+  const now = options.now ?? new Date();
 
-  const totalMinutes = completedDays.reduce((accumulator, record) => {
-    const minutes = getCompletedRecordMinutes(record);
+  const totalMinutes = records.reduce((accumulator, record) => {
+    const minutes = getRecordMinutes(record, {
+      includeOpenShiftMinutes,
+      referenceTime: now,
+    });
 
     if (minutes <= 0) {
       return accumulator;
@@ -522,7 +775,7 @@ export function calculateWeeklyTotals(records: AttendanceRecord[]) {
 
   return {
     totalMinutes,
-    attendedDays: completedDays.length,
+    attendedDays,
   };
 }
 
@@ -577,6 +830,7 @@ export function getAttendanceMonthOptions(records: AttendanceRecord[]) {
 
 export function calculateAttendanceSummary(
   records: AttendanceRecord[],
+  weeklyHours = 40,
 ): AttendanceSummary {
   const workedDays = calculateAttendanceDays(records);
   const weeklyMinutes = new Map<string, number>();
@@ -594,7 +848,8 @@ export function calculateAttendanceSummary(
   }, 0);
 
   const overtimeMinutes = Array.from(weeklyMinutes.values()).reduce(
-    (accumulator, minutes) => accumulator + Math.max(0, minutes - 40 * 60),
+    (accumulator, minutes) =>
+      accumulator + Math.max(0, minutes - weeklyHours * 60),
     0,
   );
 
@@ -663,6 +918,8 @@ function buildEventsFromRow(row: AttendanceRow): AttendanceEvent[] {
       type: 'clock_in',
       occurredAt: row.clock_in_at,
       workDate: row.work_date,
+      officeName: row.office_name,
+      officeIsRemote: row.office_is_remote,
     },
   ];
 
@@ -672,6 +929,8 @@ function buildEventsFromRow(row: AttendanceRow): AttendanceEvent[] {
       type: 'clock_out',
       occurredAt: row.clock_out_at,
       workDate: row.work_date,
+      officeName: row.office_name,
+      officeIsRemote: row.office_is_remote,
     });
   }
 
@@ -786,21 +1045,72 @@ function getPreviousWorkday(date: Date) {
 }
 
 function getCompletedRecordMinutes(record: AttendanceRecord) {
-  if (!record.clockOutAt) {
-    return 0;
-  }
-
   const startMs = new Date(record.clockInAt).getTime();
-  const endMs = new Date(record.clockOutAt).getTime();
+  const endMs = record.clockOutAt ? new Date(record.clockOutAt).getTime() : NaN;
+
+  return getWorkedMinutesWithBreak({
+    startMs,
+    endMs,
+    breakDurationHours: record.breakDurationHours,
+  });
+}
+
+function getRecordMinutes(
+  record: AttendanceRecord,
+  options: {
+    includeOpenShiftMinutes: boolean;
+    referenceTime: Date;
+  },
+) {
+  const startMs = new Date(record.clockInAt).getTime();
+  const endMs = record.clockOutAt
+    ? new Date(record.clockOutAt).getTime()
+    : options.includeOpenShiftMinutes
+      ? options.referenceTime.getTime()
+      : NaN;
+
+  return getWorkedMinutesWithBreak({
+    startMs,
+    endMs,
+    breakDurationHours: record.breakDurationHours,
+  });
+}
+
+function getWorkedMinutesWithBreak(params: {
+  startMs: number;
+  endMs: number;
+  breakDurationHours: number;
+}) {
+  const { startMs, endMs, breakDurationHours } = params;
 
   if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) {
     return 0;
   }
 
   const workedMinutes = Math.floor((endMs - startMs) / 60000);
-  const breakMinutes = Math.max(0, Math.round(record.breakDurationHours * 60));
+  const breakMinutes = Math.max(0, Math.round(breakDurationHours * 60));
 
   return Math.max(0, workedMinutes - breakMinutes);
+}
+
+function ensureNonNegativeInteger(value: unknown) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+
+  return Math.floor(parsed);
+}
+
+function ensurePositiveNumber(value: unknown, fallback: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return parsed;
 }
 
 function getWeekStartKey(workDate: string) {

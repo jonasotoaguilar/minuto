@@ -326,6 +326,7 @@ export function OrganizationSetupView() {
             <View style={styles.form}>
               <TextField
                 label="Nombre de la organización"
+                maxLength={120}
                 value={organizationName}
                 onChangeText={(value) => {
                   setOrganizationName(value);
@@ -386,6 +387,7 @@ export function OrganizationSetupView() {
                   <>
                     <TextField
                       label="Nombre de la oficina"
+                      maxLength={120}
                       value={officeName}
                       onChangeText={(value) => {
                         setOfficeName(value);
@@ -471,6 +473,7 @@ export function OrganizationSetupView() {
               <TextField
                 autoCapitalize="none"
                 label="Código o link de invitación"
+                maxLength={500}
                 value={inviteCodeOrLink}
                 onChangeText={setInviteCodeOrLink}
                 placeholder="Pega el código o link"

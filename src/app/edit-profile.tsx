@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { PhoneCountryDropdown } from '@/components/phone-country-dropdown';
 import { SecondaryScreenHeader } from '@/components/secondary-screen-header';
 import { useTheme } from '@/hooks/use-theme';
+import { getErrorMessage } from '@/lib/error';
 import {
   formatNationalPhone,
   getPhoneCountry,
@@ -146,46 +147,57 @@ export default function EditProfileScreen() {
     setSuccessMessage('');
     setIsLoading(true);
 
-    const { data, error } = await supabase.auth.getUser();
+    try {
+      const { data, error } = await supabase.auth.getUser();
 
-    if (error || !data.user) {
-      setErrorMessage('No pudimos cargar tu perfil. Iniciá sesión nuevamente.');
+      if (error || !data.user) {
+        setErrorMessage(
+          'No pudimos cargar tu perfil. Iniciá sesión nuevamente.',
+        );
+        return;
+      }
+
+      const user = data.user;
+      const authPhone =
+        typeof user.phone === 'string' && user.phone.trim().length > 0
+          ? user.phone
+          : getMetadataPhone(user);
+      const parsedPhone = parseE164Phone(authPhone);
+
+      const nextValues: ProfileFormValues = {
+        fullName:
+          typeof user.user_metadata.display_name === 'string'
+            ? user.user_metadata.display_name
+            : '',
+        roleLabel:
+          typeof user.user_metadata.position === 'string' &&
+          user.user_metadata.position.trim().length > 0
+            ? user.user_metadata.position
+            : 'Sin rol',
+        address:
+          typeof user.user_metadata.address === 'string'
+            ? user.user_metadata.address
+            : '',
+        phoneCountry: parsedPhone.countryCode,
+        phone: formatNationalPhone(
+          parsedPhone.countryCode,
+          parsedPhone.nationalDigits,
+        ).formatted,
+        email: user.email ?? '',
+      };
+
+      setFormValues(nextValues);
+      setSavedValues(nextValues);
+    } catch (error) {
+      const detail = getErrorMessage(error);
+      setErrorMessage(
+        detail
+          ? `No pudimos cargar tu perfil (${detail}).`
+          : 'No pudimos cargar tu perfil. Iniciá sesión nuevamente.',
+      );
+    } finally {
       setIsLoading(false);
-      return;
     }
-
-    const user = data.user;
-    const authPhone =
-      typeof user.phone === 'string' && user.phone.trim().length > 0
-        ? user.phone
-        : getMetadataPhone(user);
-    const parsedPhone = parseE164Phone(authPhone);
-
-    const nextValues: ProfileFormValues = {
-      fullName:
-        typeof user.user_metadata.display_name === 'string'
-          ? user.user_metadata.display_name
-          : '',
-      roleLabel:
-        typeof user.user_metadata.position === 'string' &&
-        user.user_metadata.position.trim().length > 0
-          ? user.user_metadata.position
-          : 'Sin rol',
-      address:
-        typeof user.user_metadata.address === 'string'
-          ? user.user_metadata.address
-          : '',
-      phoneCountry: parsedPhone.countryCode,
-      phone: formatNationalPhone(
-        parsedPhone.countryCode,
-        parsedPhone.nationalDigits,
-      ).formatted,
-      email: user.email ?? '',
-    };
-
-    setFormValues(nextValues);
-    setSavedValues(nextValues);
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
@@ -262,8 +274,13 @@ export default function EditProfileScreen() {
       setFormValues(nextSavedValues);
       setSavedValues(nextSavedValues);
       setSuccessMessage('Perfil actualizado correctamente.');
-    } catch {
-      setErrorMessage('Error inesperado al actualizar el perfil.');
+    } catch (error) {
+      const detail = getErrorMessage(error);
+      setErrorMessage(
+        detail
+          ? `Error inesperado al actualizar el perfil (${detail}).`
+          : 'Error inesperado al actualizar el perfil.',
+      );
     } finally {
       setIsSaving(false);
     }
@@ -295,44 +312,54 @@ export default function EditProfileScreen() {
           title="Información principal"
         />
 
-        <TextField
-          autoCapitalize="words"
-          editable={!isLoading}
-          errorMessage={validationErrors.fullName}
-          label="Nombre completo"
-          maxLength={MAX_NAME_LENGTH}
-          onChangeText={(value) => handleChange('fullName', value)}
-          placeholder="Nombre y apellido"
-          value={formValues.fullName}
-        />
+        {isLoading ? (
+          <View style={styles.loadingState}>
+            <ThemedText colorToken="secondary" variant="body">
+              Cargando datos del perfil...
+            </ThemedText>
+          </View>
+        ) : (
+          <>
+            <TextField
+              autoCapitalize="words"
+              editable={!isLoading}
+              errorMessage={validationErrors.fullName}
+              label="Nombre completo"
+              maxLength={MAX_NAME_LENGTH}
+              onChangeText={(value) => handleChange('fullName', value)}
+              placeholder="Nombre y apellido"
+              value={formValues.fullName}
+            />
 
-        <TextField
-          autoCapitalize="sentences"
-          editable={!isLoading}
-          errorMessage={validationErrors.address}
-          label="Dirección"
-          maxLength={MAX_ADDRESS_LENGTH}
-          onChangeText={(value) => handleChange('address', value)}
-          placeholder="Calle, comuna y referencia"
-          value={formValues.address}
-        />
+            <TextField
+              autoCapitalize="sentences"
+              editable={!isLoading}
+              errorMessage={validationErrors.address}
+              label="Dirección"
+              maxLength={MAX_ADDRESS_LENGTH}
+              onChangeText={(value) => handleChange('address', value)}
+              placeholder="Calle, comuna y referencia"
+              value={formValues.address}
+            />
 
-        <ReadonlyField
-          helperText="Se sincroniza con tu cuenta y no se edita acá."
-          label="Correo electrónico"
-          value={formValues.email || 'Sin correo registrado'}
-        />
+            <ReadonlyField
+              helperText="Se sincroniza con tu cuenta y no se edita acá."
+              label="Correo electrónico"
+              value={formValues.email || 'Sin correo registrado'}
+            />
 
-        <PhoneField
-          countryCode={formValues.phoneCountry}
-          disabled={isLoading}
-          errorMessage={validationErrors.phone}
-          nationalNumber={formValues.phone}
-          onChangeCountry={(countryCode) =>
-            handleChange('phoneCountry', countryCode)
-          }
-          onChangeNationalNumber={(value) => handleChange('phone', value)}
-        />
+            <PhoneField
+              countryCode={formValues.phoneCountry}
+              disabled={isLoading}
+              errorMessage={validationErrors.phone}
+              nationalNumber={formValues.phone}
+              onChangeCountry={(countryCode) =>
+                handleChange('phoneCountry', countryCode)
+              }
+              onChangeNationalNumber={(value) => handleChange('phone', value)}
+            />
+          </>
+        )}
 
         {errorMessage ? (
           <StatusMessage tone="error">{errorMessage}</StatusMessage>
@@ -343,12 +370,14 @@ export default function EditProfileScreen() {
         ) : null}
       </GlassCard>
 
-      <PrimaryButton
-        disabled={isLoading || !isFormDirty}
-        label={isSaving ? 'Guardando…' : 'Guardar cambios'}
-        loading={isSaving}
-        onPress={handleSaveProfile}
-      />
+      {isLoading ? null : (
+        <PrimaryButton
+          disabled={!isFormDirty}
+          label={isSaving ? 'Guardando…' : 'Guardar cambios'}
+          loading={isSaving}
+          onPress={handleSaveProfile}
+        />
+      )}
     </Screen>
   );
 }
@@ -507,6 +536,9 @@ const styles = StyleSheet.create({
   },
   formCard: {
     gap: 16,
+  },
+  loadingState: {
+    paddingVertical: 12,
   },
   fieldGroup: {
     gap: 8,

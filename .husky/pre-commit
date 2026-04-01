@@ -1,2 +1,6 @@
+# AI Review first (uses git staged files internally)
+gga run || exit 1
+
+# Then lint-staged for formatting
 pnpm lint
 pnpm typecheck

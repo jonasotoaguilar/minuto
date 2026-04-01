@@ -18,6 +18,7 @@ import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import { getErrorMessage } from '@/lib/error';
 import { supabase } from '@/lib/supabase';
 import {
   Chip,
@@ -38,6 +39,7 @@ interface EmployeeProfileRecord {
   hire_date: string | null;
   position: string | null;
   shift_duration_hours: number | null;
+  weekly_hours: number | null;
 }
 
 type EmployeeProfileRow =
@@ -68,8 +70,10 @@ type TeamMember = {
   initials: string;
   name: string;
   position: string;
+  role: MembershipRole;
   roleLabel: string;
   shiftDurationHours: number;
+  weeklyHours: number;
 };
 
 interface EditEmployeeFormValues {
@@ -77,7 +81,9 @@ interface EditEmployeeFormValues {
   department: string;
   hireDate: string;
   position: string;
+  role: MembershipRole;
   shiftDurationHours: string;
+  weeklyHours: string;
 }
 
 interface EditEmployeeFormErrors {
@@ -85,7 +91,9 @@ interface EditEmployeeFormErrors {
   department?: string;
   hireDate?: string;
   position?: string;
+  role?: string;
   shiftDurationHours?: string;
+  weeklyHours?: string;
 }
 
 interface UpdateEmployeeProfileParams {
@@ -95,6 +103,7 @@ interface UpdateEmployeeProfileParams {
   hireDate?: string;
   position?: string;
   shiftDurationHours?: number;
+  weeklyHours?: number;
 }
 
 interface UpdateEmployeeProfileResult {
@@ -116,6 +125,8 @@ const DEFAULT_SHIFT_DURATION_HOURS = 8;
 const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
 const MAX_BREAK_DURATION_HOURS = 5;
 const MAX_SHIFT_DURATION_HOURS = 15;
+const DEFAULT_WEEKLY_HOURS = 40;
+const MAX_WEEKLY_HOURS = 100;
 const TIME_INPUT_PATTERN = /^(\d{1,2}):(\d{2})$/;
 const DATE_DISPLAY_PATTERN = /^(\d{2})\/(\d{2})\/(\d{4})$/;
 
@@ -161,7 +172,7 @@ export default function TeamScreen() {
     const { data, error } = await supabase
       .from('memberships')
       .select(
-        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department, hire_date, shift_duration_hours, break_duration_hours)',
+        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department, hire_date, shift_duration_hours, break_duration_hours, weekly_hours)',
       )
       .eq('organization_id', activeOrganization.id)
       .eq('status', 'active')
@@ -227,11 +238,13 @@ export default function TeamScreen() {
         initials: deriveInitials(name),
         name,
         position: employeeProfile?.position?.trim() ?? '',
+        role: membership.role,
         roleLabel:
           employeeProfile?.position?.trim() ||
           mapMembershipRole(membership.role),
         shiftDurationHours:
           employeeProfile?.shift_duration_hours ?? DEFAULT_SHIFT_DURATION_HOURS,
+        weeklyHours: employeeProfile?.weekly_hours ?? DEFAULT_WEEKLY_HOURS,
       } satisfies TeamMember;
     });
 
@@ -370,6 +383,7 @@ export default function TeamScreen() {
         membershipId: selectedMember.id,
         shiftDurationHours: validation.parsed.shiftDurationHours,
         breakDurationHours: validation.parsed.breakDurationHours,
+        weeklyHours: validation.parsed.weeklyHours,
         position: validation.parsed.position,
         department: validation.parsed.department,
         hireDate: validation.parsed.hireDate,
@@ -377,6 +391,30 @@ export default function TeamScreen() {
 
       if (!result.success) {
         throw new Error(mapProfileUpdateError(result.errorCode));
+      }
+
+      if (editFormValues.role !== selectedMember.role) {
+        const { data: roleData, error: roleError } = await supabase.rpc(
+          'update_membership_role',
+          {
+            p_membership_id: selectedMember.id,
+            p_new_role: editFormValues.role,
+          },
+        );
+
+        if (roleError) {
+          throw new Error(
+            `No se pudo actualizar el rol del colaborador (${roleError.message}).`,
+          );
+        }
+
+        const roleResult = roleData as {
+          success?: boolean;
+          error_code?: string;
+        } | null;
+        if (!roleResult?.success) {
+          throw new Error(mapRoleUpdateError(roleResult?.error_code));
+        }
       }
 
       await loadMembers();
@@ -469,7 +507,7 @@ export default function TeamScreen() {
       <GlassCard style={styles.filtersCard} variant="soft">
         <SectionHeader
           eyebrow="Explorar equipo"
-          subtitle="Filtrá por nombre, rol o departamento sin salir de esta vista."
+          subtitle="Filtrá por nombre o departamento."
           title="Miembros"
         />
 
@@ -541,7 +579,9 @@ export default function TeamScreen() {
               </ThemedText>
             </View>
 
-            <Chip label={member.department} tone="neutral" />
+            <View style={styles.memberChipsRow}>
+              <Chip label={getRoleLabel(member.role)} tone="brand" />
+            </View>
           </View>
 
           <View style={styles.memberCopy}>
@@ -621,7 +661,7 @@ export default function TeamScreen() {
                 }))
               }
               errorMessage={editFormErrors.shiftDurationHours}
-              helperText="Ingresá la jornada en formato HH:MM, por ejemplo 08:00."
+              helperText="Horas diarias del contrato, por ejemplo 08:00."
               placeholder="08:00"
               value={editFormValues.shiftDurationHours}
             />
@@ -644,9 +684,24 @@ export default function TeamScreen() {
                 }))
               }
               errorMessage={editFormErrors.breakDurationHours}
-              helperText="Ingresá la colación en formato HH:MM, por ejemplo 00:45."
+              helperText="Horas de colación del contrato, por ejemplo 00:45."
               placeholder="00:45"
               value={editFormValues.breakDurationHours}
+            />
+
+            <TextField
+              keyboardType="numeric"
+              label="Jornada semanal"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  weeklyHours: value,
+                }))
+              }
+              errorMessage={editFormErrors.weeklyHours}
+              helperText="Horas semanales del contrato, por ejemplo 40."
+              placeholder="40"
+              value={editFormValues.weeklyHours}
             />
 
             <TextField
@@ -672,6 +727,45 @@ export default function TeamScreen() {
               placeholder="Ej: Operaciones"
               value={editFormValues.department}
             />
+
+            {(() => {
+              const allowedRoles = getAllowedRolesForCaller(
+                activeOrganization?.membershipRole ?? 'employee',
+                selectedMember?.role ?? 'employee',
+              );
+
+              if (allowedRoles.length === 0) return null;
+
+              return (
+                <View style={styles.fieldGroup}>
+                  <ThemedText variant="label">Rol (permisos)</ThemedText>
+                  <View style={styles.roleChipsRow}>
+                    {allowedRoles.map((roleOption) => (
+                      <Chip
+                        key={roleOption}
+                        label={getRoleLabel(roleOption)}
+                        onPress={() =>
+                          setEditFormValues((current) => ({
+                            ...current,
+                            role: roleOption,
+                          }))
+                        }
+                        selected={editFormValues.role === roleOption}
+                        tone="brand"
+                      />
+                    ))}
+                  </View>
+                  {editFormErrors.role ? (
+                    <ThemedText colorToken="error" variant="caption">
+                      {editFormErrors.role}
+                    </ThemedText>
+                  ) : null}
+                  <ThemedText colorToken="secondary" variant="caption">
+                    Seleccioná el nivel de permisos del colaborador.
+                  </ThemedText>
+                </View>
+              );
+            })()}
 
             {process.env.EXPO_OS === 'web' ? (
               <TextField
@@ -738,7 +832,7 @@ export default function TeamScreen() {
                   variant="caption"
                 >
                   {editFormErrors.hireDate ||
-                    'Tocá para elegir la fecha y guardarla en formato calendario.'}
+                    'Selecciona la fecha de contratación.'}
                 </ThemedText>
 
                 {process.env.EXPO_OS === 'ios' && isHireDatePickerVisible ? (
@@ -866,7 +960,9 @@ function getEmptyEditFormValues(): EditEmployeeFormValues {
     department: '',
     hireDate: '',
     position: '',
+    role: 'employee',
     shiftDurationHours: decimalToHHMM(DEFAULT_SHIFT_DURATION_HOURS),
+    weeklyHours: String(DEFAULT_WEEKLY_HOURS),
   };
 }
 
@@ -877,7 +973,9 @@ function createEditFormValues(member: TeamMember): EditEmployeeFormValues {
       member.department === DEFAULT_DEPARTMENT ? '' : member.department,
     hireDate: formatDateForDisplay(member.hireDate),
     position: member.position,
+    role: member.role,
     shiftDurationHours: decimalToHHMM(member.shiftDurationHours),
+    weeklyHours: String(member.weeklyHours),
   };
 }
 
@@ -923,10 +1021,18 @@ function validateEditForm(values: EditEmployeeFormValues) {
     errors.hireDate = 'La fecha de contratación no puede ser posterior a hoy.';
   }
 
+  const weeklyHours = Number(values.weeklyHours);
+  if (Number.isNaN(weeklyHours) || weeklyHours <= 0) {
+    errors.weeklyHours = 'Las horas semanales deben ser mayor a 0.';
+  } else if (weeklyHours > MAX_WEEKLY_HOURS) {
+    errors.weeklyHours = `Las horas semanales no pueden superar ${MAX_WEEKLY_HOURS}.`;
+  }
+
   if (
     errors.shiftDurationHours ||
     errors.breakDurationHours ||
     errors.hireDate ||
+    errors.weeklyHours ||
     shiftDurationHours === null ||
     breakDurationHours === null
   ) {
@@ -946,6 +1052,7 @@ function validateEditForm(values: EditEmployeeFormValues) {
       hireDate: hireDate || undefined,
       position: normalizeOptionalText(values.position),
       shiftDurationHours,
+      weeklyHours,
     },
   } as const;
 }
@@ -1107,33 +1214,54 @@ function mapProfileUpdateError(errorCode?: string) {
   }
 }
 
-function getErrorMessage(error: unknown) {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-
-  if (typeof error === 'string' && error.trim()) {
-    return error;
-  }
-
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'message' in error &&
-    typeof error.message === 'string' &&
-    error.message.trim()
-  ) {
-    return error.message;
-  }
-
-  return null;
-}
-
 function mapMembershipRole(role: MembershipRole) {
   if (role === 'owner') return 'Organization Owner';
   if (role === 'admin') return 'Administrator';
   if (role === 'manager') return 'Team Manager';
   return 'Employee';
+}
+
+function getAllowedRolesForCaller(
+  callerRole: MembershipRole,
+  targetRole: MembershipRole,
+): MembershipRole[] {
+  if (targetRole === 'owner') return [];
+  if (callerRole === 'owner') return ['admin', 'manager', 'employee'];
+  if (callerRole === 'admin' && targetRole !== 'admin')
+    return ['manager', 'employee'];
+  return [];
+}
+
+function getRoleLabel(role: MembershipRole): string {
+  switch (role) {
+    case 'owner':
+      return 'Owner';
+    case 'admin':
+      return 'Administrador';
+    case 'manager':
+      return 'Manager';
+    case 'employee':
+      return 'Empleado';
+    default:
+      return role;
+  }
+}
+
+function mapRoleUpdateError(errorCode?: string) {
+  switch (errorCode) {
+    case 'MEMBERSHIP_NOT_FOUND':
+      return 'No encontramos al colaborador.';
+    case 'CANNOT_CHANGE_OWN_ROLE':
+      return 'No podés cambiar tu propio rol.';
+    case 'CANNOT_CHANGE_OWNER_ROLE':
+      return 'El rol de owner no puede modificarse.';
+    case 'UNAUTHORIZED':
+      return 'No tenés permisos para asignar ese rol.';
+    case 'INVALID_ROLE':
+      return 'El rol seleccionado no es válido.';
+    default:
+      return 'No se pudo actualizar el rol del colaborador.';
+  }
 }
 
 const styles = StyleSheet.create({
@@ -1246,5 +1374,18 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 16,
+  },
+  fieldGroup: {
+    gap: 8,
+  },
+  memberChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  roleChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
 });

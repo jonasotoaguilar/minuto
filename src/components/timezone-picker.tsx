@@ -10,7 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COMMON_TIMEZONES, IANA_TIMEZONES } from '@/constants/timezones';
 import { useTheme } from '@/hooks/use-theme';
-import { GlassCard, ThemedText } from '@/theme/primitives';
+import { PlainCard, ThemedText } from '@/theme/primitives';
 
 interface TimezonePickerProps {
   value: string;
@@ -205,7 +205,7 @@ export function TimezonePicker({ value, onValueChange }: TimezonePickerProps) {
           style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
         >
           <Pressable onPress={() => undefined} style={styles.sheetWrapper}>
-            <GlassCard
+            <PlainCard
               padding={0}
               style={[
                 styles.sheet,
@@ -277,7 +277,7 @@ export function TimezonePicker({ value, onValueChange }: TimezonePickerProps) {
                 showsVerticalScrollIndicator
                 windowSize={10}
               />
-            </GlassCard>
+            </PlainCard>
           </Pressable>
         </Pressable>
       </Modal>

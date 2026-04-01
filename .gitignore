@@ -46,3 +46,5 @@ app-example
 .pnpm-store
 .agents
 skills-lock.json
+.atl
+.gga
