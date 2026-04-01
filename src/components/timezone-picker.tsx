@@ -27,7 +27,10 @@ function getUtcOffset(tz: string): string {
     }).formatToParts(new Date());
     const offsetPart = parts.find((part) => part.type === 'timeZoneName');
     return offsetPart?.value ?? '';
-  } catch {
+  } catch (error) {
+    if (__DEV__) {
+      console.warn(`Failed to resolve UTC offset for timezone: "${tz}"`, error);
+    }
     return '';
   }
 }
@@ -270,8 +273,12 @@ export function TimezonePicker({ value, onValueChange }: TimezonePickerProps) {
                 keyboardShouldPersistTaps="handled"
                 keyExtractor={keyExtractor}
                 maxToRenderPerBatch={30}
-                onScrollToIndexFailed={() => {
-                  /* ignore — safe fallback */
+                onScrollToIndexFailed={(info) => {
+                  if (__DEV__) {
+                    console.warn(
+                      `TimezonePicker: scrollToIndex failed for index ${info.index} (highest measured: ${info.highestMeasuredFrameIndex})`,
+                    );
+                  }
                 }}
                 renderItem={renderItem}
                 showsVerticalScrollIndicator
