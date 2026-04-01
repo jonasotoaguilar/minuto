@@ -1,0 +1,58 @@
+version: 2
+
+updates:
+  # npm (pnpm) dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Argentina/Buenos_Aires"
+    open-pull-requests-limit: 10
+    labels:
+      - "type:chore"
+      - "dependencies"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    groups:
+      expo:
+        patterns: ["expo*", "jest-expo*"]
+        update-types: ["minor", "patch"]
+      react:
+        patterns: ["react", "react-dom", "react-native*"]
+        update-types: ["minor", "patch"]
+      navigation:
+        patterns: ["@react-navigation*", "expo-router*"]
+        update-types: ["minor", "patch"]
+      testing:
+        patterns: ["jest*", "@testing-library*", "@types/jest"]
+        update-types: ["minor", "patch"]
+      tailwind:
+        patterns: ["tailwindcss*", "@tailwindcss*", "nativewind*", "tailwind-merge*", "react-native-css*"]
+        update-types: ["minor", "patch"]
+      dev-dependencies:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Argentina/Buenos_Aires"
+    labels:
+      - "type:chore"
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    groups:
+      actions:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
