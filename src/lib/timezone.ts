@@ -10,7 +10,10 @@ export function isValidTimezone(
   try {
     Intl.DateTimeFormat('en-US', { timeZone: value }).format(new Date());
     return true;
-  } catch {
+  } catch (error) {
+    if (__DEV__) {
+      console.warn(`Invalid timezone value: "${value}"`, error);
+    }
     return false;
   }
 }
