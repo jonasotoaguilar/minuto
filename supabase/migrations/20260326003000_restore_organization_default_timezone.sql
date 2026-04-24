@@ -3,7 +3,7 @@
 -- and updates create_organization_with_owner to accept p_default_timezone.
 
 ALTER TABLE public.organizations
-ADD COLUMN default_timezone text;
+ADD COLUMN IF NOT EXISTS default_timezone text;
 
 UPDATE public.organizations
 SET default_timezone = 'America/Santiago'
@@ -184,10 +184,10 @@ BEGIN
       v_org_id,
       v_office_name,
       v_office_address_label,
-      extensions.ST_SetSRID(
-        extensions.ST_MakePoint(p_office_longitude, p_office_latitude),
+      ST_SetSRID(
+        ST_MakePoint(p_office_longitude, p_office_latitude),
         4326
-      )::extensions.geography,
+      )::geography,
       false
     );
   END IF;

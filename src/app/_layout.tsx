@@ -54,6 +54,8 @@ export default function TabLayout() {
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="edit-profile" />
+          <Stack.Screen name="invite/[code]" />
+          <Stack.Screen name="invitations" />
           <Stack.Screen name="org-settings" />
           <Stack.Screen name="index" />
         </Stack>

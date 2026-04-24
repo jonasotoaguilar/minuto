@@ -26,8 +26,8 @@ BEGIN
     oo.name,
     oo.address_label,
     oo.is_remote,
-    extensions.ST_Y(oo.location_point::extensions.geometry) as latitude,
-    extensions.ST_X(oo.location_point::extensions.geometry) as longitude,
+    ST_Y(oo.location_point::geometry) as latitude,
+    ST_X(oo.location_point::geometry) as longitude,
     oo.organization_id
   FROM organization_offices oo
   WHERE oo.organization_id = p_organization_id

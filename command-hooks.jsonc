@@ -1,0 +1,27 @@
+{
+  "truncationLimit": 30000,
+  "ignoreGlobalConfig": false,
+  "tool": [
+    {
+      "id": "lint-on-save",
+      "when": {
+        "phase": "after",
+        "tool": ["edit", "write"],
+        "toolArgs": {
+          "subagent_type": ["sdd-apply", "sdd-verify", "gentleman"]
+        }
+      },
+      "run": ["pnpm lint", "pnpm typecheck"],
+      "inject": "Validation (exit {exitCode})\n\n{stdout}\n{stderr}",
+      "toast": {
+        "title": "Validation",
+        "message": "exit {exitCode}",
+        "variant": "info",
+        "duration": 5000
+      }
+    }
+  ],
+  "session": [
+    // Session hooks
+  ]
+}

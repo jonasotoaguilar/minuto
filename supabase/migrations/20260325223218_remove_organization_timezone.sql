@@ -9,4 +9,4 @@ DROP FUNCTION IF EXISTS public.create_organization_with_owner(
 );
 
 ALTER TABLE public.organizations
-DROP COLUMN timezone;
+DROP COLUMN IF EXISTS timezone;

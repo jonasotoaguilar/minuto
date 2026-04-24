@@ -48,3 +48,9 @@ app-example
 skills-lock.json
 .atl
 .gga
+.command-hooks.jsonc
+codedb.snapshot
+.superset
+.opencode
+graphify-out
+coverage

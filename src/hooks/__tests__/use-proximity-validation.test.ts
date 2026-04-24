@@ -54,6 +54,8 @@ describe('useProximityValidation', () => {
       status: 'blocked',
       location: null,
       errorReason: 'permission_denied',
+      errorMessage:
+        'Necesitamos acceso a tu ubicación para validar tu zona de trabajo.',
     });
   });
 
@@ -73,6 +75,7 @@ describe('useProximityValidation', () => {
       status: 'blocked',
       location: null,
       errorReason: 'location_unavailable',
+      errorMessage: 'Location unavailable',
     });
   });
 
@@ -105,6 +108,8 @@ describe('useProximityValidation', () => {
         accuracy: 75,
       },
       errorReason: 'gps_accuracy',
+      errorMessage:
+        'La señal GPS es demasiado débil para validar tu zona de trabajo.',
     });
   });
 

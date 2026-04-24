@@ -165,10 +165,10 @@ BEGIN
       v_org_id,
       v_office_name,
       v_office_address_label,
-      extensions.ST_SetSRID(
-        extensions.ST_MakePoint(p_office_longitude, p_office_latitude),
+      ST_SetSRID(
+        ST_MakePoint(p_office_longitude, p_office_latitude),
         4326
-      )::extensions.geography,
+      )::geography,
       false
     );
   END IF;

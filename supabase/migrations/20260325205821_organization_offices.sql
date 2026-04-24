@@ -1,11 +1,29 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
+-- Backfilled here because the remote project depends on this helper before later
+-- RLS cleanup migrations run, and the original defining migration is missing from
+-- this branch history.
+CREATE OR REPLACE FUNCTION public.is_active_member_of_organization(p_organization_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path TO 'public'
+AS $function$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.memberships AS m
+    WHERE m.organization_id = p_organization_id
+      AND m.user_id = auth.uid()
+      AND m.status = 'active'::public.membership_status
+  );
+$function$;
+
 CREATE TABLE public.organization_offices (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   name text NOT NULL,
   address_label text,
-  location_point extensions.geography(Point, 4326),
+  location_point geography(Point, 4326),
   is_remote boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),

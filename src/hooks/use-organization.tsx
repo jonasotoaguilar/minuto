@@ -13,6 +13,7 @@ import {
 } from 'react';
 import { Platform } from 'react-native';
 import { z } from 'zod';
+import { acceptMembershipInvitation } from '@/lib/organization-invitations';
 import {
   type CreateOrganizationInput,
   createOrganizationInputSchema,
@@ -62,19 +63,6 @@ const organizationMembershipRowsSchema = z.array(
   organizationMembershipRowSchema,
 );
 
-const organizationInvitationRowSchema = z.object({
-  id: z.string().min(1),
-  invited_email: z.string().email(),
-  invitation_expires_at: z
-    .string()
-    .refine((value) => !Number.isNaN(Date.parse(value)), {
-      message: 'Invalid invitation expiration date',
-    })
-    .nullable(),
-  organization_id: z.string().min(1),
-  status: z.literal('invited'),
-});
-
 export type OrganizationSummary = {
   defaultTimezone: string;
   id: string;
@@ -97,7 +85,7 @@ type OrganizationContextValue = {
   openOrganizationSetup: () => void;
   closeOrganizationSetup: () => void;
   createOrganization: (input: CreateOrganizationInput) => Promise<void>;
-  joinOrganizationByCodeOrLink: (codeOrLink: string) => Promise<void>;
+  joinOrganizationByCode: (code: string) => Promise<void>;
 };
 
 interface OrganizationState {
@@ -153,36 +141,6 @@ function getDeprecatedOrganizationLocation(
 ): string | null {
   const trimmedLocation = input.location?.trim();
   return trimmedLocation ? trimmedLocation : null;
-}
-
-function normalizeInvitationCode(rawValue: string) {
-  const trimmed = rawValue.trim();
-  if (!trimmed) return '';
-
-  let candidate = trimmed;
-
-  try {
-    const url = trimmed.includes('://')
-      ? new URL(trimmed)
-      : new URL(trimmed, 'https://dummy.minuto.app');
-
-    const fromQuery =
-      url.searchParams.get('code') || url.searchParams.get('invitation_code');
-    if (fromQuery) {
-      candidate = fromQuery;
-    } else {
-      const pathSegments = url.pathname.split('/').filter(Boolean);
-      candidate = pathSegments[pathSegments.length - 1] ?? trimmed;
-    }
-  } catch (error) {
-    console.warn(
-      'No se pudo interpretar el link de invitación como URL.',
-      error,
-    );
-    candidate = trimmed;
-  }
-
-  return candidate.replace(/[^A-Za-z0-9_-]/g, '').toUpperCase();
 }
 
 function toOrganizationSummary(row: OrganizationMembershipRow) {
@@ -306,95 +264,6 @@ async function createOrganizationRecord(input: CreateOrganizationInput) {
   }
 
   return newOrganizationId;
-}
-
-function normalizeRequiredInvitationCode(codeOrLink: string) {
-  const invitationCode = normalizeInvitationCode(codeOrLink);
-
-  if (!invitationCode) {
-    throw new Error('Código/link de invitación inválido.');
-  }
-
-  return invitationCode;
-}
-
-async function fetchInvitationByCode(invitationCode: string) {
-  const { data, error } = await supabase
-    .from('memberships')
-    .select('id, organization_id, invited_email, invitation_expires_at, status')
-    .eq('invitation_code', invitationCode)
-    .eq('status', 'invited')
-    .maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  if (!data) {
-    throw new Error('Invitación no encontrada o vencida.');
-  }
-
-  const parsedInvitation = organizationInvitationRowSchema.safeParse(data);
-
-  if (!parsedInvitation.success) {
-    throw new Error('La invitación llegó con un formato inválido.');
-  }
-
-  return parsedInvitation.data;
-}
-
-function validateInvitationRecipient(params: {
-  invitationEmail: string;
-  invitationExpiresAt: string | null;
-  sessionEmail: string;
-}) {
-  if (
-    params.invitationEmail.toLowerCase() !== params.sessionEmail.toLowerCase()
-  ) {
-    throw new Error('Esta invitación no corresponde a tu email.');
-  }
-
-  if (
-    params.invitationExpiresAt &&
-    new Date(params.invitationExpiresAt) < new Date()
-  ) {
-    throw new Error('La invitación está vencida.');
-  }
-}
-
-async function claimInvitation(params: {
-  invitationId: string;
-  invitationEmail: string;
-  invitationExpiresAt: string | null;
-  organizationId: string;
-  userId: string;
-}) {
-  let query = supabase
-    .from('memberships')
-    .update({
-      user_id: params.userId,
-      status: 'active',
-      invitation_code: null,
-      invitation_expires_at: null,
-    })
-    .eq('id', params.invitationId)
-    .eq('organization_id', params.organizationId)
-    .eq('status', 'invited')
-    .eq('invited_email', params.invitationEmail);
-
-  query = params.invitationExpiresAt
-    ? query.eq('invitation_expires_at', params.invitationExpiresAt)
-    : query.is('invitation_expires_at', null);
-
-  const { data, error } = await query.select('id').maybeSingle();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  if (!data) {
-    throw new Error('La invitación ya no está disponible para ser aceptada.');
-  }
 }
 
 function useOrganizationState(): [OrganizationState, OrganizationStateSetters] {
@@ -615,31 +484,14 @@ function useOrganizationActions(params: {
     ],
   );
 
-  const joinOrganizationByCodeOrLink = useCallback(
-    async (codeOrLink: string) => {
-      const invitationCode = normalizeRequiredInvitationCode(codeOrLink);
-      const currentUser = await params.requireCurrentUser();
+  const joinOrganizationByCode = useCallback(
+    async (code: string) => {
+      await params.requireCurrentUser();
 
-      if (!currentUser.email) {
-        throw new Error('No hay sesión activa.');
-      }
-
-      const invitation = await fetchInvitationByCode(invitationCode);
-      validateInvitationRecipient({
-        invitationEmail: invitation.invited_email,
-        invitationExpiresAt: invitation.invitation_expires_at,
-        sessionEmail: currentUser.email,
-      });
-      await claimInvitation({
-        invitationId: invitation.id,
-        invitationEmail: invitation.invited_email,
-        invitationExpiresAt: invitation.invitation_expires_at,
-        organizationId: invitation.organization_id,
-        userId: currentUser.id,
-      });
+      const acceptedInvitation = await acceptMembershipInvitation(code);
 
       await params.refreshOrganizations();
-      await setActiveOrganizationById(invitation.organization_id);
+      await setActiveOrganizationById(acceptedInvitation.organizationId);
     },
     [
       params.refreshOrganizations,
@@ -651,7 +503,7 @@ function useOrganizationActions(params: {
   return {
     closeOrganizationSetup,
     createOrganization,
-    joinOrganizationByCodeOrLink,
+    joinOrganizationByCode,
     openOrganizationSetup,
     setActiveOrganizationById,
   };
@@ -726,7 +578,7 @@ function useOrganizationController(): OrganizationContextValue {
       openOrganizationSetup: actions.openOrganizationSetup,
       closeOrganizationSetup: actions.closeOrganizationSetup,
       createOrganization: actions.createOrganization,
-      joinOrganizationByCodeOrLink: actions.joinOrganizationByCodeOrLink,
+      joinOrganizationByCode: actions.joinOrganizationByCode,
     }),
     [
       activeOrganization,

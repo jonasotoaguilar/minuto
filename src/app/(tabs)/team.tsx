@@ -27,6 +27,16 @@ import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import { getErrorMessage } from '@/lib/error';
+import {
+  type ExpelFlowState,
+  getExpelFlowView,
+  transitionExpelFlowState,
+} from '@/lib/expel-flow-state';
+import {
+  deleteMembership,
+  suspendMembership,
+} from '@/lib/organization-invitations';
+import { ROLE_PERMISSION_SUMMARIES } from '@/lib/role-permission-summaries';
 import { supabase } from '@/lib/supabase';
 import {
   Chip,
@@ -45,39 +55,25 @@ const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended'] as const;
 type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
 type AppTheme = ReturnType<typeof useTheme>;
 
-const employeeProfileRecordSchema = z.object({
-  break_duration_hours: z.number().nullable(),
-  department: z.string().nullable(),
-  hire_date: z.string().nullable(),
-  position: z.string().nullable(),
-  shift_duration_hours: z.number().nullable(),
-  weekly_hours: z.number().nullable(),
-});
-
-const membershipRowSchema = z.object({
-  employee_profiles: z
-    .union([
-      employeeProfileRecordSchema,
-      z.array(employeeProfileRecordSchema),
-      z.null(),
-    ])
-    .nullable(),
+const teamMemberRowSchema = z.object({
   id: z.string().min(1),
-  invited_email: z.string().nullable(),
   organization_id: z.string().min(1),
+  user_id: z.string().nullable(),
+  invited_email: z.string().nullable(),
   role: z.enum(MEMBERSHIP_ROLES),
   status: z.enum(MEMBERSHIP_STATUSES),
-  user_id: z.string().nullable(),
-});
-
-const membershipRowsSchema = z.array(membershipRowSchema);
-
-const userProfileRowSchema = z.object({
+  member_position: z.string().nullable(),
+  department: z.string().nullable(),
+  hire_date: z.string().nullable(),
+  shift_duration_hours: z.number().nullable(),
+  break_duration_hours: z.number().nullable(),
+  weekly_hours: z.number().nullable(),
   full_name: z.string().nullable(),
-  id: z.string().min(1),
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
 });
 
-const userProfileRowsSchema = z.array(userProfileRowSchema);
+const teamMemberRowsSchema = z.array(teamMemberRowSchema);
 
 const roleUpdateResponseSchema = z.object({
   success: z.boolean().optional(),
@@ -90,6 +86,8 @@ type TeamMember = {
   hireDate: string;
   id: string;
   initials: string;
+  email: string;
+  phone: string;
   name: string;
   position: string;
   role: MembershipRole;
@@ -178,7 +176,7 @@ export default function TeamScreen() {
   const [editFormMessage, setEditFormMessage] = useState('');
   const [isHireDatePickerVisible, setIsHireDatePickerVisible] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
-
+  const [isApplyingMemberAction, setIsApplyingMemberAction] = useState(false);
   const canManageOrganization = MANAGEMENT_ROLES.includes(
     activeOrganization?.membershipRole ?? 'employee',
   );
@@ -191,14 +189,12 @@ export default function TeamScreen() {
     setIsLoadingMembers(true);
     setErrorMessage('');
 
-    const { data, error } = await supabase
-      .from('memberships')
-      .select(
-        'id, organization_id, user_id, invited_email, role, status, employee_profiles(position, department, hire_date, shift_duration_hours, break_duration_hours, weekly_hours)',
-      )
-      .eq('organization_id', activeOrganization.id)
-      .eq('status', 'active')
-      .order('created_at', { ascending: true });
+    const { data, error } = await supabase.rpc(
+      'get_organization_team_members',
+      {
+        p_organization_id: activeOrganization.id,
+      },
+    );
 
     if (error) {
       setErrorMessage(error.message);
@@ -207,9 +203,9 @@ export default function TeamScreen() {
       return;
     }
 
-    const parsedMemberships = membershipRowsSchema.safeParse(data ?? []);
+    const parsedRows = teamMemberRowsSchema.safeParse(data ?? []);
 
-    if (!parsedMemberships.success) {
+    if (!parsedRows.success) {
       setErrorMessage(
         'La lista de miembros llegó con un formato inválido. Recargá e intentá de nuevo.',
       );
@@ -218,78 +214,30 @@ export default function TeamScreen() {
       return;
     }
 
-    const memberships = parsedMemberships.data;
-    const userIds = memberships
-      .map((membership) => membership.user_id)
-      .filter((userId): userId is string => Boolean(userId));
-
-    const userNamesById = new Map<string, string>();
-
-    if (userIds.length > 0) {
-      const { data: userProfiles, error: userProfilesError } = await supabase
-        .from('user_profiles')
-        .select('id, full_name')
-        .in('id', userIds);
-
-      if (userProfilesError) {
-        setErrorMessage(userProfilesError.message);
-        setMembers([]);
-        setIsLoadingMembers(false);
-        return;
-      }
-
-      const parsedUserProfiles = userProfileRowsSchema.safeParse(
-        userProfiles ?? [],
-      );
-
-      if (!parsedUserProfiles.success) {
-        setErrorMessage(
-          'Los perfiles del equipo llegaron con un formato inválido. Recargá e intentá de nuevo.',
-        );
-        setMembers([]);
-        setIsLoadingMembers(false);
-        return;
-      }
-
-      parsedUserProfiles.data.forEach((userProfile) => {
-        if (userProfile.full_name?.trim()) {
-          userNamesById.set(userProfile.id, userProfile.full_name.trim());
-        }
-      });
-    }
-
-    const normalizedMembers = memberships.map((membership) => {
-      const employeeProfile = Array.isArray(membership.employee_profiles)
-        ? (membership.employee_profiles[0] ?? null)
-        : membership.employee_profiles;
-
-      const profileName =
-        membership.user_id != null
-          ? userNamesById.get(membership.user_id)
-          : undefined;
+    const normalizedMembers = parsedRows.data.map((row) => {
       const name = deriveName(
-        profileName,
-        membership.invited_email,
-        membership.user_id,
-        membership.id,
+        row.full_name ?? undefined,
+        row.invited_email,
+        row.user_id,
+        row.id,
       );
 
       return {
         breakDurationHours:
-          employeeProfile?.break_duration_hours ?? DEFAULT_BREAK_DURATION_HOURS,
-        department: normalizeDepartment(employeeProfile?.department),
-        hireDate: employeeProfile?.hire_date?.trim() ?? '',
-        id: membership.id,
+          row.break_duration_hours ?? DEFAULT_BREAK_DURATION_HOURS,
+        department: normalizeDepartment(row.department),
+        hireDate: row.hire_date?.trim() ?? '',
+        email: row.email?.trim() ?? '',
+        id: row.id,
         initials: deriveInitials(name),
         name,
-        position: employeeProfile?.position?.trim() ?? '',
-        role: membership.role,
-        roleLabel:
-          employeeProfile?.position?.trim() ||
-          mapMembershipRole(membership.role),
+        phone: row.phone?.trim() ?? '',
+        position: row.member_position?.trim() ?? '',
+        role: row.role,
+        roleLabel: row.member_position?.trim() || mapMembershipRole(row.role),
         shiftDurationHours:
-          employeeProfile?.shift_duration_hours ?? DEFAULT_SHIFT_DURATION_HOURS,
-        weeklyHours: employeeProfile?.weekly_hours ?? DEFAULT_WEEKLY_HOURS,
+          row.shift_duration_hours ?? DEFAULT_SHIFT_DURATION_HOURS,
+        weeklyHours: row.weekly_hours ?? DEFAULT_WEEKLY_HOURS,
       } satisfies TeamMember;
     });
 
@@ -487,6 +435,49 @@ export default function TeamScreen() {
     }
   }, [editFormValues, loadMembers, selectedMember]);
 
+  const onSuspendMember = useCallback(
+    async (membershipId: string) => {
+      setIsApplyingMemberAction(true);
+
+      try {
+        await suspendMembership(membershipId);
+        await loadMembers();
+        Alert.alert('Miembro suspendido', 'El colaborador fue suspendido.');
+      } catch (error) {
+        Alert.alert(
+          'Error',
+          getErrorMessage(error) ?? 'No se pudo suspender al colaborador.',
+        );
+      } finally {
+        setIsApplyingMemberAction(false);
+      }
+    },
+    [loadMembers],
+  );
+
+  const onDeleteMember = useCallback(
+    async (membershipId: string) => {
+      setIsApplyingMemberAction(true);
+
+      try {
+        await deleteMembership(membershipId);
+        await loadMembers();
+        Alert.alert(
+          'Miembro eliminado',
+          'El colaborador fue eliminado permanentemente.',
+        );
+      } catch (error) {
+        Alert.alert(
+          'Error',
+          getErrorMessage(error) ?? 'No se pudo eliminar al colaborador.',
+        );
+      } finally {
+        setIsApplyingMemberAction(false);
+      }
+    },
+    [loadMembers],
+  );
+
   if (isLoadingOrganizations) {
     return (
       <Screen contentContainerStyle={styles.loaderContainer}>
@@ -516,18 +507,10 @@ export default function TeamScreen() {
       <AppHeader />
 
       <GlassCard style={styles.organizationCard}>
-        <SectionHeader
-          eyebrow="Organización activa"
-          subtitle={`Tu equipo tiene ${members.length} ${members.length === 1 ? 'miembro activo' : 'miembros activos'}.`}
-          title={activeOrganization.name}
-        />
+        <SectionHeader eyebrow="Organización" title={activeOrganization.name} />
 
         <View style={styles.organizationMetaRow}>
           <Chip label={`${members.length} miembros`} tone="brand" />
-          <Chip
-            label={activeOrganization.membershipRole.toUpperCase()}
-            tone="neutral"
-          />
         </View>
 
         {canManageOrganization ? (
@@ -538,16 +521,10 @@ export default function TeamScreen() {
               onPress={() => router.push('/org-settings')}
               style={styles.inlineAction}
             />
-
             <SecondaryButton
               fullWidth={false}
-              label="Invitar miembro"
-              onPress={() =>
-                Alert.alert(
-                  'Próximamente',
-                  'La invitación guiada llega en la próxima iteración.',
-                )
-              }
+              label="Gestionar invitaciones"
+              onPress={() => router.push('/invitations')}
               style={styles.inlineAction}
             />
           </View>
@@ -615,9 +592,12 @@ export default function TeamScreen() {
       {filteredMembers.map((member) => (
         <TeamMemberCard
           canManageOrganization={canManageOrganization}
+          isApplyingMemberAction={isApplyingMemberAction}
           key={member.id}
           member={member}
+          onDeleteMember={onDeleteMember}
           onEditMember={onEditMember}
+          onSuspendMember={onSuspendMember}
           theme={theme}
         />
       ))}
@@ -647,17 +627,65 @@ export default function TeamScreen() {
 
 type TeamMemberCardProps = {
   canManageOrganization: boolean;
+  isApplyingMemberAction: boolean;
   member: TeamMember;
+  onDeleteMember: (membershipId: string) => Promise<void>;
   onEditMember: (member: TeamMember) => void;
+  onSuspendMember: (membershipId: string) => Promise<void>;
   theme: AppTheme;
 };
 
 function TeamMemberCard({
   canManageOrganization,
+  isApplyingMemberAction,
   member,
+  onDeleteMember,
   onEditMember,
+  onSuspendMember,
   theme,
 }: TeamMemberCardProps) {
+  const canExpel = member.role !== 'owner';
+  const [expelFlowState, setExpelFlowState] = useState<ExpelFlowState>('idle');
+  const expelFlowView = getExpelFlowView(expelFlowState);
+
+  const handleExpel = useCallback(() => {
+    setExpelFlowState((current) =>
+      transitionExpelFlowState(current, 'open-choice'),
+    );
+  }, []);
+
+  const handleCloseExpelActionModal = useCallback(() => {
+    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
+  }, []);
+
+  const handleSelectSuspend = useCallback(() => {
+    setExpelFlowState((current) =>
+      transitionExpelFlowState(current, 'select-suspend'),
+    );
+  }, []);
+
+  const handleSelectDelete = useCallback(() => {
+    setExpelFlowState((current) =>
+      transitionExpelFlowState(current, 'select-delete'),
+    );
+  }, []);
+
+  const handleCloseConfirmationModal = useCallback(() => {
+    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
+  }, []);
+
+  const handleConfirmExpelAction = useCallback(() => {
+    if (expelFlowState === 'confirm-suspend') {
+      void onSuspendMember(member.id);
+    }
+
+    if (expelFlowState === 'confirm-delete') {
+      void onDeleteMember(member.id);
+    }
+
+    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
+  }, [expelFlowState, member.id, onDeleteMember, onSuspendMember]);
+
   return (
     <GlassCard style={styles.memberCard} variant="soft">
       <View style={styles.memberTopRow}>
@@ -690,17 +718,136 @@ function TeamMemberCard({
         <ThemedText colorToken="secondary" variant="bodySmall">
           Departamento: {member.department}
         </ThemedText>
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          Email: {member.email || 'Sin email'}
+        </ThemedText>
+        <ThemedText colorToken="secondary" variant="bodySmall">
+          Teléfono: {member.phone || 'Sin teléfono'}
+        </ThemedText>
       </View>
 
       {canManageOrganization ? (
-        <View style={styles.memberActions}>
+        <View style={[styles.memberActions, styles.memberActionsRow]}>
           <SecondaryButton
             fullWidth={false}
             label="Editar"
             onPress={() => onEditMember(member)}
           />
+          {canExpel ? (
+            <SecondaryButton
+              disabled={isApplyingMemberAction}
+              fullWidth={false}
+              label="Expulsar"
+              onPress={handleExpel}
+            />
+          ) : null}
         </View>
       ) : null}
+
+      <Modal
+        animationType="fade"
+        onRequestClose={handleCloseExpelActionModal}
+        transparent
+        visible={expelFlowView.isChoiceVisible}
+      >
+        <View
+          style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
+        >
+          <Pressable
+            onPress={handleCloseExpelActionModal}
+            style={styles.modalBackdrop}
+          />
+          <GlassCard
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.colors.background.card },
+            ]}
+            variant="soft"
+          >
+            <ThemedText variant="heading">
+              Elegí cómo querés expulsar a este miembro
+            </ThemedText>
+            <View style={styles.fieldGroup}>
+              <ThemedText colorToken="secondary" variant="bodySmall">
+                Desactiva el acceso y mantiene su historial.
+              </ThemedText>
+              <SecondaryButton
+                disabled={isApplyingMemberAction}
+                fullWidth={false}
+                label="Despedir"
+                onPress={handleSelectSuspend}
+              />
+            </View>
+            <View style={styles.fieldGroup}>
+              <ThemedText colorToken="secondary" variant="bodySmall">
+                Borra su membresía y el historial asociado.
+              </ThemedText>
+              <SecondaryButton
+                disabled={isApplyingMemberAction}
+                fullWidth={false}
+                label="Eliminar"
+                onPress={handleSelectDelete}
+              />
+            </View>
+            <View style={styles.modalActions}>
+              <SecondaryButton
+                disabled={isApplyingMemberAction}
+                label="Cancelar"
+                onPress={handleCloseExpelActionModal}
+                style={styles.modalActionButton}
+              />
+            </View>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={handleCloseConfirmationModal}
+        transparent
+        visible={expelFlowView.isConfirmationVisible}
+      >
+        <View
+          style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
+        >
+          <Pressable
+            onPress={handleCloseConfirmationModal}
+            style={styles.modalBackdrop}
+          />
+          <GlassCard
+            style={[
+              styles.modalCard,
+              { backgroundColor: theme.colors.background.card },
+            ]}
+            variant="soft"
+          >
+            <ThemedText variant="heading">
+              {expelFlowView.confirmation?.title ?? ''}
+            </ThemedText>
+            <ThemedText
+              colorToken="secondary"
+              style={styles.modalBody}
+              variant="body"
+            >
+              {expelFlowView.confirmation?.body ?? ''}
+            </ThemedText>
+            <View style={styles.modalActions}>
+              <SecondaryButton
+                disabled={isApplyingMemberAction}
+                label="Cancelar"
+                onPress={handleCloseConfirmationModal}
+                style={styles.modalActionButton}
+              />
+              <PrimaryButton
+                disabled={isApplyingMemberAction}
+                label="Confirmar"
+                onPress={handleConfirmExpelAction}
+                style={styles.modalActionButton}
+              />
+            </View>
+          </GlassCard>
+        </View>
+      </Modal>
     </GlassCard>
   );
 }
@@ -740,9 +887,14 @@ function EditMemberModal({
   theme,
   visible,
 }: EditMemberModalProps) {
+  if (!selectedMember) {
+    return null;
+  }
+
+  const isOwnerMember = selectedMember?.role === 'owner';
   const allowedRoles = getAllowedRolesForCaller(
     activeOrganizationRole,
-    selectedMember?.role ?? 'employee',
+    selectedMember.role,
   );
 
   return (
@@ -841,28 +993,35 @@ function EditMemberModal({
             value={editFormValues.weeklyHours}
           />
 
-          <TextField
-            label="Cargo"
-            onChangeText={(value) =>
-              setEditFormValues((current) => ({ ...current, position: value }))
-            }
-            placeholder="Ej: Supervisor de turno"
-            value={editFormValues.position}
-          />
+          {!isOwnerMember ? (
+            <>
+              <TextField
+                label="Cargo"
+                onChangeText={(value) =>
+                  setEditFormValues((current) => ({
+                    ...current,
+                    position: value,
+                  }))
+                }
+                placeholder="Ej: Supervisor de turno"
+                value={editFormValues.position}
+              />
 
-          <TextField
-            label="Departamento"
-            onChangeText={(value) =>
-              setEditFormValues((current) => ({
-                ...current,
-                department: value,
-              }))
-            }
-            placeholder="Ej: Operaciones"
-            value={editFormValues.department}
-          />
+              <TextField
+                label="Departamento"
+                onChangeText={(value) =>
+                  setEditFormValues((current) => ({
+                    ...current,
+                    department: value,
+                  }))
+                }
+                placeholder="Ej: Operaciones"
+                value={editFormValues.department}
+              />
+            </>
+          ) : null}
 
-          {allowedRoles.length > 0 ? (
+          {!isOwnerMember && allowedRoles.length > 0 ? (
             <View style={styles.fieldGroup}>
               <ThemedText variant="label">Rol (permisos)</ThemedText>
               <View style={styles.roleChipsRow}>
@@ -888,6 +1047,9 @@ function EditMemberModal({
               ) : null}
               <ThemedText colorToken="secondary" variant="caption">
                 Seleccioná el nivel de permisos del colaborador.
+              </ThemedText>
+              <ThemedText colorToken="secondary" variant="caption">
+                {ROLE_PERMISSION_SUMMARIES[editFormValues.role].description}
               </ThemedText>
             </View>
           ) : null}
@@ -1418,6 +1580,36 @@ const styles = StyleSheet.create({
   filtersCard: {
     gap: 16,
   },
+  invitationCard: {
+    gap: 12,
+  },
+  pendingInvitationsList: {
+    gap: 8,
+  },
+  pendingInvitationItem: {
+    gap: 8,
+  },
+  pendingInvitationTopRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  pendingInvitationEmailWrap: {
+    flex: 1,
+  },
+  pendingInvitationEmail: {
+    flexShrink: 1,
+  },
+  pendingInvitationCode: {
+    flexShrink: 1,
+  },
+  pendingInvitationActions: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   searchInput: {
     minHeight: 24,
   },
@@ -1451,6 +1643,11 @@ const styles = StyleSheet.create({
   },
   memberActions: {
     alignItems: 'flex-end',
+  },
+  memberActionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   memberName: {
     letterSpacing: -0.4,

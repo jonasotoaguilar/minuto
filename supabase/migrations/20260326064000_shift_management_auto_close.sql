@@ -27,18 +27,34 @@ DO $$
 DECLARE
   v_job_id bigint;
 BEGIN
-  FOR v_job_id IN
-    SELECT jobid
-    FROM cron.job
-    WHERE jobname = 'auto-close-stale-shifts'
-  LOOP
-    PERFORM cron.unschedule(v_job_id);
-  END LOOP;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_namespace
+    WHERE nspname = 'cron'
+  ) THEN
+    FOR v_job_id IN
+      SELECT jobid
+      FROM cron.job
+      WHERE jobname = 'auto-close-stale-shifts'
+    LOOP
+      PERFORM cron.unschedule(v_job_id);
+    END LOOP;
+  END IF;
 END;
 $$;
 
-SELECT cron.schedule(
-  'auto-close-stale-shifts',
-  '0 * * * *',
-  $$SELECT public.auto_close_stale_shifts()$$
-);
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_namespace
+    WHERE nspname = 'cron'
+  ) THEN
+    PERFORM cron.schedule(
+      'auto-close-stale-shifts',
+      '0 * * * *',
+      $cron$SELECT public.auto_close_stale_shifts()$cron$
+    );
+  END IF;
+END;
+$$;

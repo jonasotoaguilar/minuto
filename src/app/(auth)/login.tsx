@@ -1,304 +1,14 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { type Href, Link, useRouter } from 'expo-router';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
-import { z } from 'zod';
+import { Link } from 'expo-router';
+import { type ReactNode } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { loginScreenLimits, useLoginScreen } from '@/hooks/use-login-screen';
 import { useTheme } from '@/hooks/use-theme';
-import { getErrorMessage } from '@/lib/error';
-import { supabase } from '@/lib/supabase';
+import { buildAuthRouteWithRedirect } from '@/lib/auth-redirect';
 import { PrimaryButton, Screen, ThemedText } from '@/theme/primitives';
-
-const MAX_EMAIL_LENGTH = 120;
-const MAX_PASSWORD_LENGTH = 72;
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_SECONDS = 30;
-const LOGIN_THROTTLE_STORAGE_KEY = 'login_throttle_state';
-
-interface LoginThrottleState {
-  failedAttempts: number;
-  lockoutEndsAt: number | null;
-}
-
-const loginThrottleStateSchema = z.object({
-  failedAttempts: z.number().int().min(0),
-  lockoutEndsAt: z.number().int().nullable(),
-});
-
-const loginSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .email('Ingresa un email válido.')
-    .max(
-      MAX_EMAIL_LENGTH,
-      `El email no puede superar ${MAX_EMAIL_LENGTH} caracteres.`,
-    ),
-  password: z
-    .string()
-    .min(8, 'La contraseña debe tener al menos 8 caracteres.')
-    .max(
-      MAX_PASSWORD_LENGTH,
-      `La contraseña no puede superar ${MAX_PASSWORD_LENGTH} caracteres.`,
-    ),
-});
-
-type LoginFormValues = z.infer<typeof loginSchema>;
-type LoginFieldErrors = Partial<Record<keyof LoginFormValues, string>>;
-type TouchedFields = Partial<Record<keyof LoginFormValues, boolean>>;
-
-function getWebStorage() {
-  if (Platform.OS !== 'web' || typeof window === 'undefined') {
-    return null;
-  }
-
-  return window.localStorage;
-}
-
-async function readStoredLoginThrottleState(): Promise<LoginThrottleState> {
-  const webStorage = getWebStorage();
-  const rawValue = webStorage
-    ? webStorage.getItem(LOGIN_THROTTLE_STORAGE_KEY)
-    : await AsyncStorage.getItem(LOGIN_THROTTLE_STORAGE_KEY);
-
-  if (!rawValue) {
-    return { failedAttempts: 0, lockoutEndsAt: null };
-  }
-
-  try {
-    const parsedValue = loginThrottleStateSchema.safeParse(
-      JSON.parse(rawValue),
-    );
-
-    if (!parsedValue.success) {
-      console.warn('Formato inválido en el throttle de login persistido.');
-    }
-
-    return parsedValue.success
-      ? parsedValue.data
-      : { failedAttempts: 0, lockoutEndsAt: null };
-  } catch (error) {
-    console.warn('No se pudo leer el throttle de login persistido.', error);
-    return { failedAttempts: 0, lockoutEndsAt: null };
-  }
-}
-
-async function writeStoredLoginThrottleState(state: LoginThrottleState) {
-  const serializedValue = JSON.stringify(state);
-  const webStorage = getWebStorage();
-
-  if (webStorage) {
-    webStorage.setItem(LOGIN_THROTTLE_STORAGE_KEY, serializedValue);
-    return;
-  }
-
-  await AsyncStorage.setItem(LOGIN_THROTTLE_STORAGE_KEY, serializedValue);
-}
 
 export default function LoginScreen() {
   const theme = useTheme();
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-  const [infoMessage, setInfoMessage] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [failedAttempts, setFailedAttempts] = useState(0);
-  const [lockoutEndsAt, setLockoutEndsAt] = useState<number | null>(null);
-  const [lockoutSecondsLeft, setLockoutSecondsLeft] = useState(0);
-  const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
-  const [focusedField, setFocusedField] = useState<
-    keyof LoginFormValues | null
-  >(null);
-
-  const normalizedValues = useMemo(
-    () => ({
-      email: email.trim().toLowerCase(),
-      password,
-    }),
-    [email, password],
-  );
-
-  const validationResult = useMemo(
-    () => loginSchema.safeParse(normalizedValues),
-    [normalizedValues],
-  );
-
-  const fieldErrors = useMemo<LoginFieldErrors>(() => {
-    if (validationResult.success) {
-      return {};
-    }
-
-    const flattenedError = z.flattenError(validationResult.error);
-    const nextErrors: LoginFieldErrors = {};
-
-    Object.entries(flattenedError.fieldErrors).forEach(([field, errors]) => {
-      if (!errors?.length) {
-        return;
-      }
-      nextErrors[field as keyof LoginFormValues] = errors[0];
-    });
-
-    return nextErrors;
-  }, [validationResult]);
-
-  const isFormComplete = useMemo(
-    () => Boolean(normalizedValues.email && normalizedValues.password),
-    [normalizedValues],
-  );
-
-  const isLockoutActive = lockoutSecondsLeft > 0;
-  const isSubmitDisabled =
-    isSubmitting ||
-    isLockoutActive ||
-    !isFormComplete ||
-    !validationResult.success;
-
-  useEffect(() => {
-    let isMounted = true;
-
-    const hydrateThrottleState = async () => {
-      const storedState = await readStoredLoginThrottleState();
-      const hasExpiredLockout =
-        typeof storedState.lockoutEndsAt === 'number' &&
-        storedState.lockoutEndsAt <= Date.now();
-
-      const nextState = hasExpiredLockout
-        ? { failedAttempts: 0, lockoutEndsAt: null }
-        : storedState;
-
-      if (hasExpiredLockout) {
-        await writeStoredLoginThrottleState(nextState);
-      }
-
-      if (!isMounted) {
-        return;
-      }
-
-      setFailedAttempts(nextState.failedAttempts);
-      setLockoutEndsAt(nextState.lockoutEndsAt);
-      setLockoutSecondsLeft(
-        nextState.lockoutEndsAt
-          ? Math.max(
-              0,
-              Math.ceil((nextState.lockoutEndsAt - Date.now()) / 1000),
-            )
-          : 0,
-      );
-    };
-
-    void hydrateThrottleState();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!lockoutEndsAt) {
-      return undefined;
-    }
-
-    const updateRemainingTime = () => {
-      const remainingSeconds = Math.max(
-        0,
-        Math.ceil((lockoutEndsAt - Date.now()) / 1000),
-      );
-
-      setLockoutSecondsLeft(remainingSeconds);
-
-      if (remainingSeconds === 0) {
-        setLockoutEndsAt(null);
-        setFailedAttempts(0);
-        void writeStoredLoginThrottleState({
-          failedAttempts: 0,
-          lockoutEndsAt: null,
-        });
-      }
-    };
-
-    updateRemainingTime();
-    const intervalId = setInterval(updateRemainingTime, 1000);
-    return () => clearInterval(intervalId);
-  }, [lockoutEndsAt]);
-
-  const registerFailedAttempt = () => {
-    setFailedAttempts((currentAttempts) => {
-      const nextAttempts = currentAttempts + 1;
-      if (nextAttempts < MAX_FAILED_ATTEMPTS) {
-        void writeStoredLoginThrottleState({
-          failedAttempts: nextAttempts,
-          lockoutEndsAt: null,
-        });
-        return nextAttempts;
-      }
-
-      const nextLockoutEndsAt = Date.now() + LOCKOUT_SECONDS * 1000;
-      setLockoutEndsAt(nextLockoutEndsAt);
-      setLockoutSecondsLeft(LOCKOUT_SECONDS);
-      void writeStoredLoginThrottleState({
-        failedAttempts: 0,
-        lockoutEndsAt: nextLockoutEndsAt,
-      });
-      return 0;
-    });
-  };
-
-  const clearThrottleState = () => {
-    setFailedAttempts(0);
-    setLockoutEndsAt(null);
-    setLockoutSecondsLeft(0);
-    void writeStoredLoginThrottleState({
-      failedAttempts: 0,
-      lockoutEndsAt: null,
-    });
-  };
-
-  const handleSignIn = async () => {
-    if (isSubmitting || isLockoutActive) return;
-    setErrorMessage('');
-    setInfoMessage('');
-
-    if (!validationResult.success) {
-      setTouchedFields({ email: true, password: true });
-      setFocusedField(null);
-      setErrorMessage(fieldErrors.email ?? fieldErrors.password ?? '');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: validationResult.data.email,
-        password: validationResult.data.password,
-      });
-
-      if (error) {
-        registerFailedAttempt();
-        setErrorMessage(
-          'Credenciales inválidas o acceso bloqueado temporalmente.',
-        );
-        return;
-      }
-
-      clearThrottleState();
-
-      if (data.session) {
-        const redirectTo = '/(tabs)/home' as Href;
-        router.replace(redirectTo);
-        return;
-      }
-
-      setInfoMessage('Sesión creada. Continuá para ingresar.');
-    } catch (error) {
-      setErrorMessage(
-        getErrorMessage(error) ??
-          'No se pudo iniciar sesión en este momento. Intentá nuevamente.',
-      );
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+  const screen = useLoginScreen();
 
   return (
     <Screen
@@ -312,302 +22,263 @@ export default function LoginScreen() {
         },
       ]}
     >
-      <View style={styles.topBar}>
-        <View style={styles.brand}>
-          <View
+      <LoginBrandHeader />
+      <LoginFormCard screen={screen} />
+    </Screen>
+  );
+}
+
+type LoginScreenState = ReturnType<typeof useLoginScreen>;
+
+function LoginBrandHeader() {
+  const theme = useTheme();
+
+  return (
+    <View style={styles.topBar}>
+      <View style={styles.brand}>
+        <View
+          style={[
+            styles.brandIcon,
+            { backgroundColor: theme.colors.brand.primary },
+          ]}
+        >
+          <ThemedText
+            colorToken="inverse"
             style={[
-              styles.brandIcon,
-              { backgroundColor: theme.colors.brand.primary },
+              styles.brandLetter,
+              {
+                fontSize: theme.typography.subtitle.fontSize,
+                fontWeight: theme.typography.subtitle.fontWeight,
+              },
             ]}
           >
-            <ThemedText
-              colorToken="inverse"
-              style={[
-                styles.brandLetter,
-                {
-                  fontSize: theme.typography.subtitle.fontSize,
-                  fontWeight: theme.typography.subtitle.fontWeight,
-                },
-              ]}
-            >
-              M
-            </ThemedText>
-          </View>
-          <ThemedText
-            variant="title"
-            style={[styles.brandText, { fontSize: 20 }]}
-          >
-            Minuto
+            M
           </ThemedText>
         </View>
-        {/* <View style={styles.topLinks}>
-          <ThemedText
-            colorToken="secondary"
-            variant="caption"
-            style={[
-              styles.topLink,
-              { fontWeight: theme.typography.label.fontWeight },
-            ]}
-          >
-            About
-          </ThemedText>
-          <ThemedText
-            colorToken="secondary"
-            variant="caption"
-            style={[
-              styles.topLink,
-              { fontWeight: theme.typography.label.fontWeight },
-            ]}
-          >
-            Support
-          </ThemedText>
-        </View> */}
+        <ThemedText
+          variant="title"
+          style={[styles.brandText, { fontSize: 20 }]}
+        >
+          Minuto
+        </ThemedText>
       </View>
+    </View>
+  );
+}
 
+function LoginFormCard({ screen }: { screen: LoginScreenState }) {
+  const theme = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.background.card,
+          shadowColor: theme.colors.shadow.color,
+        },
+      ]}
+    >
       <View
         style={[
-          styles.card,
-          {
-            backgroundColor: theme.colors.background.card,
-            shadowColor: theme.colors.shadow.color,
-          },
+          styles.cardBanner,
+          { backgroundColor: theme.colors.brand.primary },
         ]}
       >
         <View
           style={[
-            styles.cardBanner,
-            { backgroundColor: theme.colors.brand.primary },
+            styles.cardShield,
+            { backgroundColor: theme.colors.brand.muted },
           ]}
         >
-          <View
+          <ThemedText
+            colorToken="brand"
             style={[
-              styles.cardShield,
-              { backgroundColor: theme.colors.brand.muted },
+              styles.cardShieldText,
+              {
+                fontSize: theme.typography.body.fontSize,
+                fontWeight: theme.typography.label.fontWeight,
+              },
             ]}
           >
+            OK
+          </ThemedText>
+        </View>
+      </View>
+
+      <View style={styles.cardBody}>
+        <ThemedText variant="heading" style={styles.cardTitle}>
+          Bienvenido a Minuto
+        </ThemedText>
+        <ThemedText
+          colorToken="secondary"
+          style={[
+            styles.cardSubtitle,
+            { fontSize: theme.typography.bodySmall.fontSize },
+          ]}
+        >
+          Ingresa a tu cuenta
+        </ThemedText>
+
+        <View style={styles.form}>
+          <Field
+            label="Email"
+            placeholder="nombre@empresa.com"
+            icon="@"
+            value={screen.email}
+            onChangeText={screen.setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={loginScreenLimits.MAX_EMAIL_LENGTH}
+            onFocus={() => screen.setFocusedField('email')}
+            onBlur={() => {
+              screen.setFocusedField(null);
+              screen.markFieldTouched('email');
+            }}
+            error={
+              screen.touchedFields.email && screen.focusedField !== 'email'
+                ? screen.fieldErrors.email
+                : undefined
+            }
+          />
+          <View style={styles.passwordRow}>
+            <ThemedText variant="label">Contraseña</ThemedText>
             <ThemedText
               colorToken="brand"
+              variant="caption"
               style={[
-                styles.cardShieldText,
-                {
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
+                styles.linkText,
+                { fontWeight: theme.typography.label.fontWeight },
               ]}
             >
-              OK
+              ¿Olvidaste la contraseña?
             </ThemedText>
           </View>
+          <Field
+            placeholder="********"
+            icon="*"
+            secure={!screen.isPasswordVisible}
+            value={screen.password}
+            onChangeText={screen.setPassword}
+            autoCorrect={false}
+            maxLength={loginScreenLimits.MAX_PASSWORD_LENGTH}
+            onFocus={() => screen.setFocusedField('password')}
+            onBlur={() => {
+              screen.setFocusedField(null);
+              screen.markFieldTouched('password');
+            }}
+            error={
+              screen.touchedFields.password &&
+              screen.focusedField !== 'password'
+                ? screen.fieldErrors.password
+                : undefined
+            }
+            rightElement={
+              <Pressable
+                onPress={() =>
+                  screen.setIsPasswordVisible((current) => !current)
+                }
+                hitSlop={8}
+              >
+                <ThemedText
+                  colorToken="brand"
+                  variant="caption"
+                  style={[
+                    styles.toggleText,
+                    { fontWeight: theme.typography.label.fontWeight },
+                  ]}
+                >
+                  {screen.isPasswordVisible ? 'Ocultar' : 'Ver'}
+                </ThemedText>
+              </Pressable>
+            }
+          />
         </View>
 
-        <View style={styles.cardBody}>
-          <ThemedText variant="heading" style={styles.cardTitle}>
-            Bienvenido a Minuto
+        <PrimaryButton
+          disabled={screen.isSubmitDisabled}
+          label={screen.isSubmitting ? 'Ingresando...' : 'Iniciar Sesión →'}
+          loading={screen.isSubmitting}
+          onPress={screen.handleSignIn}
+        />
+
+        {screen.errorMessage ? (
+          <ThemedText
+            colorToken="error"
+            style={[
+              styles.messageText,
+              {
+                fontSize: theme.typography.caption.fontSize,
+                fontWeight: theme.typography.label.fontWeight,
+              },
+            ]}
+          >
+            {screen.errorMessage}
           </ThemedText>
+        ) : null}
+
+        {screen.infoMessage ? (
           <ThemedText
             colorToken="secondary"
             style={[
-              styles.cardSubtitle,
-              { fontSize: theme.typography.bodySmall.fontSize },
+              styles.messageText,
+              {
+                fontSize: theme.typography.caption.fontSize,
+                fontWeight: theme.typography.label.fontWeight,
+              },
             ]}
           >
-            Ingresa a tu cuenta
+            {screen.infoMessage}
           </ThemedText>
+        ) : null}
 
-          <View style={styles.form}>
-            <Field
-              label="Email"
-              placeholder="nombre@empresa.com"
-              icon="@"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              maxLength={MAX_EMAIL_LENGTH}
-              onFocus={() => setFocusedField('email')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouchedFields((current) => ({ ...current, email: true }));
-              }}
-              error={
-                touchedFields.email && focusedField !== 'email'
-                  ? fieldErrors.email
-                  : undefined
-              }
-            />
-            {/* TODO: Implementar recuperación de contraseña */}
-            <View style={styles.passwordRow}>
-              <ThemedText variant="label">Contraseña</ThemedText>
-              <ThemedText
-                colorToken="brand"
-                variant="caption"
-                style={[
-                  styles.linkText,
-                  { fontWeight: theme.typography.label.fontWeight },
-                ]}
-              >
-                ¿Olvidaste la contraseña?
-              </ThemedText>
-            </View>
-            <Field
-              placeholder="********"
-              icon="*"
-              secure={!isPasswordVisible}
-              value={password}
-              onChangeText={setPassword}
-              autoCorrect={false}
-              maxLength={MAX_PASSWORD_LENGTH}
-              onFocus={() => setFocusedField('password')}
-              onBlur={() => {
-                setFocusedField(null);
-                setTouchedFields((current) => ({
-                  ...current,
-                  password: true,
-                }));
-              }}
-              error={
-                touchedFields.password && focusedField !== 'password'
-                  ? fieldErrors.password
-                  : undefined
-              }
-              rightElement={
-                <Pressable
-                  onPress={() => setIsPasswordVisible((current) => !current)}
-                  hitSlop={8}
-                >
-                  <ThemedText
-                    colorToken="brand"
-                    variant="caption"
-                    style={[
-                      styles.toggleText,
-                      { fontWeight: theme.typography.label.fontWeight },
-                    ]}
-                  >
-                    {isPasswordVisible ? 'Ocultar' : 'Ver'}
-                  </ThemedText>
-                </Pressable>
-              }
-            />
-          </View>
+        <ThemedText
+          colorToken="secondary"
+          style={[
+            styles.footerText,
+            { fontSize: theme.typography.caption.fontSize },
+          ]}
+        >
+          ¿Aún no tienes cuenta?{' '}
+          <Link
+            href={buildAuthRouteWithRedirect('/register', screen.redirectTo)}
+            style={{
+              color: theme.colors.brand.primary,
+              fontWeight: theme.typography.label.fontWeight,
+            }}
+          >
+            Registrate en Minuto
+          </Link>
+        </ThemedText>
 
-          <PrimaryButton
-            disabled={isSubmitDisabled}
-            label={isSubmitting ? 'Ingresando...' : 'Iniciar Sesión →'}
-            loading={isSubmitting}
-            onPress={handleSignIn}
-          />
-
-          {errorMessage ? (
-            <ThemedText
-              colorToken="error"
-              style={[
-                styles.messageText,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              {errorMessage}
-            </ThemedText>
-          ) : null}
-
-          {infoMessage ? (
-            <ThemedText
-              colorToken="secondary"
-              style={[
-                styles.messageText,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              {infoMessage}
-            </ThemedText>
-          ) : null}
-
-          {/* <ThemedText
+        {screen.isLockoutActive ? (
+          <ThemedText
+            colorToken="error"
+            style={[
+              styles.messageText,
+              {
+                fontSize: theme.typography.caption.fontSize,
+                fontWeight: theme.typography.label.fontWeight,
+              },
+            ]}
+          >
+            Demasiados intentos fallidos. Probá en {screen.lockoutSecondsLeft}s.
+          </ThemedText>
+        ) : screen.failedAttempts > 0 ? (
+          <ThemedText
             colorToken="secondary"
             style={[
               styles.helpText,
               { fontSize: theme.typography.caption.fontSize },
             ]}
           >
-            ¿Problemas para entrar?{' '}
-            <ThemedText
-              colorToken="brand"
-              style={[
-                styles.helpLink,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              Estamos aquí para ayudarte
-            </ThemedText>
-          </ThemedText> */}
-
-          <ThemedText
-            colorToken="secondary"
-            style={[
-              styles.footerText,
-              { fontSize: theme.typography.caption.fontSize },
-            ]}
-          >
-            ¿Aún no tienes cuenta?{' '}
-            <Link
-              href="/register"
-              style={{
-                color: theme.colors.brand.primary,
-                fontWeight: theme.typography.label.fontWeight,
-              }}
-            >
-              Registrate en Minuto
-            </Link>
+            Intentos fallidos: {screen.failedAttempts}/
+            {loginScreenLimits.MAX_FAILED_ATTEMPTS}
           </ThemedText>
-
-          {isLockoutActive ? (
-            <ThemedText
-              colorToken="error"
-              style={[
-                styles.messageText,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
-            >
-              Demasiados intentos fallidos. Probá en {lockoutSecondsLeft}s.
-            </ThemedText>
-          ) : failedAttempts > 0 ? (
-            <ThemedText
-              colorToken="secondary"
-              style={[
-                styles.helpText,
-                { fontSize: theme.typography.caption.fontSize },
-              ]}
-            >
-              Intentos fallidos: {failedAttempts}/{MAX_FAILED_ATTEMPTS}
-            </ThemedText>
-          ) : null}
-        </View>
+        ) : null}
       </View>
-
-      {/* <View style={styles.bottomLinks}>
-        <ThemedText colorToken="secondary" variant="eyebrow">
-          PRIVACIDAD
-        </ThemedText>
-        <ThemedText colorToken="secondary" variant="eyebrow">
-          TÉRMINOS
-        </ThemedText>
-        <ThemedText colorToken="secondary" variant="eyebrow">
-          COOKIES
-        </ThemedText>
-      </View> */}
-    </Screen>
+    </View>
   );
 }
 
