@@ -14,6 +14,7 @@ import { OfficeLocationSearch } from '@/components/office-location-search';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import type { SelectedOfficeLocation } from '@/lib/mapbox-search';
+import { normalizeInvitationCode } from '@/lib/organization-invitations';
 import {
   type CreateOrganizationInput,
   createOrganizationInputSchema,
@@ -67,7 +68,7 @@ export function OrganizationSetupView() {
     setupErrorMessage,
     setSetupErrorMessage,
     createOrganization,
-    joinOrganizationByCodeOrLink,
+    joinOrganizationByCode,
     closeOrganizationSetup,
   } = useOrganization();
 
@@ -79,7 +80,7 @@ export function OrganizationSetupView() {
   const [officeName, setOfficeName] = useState('');
   const [selectedOfficeLocation, setSelectedOfficeLocation] =
     useState<SelectedOfficeLocation | null>(null);
-  const [inviteCodeOrLink, setInviteCodeOrLink] = useState('');
+  const [invitationCode, setInvitationCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [touchedFields, setTouchedFields] = useState<
     Partial<Record<CreateField, boolean>>
@@ -231,8 +232,8 @@ export function OrganizationSetupView() {
 
     try {
       setIsSubmitting(true);
-      await joinOrganizationByCodeOrLink(inviteCodeOrLink);
-      setInviteCodeOrLink('');
+      await joinOrganizationByCode(invitationCode);
+      setInvitationCode('');
     } catch (error) {
       const message =
         error instanceof Error
@@ -281,7 +282,7 @@ export function OrganizationSetupView() {
             style={styles.subtitle}
             variant="bodySmall"
           >
-            Para continuar, crea una organización o únete con un código/link de
+            Para continuar, creá una organización o unite con un código de
             invitación.
           </ThemedText>
 
@@ -471,12 +472,15 @@ export function OrganizationSetupView() {
           ) : (
             <View style={styles.form}>
               <TextField
-                autoCapitalize="none"
-                label="Código o link de invitación"
-                maxLength={500}
-                value={inviteCodeOrLink}
-                onChangeText={setInviteCodeOrLink}
-                placeholder="Pega el código o link"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                label="Código de invitación"
+                maxLength={120}
+                value={invitationCode}
+                onChangeText={(value) => {
+                  setInvitationCode(normalizeInvitationCode(value));
+                }}
+                placeholder="Ingresá el código"
                 containerStyle={styles.input}
               />
               <PrimaryButton

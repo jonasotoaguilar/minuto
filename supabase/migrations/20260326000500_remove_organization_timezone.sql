@@ -11,6 +11,9 @@ DROP FUNCTION IF EXISTS public.create_organization_with_owner(
   double precision
 );
 
+ALTER TABLE public.organizations
+DROP COLUMN IF EXISTS timezone;
+
 CREATE FUNCTION public.create_organization_with_owner(
   p_name text,
   p_location text DEFAULT NULL::text,
@@ -146,10 +149,10 @@ BEGIN
       v_org_id,
       v_office_name,
       v_office_address_label,
-      extensions.ST_SetSRID(
-        extensions.ST_MakePoint(p_office_longitude, p_office_latitude),
+      ST_SetSRID(
+        ST_MakePoint(p_office_longitude, p_office_latitude),
         4326
-      )::extensions.geography,
+      )::geography,
       false
     );
   END IF;
@@ -168,4 +171,4 @@ GRANT EXECUTE ON FUNCTION public.create_organization_with_owner(
 ) TO anon, authenticated, service_role;
 
 ALTER TABLE public.organizations
-DROP COLUMN timezone;
+DROP COLUMN IF EXISTS timezone;

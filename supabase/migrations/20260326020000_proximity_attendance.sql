@@ -40,7 +40,7 @@ DECLARE
   v_record_id uuid;
   v_office_id uuid;
   v_office_name text;
-  v_user_point extensions.geography;
+  v_user_point geography;
   v_user_org_id uuid;
 BEGIN
   -- Verify membership belongs to caller
@@ -97,10 +97,10 @@ BEGIN
     END IF;
 
     -- Build user point
-    v_user_point := extensions.ST_SetSRID(
-      extensions.ST_MakePoint(p_longitude, p_latitude),
+    v_user_point := ST_SetSRID(
+      ST_MakePoint(p_longitude, p_latitude),
       4326
-    )::extensions.geography;
+    )::geography;
 
     -- Find nearest office within 100m
     SELECT id, name
@@ -108,8 +108,8 @@ BEGIN
     FROM organization_offices
     WHERE organization_id = v_user_org_id
       AND is_remote = false
-      AND extensions.ST_DWithin(location_point, v_user_point, 100)
-    ORDER BY extensions.ST_Distance(location_point, v_user_point) ASC
+      AND ST_DWithin(location_point, v_user_point, 100)
+    ORDER BY ST_Distance(location_point, v_user_point) ASC
     LIMIT 1;
 
     IF v_office_id IS NULL THEN
@@ -135,10 +135,10 @@ BEGIN
     now(),
     CASE 
       WHEN p_is_remote THEN NULL
-      ELSE extensions.ST_SetSRID(
-        extensions.ST_MakePoint(p_longitude, p_latitude),
+      ELSE ST_SetSRID(
+        ST_MakePoint(p_longitude, p_latitude),
         4326
-      )::extensions.geography
+      )::geography
     END,
     v_office_id
   )
@@ -212,10 +212,10 @@ BEGIN
     clock_out_at = now(),
     clock_out_point = CASE
       WHEN p_latitude IS NOT NULL AND p_longitude IS NOT NULL AND NOT p_is_remote THEN
-        extensions.ST_SetSRID(
-          extensions.ST_MakePoint(p_longitude, p_latitude),
+        ST_SetSRID(
+          ST_MakePoint(p_longitude, p_latitude),
           4326
-        )::extensions.geography
+        )::geography
       ELSE NULL
     END,
     updated_at = now()

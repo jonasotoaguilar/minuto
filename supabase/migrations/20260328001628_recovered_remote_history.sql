@@ -1,0 +1,2 @@
+-- Recovered placeholder migration to realign local history with remote Supabase project mnfegdwioagzcmisrodo.
+-- Original migration SQL was not present in this branch history.

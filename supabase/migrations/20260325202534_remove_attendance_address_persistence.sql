@@ -27,7 +27,7 @@ BEGIN
     p_membership_id,
     p_work_date,
     now(),
-    extensions.ST_SetSRID(extensions.ST_MakePoint(p_longitude, p_latitude), 4326)::extensions.geography
+    ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326)::geography
   ) RETURNING id INTO v_record_id;
   RETURN v_record_id;
 END;
@@ -55,7 +55,7 @@ BEGIN
   END IF;
   UPDATE attendance_records
   SET clock_out_at = now(),
-      clock_out_point = extensions.ST_SetSRID(extensions.ST_MakePoint(p_longitude, p_latitude), 4326)::extensions.geography,
+      clock_out_point = ST_SetSRID(ST_MakePoint(p_longitude, p_latitude), 4326)::geography,
       updated_at = now()
   WHERE id = p_record_id;
 END;
@@ -93,10 +93,10 @@ BEGIN
 
   RETURN QUERY
   SELECT ar.id, ar.organization_id, ar.membership_id, ar.work_date, ar.clock_in_at, ar.clock_out_at,
-    extensions.ST_Y(ar.clock_in_point::extensions.geometry),
-    extensions.ST_X(ar.clock_in_point::extensions.geometry),
-    extensions.ST_Y(ar.clock_out_point::extensions.geometry),
-    extensions.ST_X(ar.clock_out_point::extensions.geometry),
+    ST_Y(ar.clock_in_point::geometry),
+    ST_X(ar.clock_in_point::geometry),
+    ST_Y(ar.clock_out_point::geometry),
+    ST_X(ar.clock_out_point::geometry),
     ar.created_at, ar.updated_at
   FROM attendance_records AS ar
   WHERE ar.organization_id = p_organization_id

@@ -12,7 +12,7 @@ AS $$
 DECLARE
   v_office_id uuid;
   v_office_name text;
-  v_user_point extensions.geography;
+  v_user_point geography;
 BEGIN
   -- Check GPS accuracy
   IF p_accuracy > 50 THEN
@@ -23,10 +23,10 @@ BEGIN
   END IF;
 
   -- Build user point
-  v_user_point := extensions.ST_SetSRID(
-    extensions.ST_MakePoint(p_longitude, p_latitude),
+  v_user_point := ST_SetSRID(
+    ST_MakePoint(p_longitude, p_latitude),
     4326
-  )::extensions.geography;
+  )::geography;
 
   -- Find nearest office within 100m
   SELECT id, name
@@ -34,8 +34,8 @@ BEGIN
   FROM organization_offices
   WHERE organization_id = p_organization_id
     AND is_remote = false
-    AND extensions.ST_DWithin(location_point, v_user_point, 100)
-  ORDER BY extensions.ST_Distance(location_point, v_user_point) ASC
+    AND ST_DWithin(location_point, v_user_point, 100)
+  ORDER BY ST_Distance(location_point, v_user_point) ASC
   LIMIT 1;
 
   IF v_office_id IS NULL THEN
