@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MaxContentWidth } from '@/constants/theme';
 import { useTheme } from '@/theme/hooks';
 
 const SCREEN_SURFACES = {
@@ -64,10 +65,15 @@ export function Screen({
 }: ScreenProps) {
   const theme = useTheme();
   const backgroundColor = resolveScreenBackground(theme, surface);
+  const webContent = Platform.OS === 'web' ? styles.webContent : null;
   const content = scroll ? (
     <ScrollView
       {...scrollProps}
-      contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
+      contentContainerStyle={[
+        styles.scrollContent,
+        webContent,
+        contentContainerStyle,
+      ]}
       keyboardShouldPersistTaps={
         scrollProps?.keyboardShouldPersistTaps ?? 'handled'
       }
@@ -79,7 +85,9 @@ export function Screen({
       {children}
     </ScrollView>
   ) : (
-    <View style={[styles.content, contentContainerStyle]}>{children}</View>
+    <View style={[styles.content, webContent, contentContainerStyle]}>
+      {children}
+    </View>
   );
 
   const body = keyboardAvoiding ? (
@@ -116,5 +124,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+  },
+  webContent: {
+    alignSelf: 'center',
+    marginHorizontal: 'auto',
+    maxWidth: MaxContentWidth,
+    width: '100%',
   },
 });

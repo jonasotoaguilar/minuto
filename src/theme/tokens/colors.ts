@@ -2,7 +2,7 @@ const LIGHT_COLORS = {
   text: {
     primary: '#0B1F14',
     secondary: '#51665B',
-    muted: '#6F8477',
+    muted: '#5E7367',
     inverse: '#F5F7F6',
   },
   background: {
@@ -18,8 +18,8 @@ const LIGHT_COLORS = {
     strong: '#A8C5B4',
   },
   brand: {
-    primary: '#11B981',
-    accent: '#0E8E6D',
+    primary: '#047857',
+    accent: '#0B775A',
     muted: '#DFF6EB',
   },
   status: {
