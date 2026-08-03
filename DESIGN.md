@@ -3,10 +3,10 @@ version: alpha
 name: Minuto Design System
 description: Mobile-first attendance UI for PyMEs and small businesses
 colors:
-  primary: "#11B981"
+  primary: "#047857"
   text-primary: "#0B1F14"
   text-secondary: "#51665B"
-  text-muted: "#6F8477"
+  text-muted: "#5E7367"
   text-inverse: "#F5F7F6"
   background-screen: "#ECF8F1"
   background-card: "#FFFFFF"
@@ -14,8 +14,8 @@ colors:
   background-selected: "#DFF2E8"
   border-default: "#D2E5D9"
   border-strong: "#A8C5B4"
-  brand-primary: "#11B981"
-  brand-accent: "#0E8E6D"
+  brand-primary: "#047857"
+  brand-accent: "#0B775A"
   brand-muted: "#DFF6EB"
   status-success: "#11B981"
   status-warning: "#D97706"
@@ -94,7 +94,7 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.primary}"
-    textColor: "{colors.text-primary}"
+    textColor: "{colors.text-inverse}"
     rounded: "{rounded.pill}"
     padding: 20px
   button-secondary:
@@ -149,6 +149,18 @@ Use these roles consistently:
 - `status-error`: failed validation, blocked actions, destructive confirmations.
 - `status-warning`: incomplete shifts, pending invitations, caution states.
 
+### Contrast policy (light mode)
+
+Light-mode text and interactive elements meet WCAG AA ≥ 4.5:1 on all common
+surfaces. `brand-primary` is a deep emerald (`#047857`) so inverse text on the
+primary CTA, links on white cards, and brand text on mint all clear AA;
+`brand-accent` (`#0B775A`) and `text-muted` (`#5E7367`) are darkened
+accordingly. `status-success` keeps the bright emerald (`#11B981`) reserved for
+status dots and success indicators, which do not carry text contrast
+requirements. Dark-mode values live in `src/theme/tokens/colors.ts` and are
+unaffected by light-mode contrast changes. The automated proof is
+`src/theme/__tests__/colors-contrast.test.ts`.
+
 Known inconsistency to fix: splash/animated assets still use blue Expo-era colors while the product brand is green.
 
 The YAML front matter records the light palette because the DESIGN.md lint schema supports a single canonical color map. Dark-mode values, overlay tokens, elevation tokens, and translucent surface tokens are part of the implementation source of truth in `src/theme/tokens/colors.ts`, `overlay.ts`, `elevation.ts`, and `surfaces.ts` until the design spec schema supports those token families directly.
@@ -169,9 +181,10 @@ The product is mobile-first with web support through Expo web. Layout should use
 Rules:
 
 - Use `Screen` for safe area, scroll, keyboard avoidance, and background behavior.
-- Keep primary content within a readable max width on web/tablet.
+- `Screen` centers content within `MaxContentWidth` (720) on web by default; screens pass their own `contentContainerStyle` `maxWidth` to override. Native renders uncapped.
+- The web bottom tab inset is nonzero (`BottomTabInset` = 64 on web) so tab content clears the floating bar on desktop.
 - Use bottom tab inset handling in one shared place, not repeated per tab screen.
-- Replace magic numbers like `16`, `24`, `88`, and repeated `maxWidth` values with named tokens or documented component sizes.
+- Replace magic numbers like `16`, `24`, `88`, and repeated `maxWidth` values with named tokens (`src/constants/theme.ts`) or documented component sizes.
 - Every data screen needs loading, empty, error, and success states.
 
 ## Elevation & Depth
