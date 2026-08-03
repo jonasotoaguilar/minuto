@@ -1,7 +1,10 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs, usePathname } from 'expo-router';
+import { Platform } from 'react-native';
 
 import { BottomTabBar } from '@/components/bottom-tab-bar';
 import { useOrganization } from '@/hooks/use-organization';
+import { useSession } from '@/hooks/use-session';
+import { buildAuthRouteWithRedirect } from '@/lib/auth-redirect';
 
 function TabsNavigator() {
   const { isOrganizationSetupOpen, isLoadingOrganizations } = useOrganization();
@@ -34,5 +37,25 @@ function TabsNavigator() {
 }
 
 export default function TabsLayout() {
+  const { isInitializing, isSignedIn } = useSession();
+  const routerPathname = usePathname();
+
+  if (isInitializing) {
+    // Web: a null layout breaks expo-router URL matching (route bounce), and
+    // tabs render empty without a session. Native: the root Protected group
+    // handles the gate instead.
+    return Platform.OS === 'web' ? <TabsNavigator /> : null;
+  }
+
+  if (!isSignedIn) {
+    // Web: the router store may still report "/" while a deep link hydrates.
+    const pathname =
+      Platform.OS === 'web' && typeof window !== 'undefined'
+        ? window.location.pathname
+        : routerPathname;
+
+    return <Redirect href={buildAuthRouteWithRedirect('/login', pathname)} />;
+  }
+
   return <TabsNavigator />;
 }

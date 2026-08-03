@@ -17,6 +17,7 @@ import { Stack } from 'expo-router';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { OrganizationProvider } from '@/hooks/use-organization';
+import { useSession } from '@/hooks/use-session';
 import { ThemeProvider } from '@/theme';
 
 export default function TabLayout() {
@@ -31,6 +32,11 @@ export default function TabLayout() {
     Manrope_700Bold,
   });
 
+  const { isInitializing, isSignedIn } = useSession();
+
+  // On web the navigator must stay mounted while fonts load (a null frame
+  // makes expo-router fail URL matching); protected screens render empty
+  // shells without a session and are locked once the session resolves.
   if (!fontsLoaded && !fontError) {
     return null;
   }
@@ -40,11 +46,14 @@ export default function TabLayout() {
       <OrganizationProvider>
         <AnimatedSplashOverlay />
         <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+          <Stack.Protected guard={isInitializing || isSignedIn}>
+            <Stack.Screen name="edit-profile" />
+            <Stack.Screen name="invitations" />
+            <Stack.Screen name="org-settings" />
+          </Stack.Protected>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="edit-profile" />
           <Stack.Screen name="invite/[code]" />
-          <Stack.Screen name="org-settings" />
           <Stack.Screen name="index" />
         </Stack>
       </OrganizationProvider>
