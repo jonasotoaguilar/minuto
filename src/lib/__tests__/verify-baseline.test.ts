@@ -10,12 +10,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const SCRIPT = join(process.cwd(), 'scripts/verify-baseline.py');
-const INVENTORY_DEFAULT = join(
+const TRACKED_INVENTORY = join(
   process.cwd(),
   'openspec/changes/stabilize-project-foundations/baseline-inventory.jsonl',
 );
+const realGitStatus = (): string =>
+  execSync('git status --porcelain', { cwd: process.cwd(), encoding: 'utf8' });
 describe('verify-baseline', () => {
   let repos: string[] = [];
+  let statusBefore: string;
+  beforeAll(() => {
+    statusBefore = realGitStatus();
+  });
+  afterAll(() => {
+    expect(realGitStatus()).toBe(statusBefore);
+  });
   afterEach(() => {
     for (const repo of repos) rmSync(repo, { recursive: true, force: true });
     repos = [];
@@ -180,18 +189,40 @@ describe('verify-baseline', () => {
       expect(Array.isArray(record.chunks)).toBe(true);
       expect(record.chunks.length).toBeGreaterThan(1);
     });
-    it('generates baseline-inventory.jsonl for the current repository', () => {
-      try {
-        rmSync(INVENTORY_DEFAULT);
-      } catch {
-        /* ignore */
-      }
-      run(['--output', INVENTORY_DEFAULT], process.cwd());
-      const records = parse(INVENTORY_DEFAULT);
-      const head = records.find((r) => r.type === 'head');
-      expect(head).toBeDefined();
-      expect(head.commit).toMatch(/^[0-9a-f]{40}$/);
-      expect(records.some((r) => r.path === 'pnpm-lock.yaml')).toBe(true);
+    it('captures a deliberately touched lockfile-like file', () => {
+      const repo = createRepo();
+      commit(repo, 'initial.txt', 'init');
+      commit(repo, 'pnpm-lock.yaml', 'lockfileVersion: "6.0"\n');
+      writeFileSync(
+        join(repo, 'pnpm-lock.yaml'),
+        'lockfileVersion: "6.0"\npackages:\n',
+      );
+      const inv = join(repo, 'inventory.jsonl');
+      run(['--output', inv], repo);
+      const record = parse(inv).find((r) => r.path === 'pnpm-lock.yaml');
+      expect(record).toBeDefined();
+      expect(record.status).toBe('.M');
+      expect(record.sha256).toMatch(/^[0-9a-f]{64}$/);
+    });
+  });
+  describe('0.3 hermetic operation', () => {
+    it('verifies a clean temp repository without drift', () => {
+      const repo = createRepo();
+      commit(repo, 'a.txt', 'hello');
+      const inv = join(repo, 'inventory.jsonl');
+      run(['--output', inv], repo);
+      expect(() => run(['--gate', '--inventory', inv], repo)).not.toThrow();
+    });
+    it('never mutates the real repository', () => {
+      const before = realGitStatus();
+      const beforeInventory = readFileSync(TRACKED_INVENTORY);
+      const repo = createRepo();
+      commit(repo, 'a.txt', 'hello');
+      const inv = join(repo, 'inventory.jsonl');
+      run(['--output', inv], repo);
+      run(['--gate', '--inventory', inv], repo);
+      expect(readFileSync(TRACKED_INVENTORY)).toEqual(beforeInventory);
+      expect(realGitStatus()).toBe(before);
     });
   });
 });
