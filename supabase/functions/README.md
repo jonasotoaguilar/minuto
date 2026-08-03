@@ -1,7 +1,7 @@
-# Supabase functions sync
+# Supabase Edge Functions
 
-- **Remote Edge Functions**: none
-- **Local folder `address-search/`**: exists in the repo, but it is **not** deployed in the current Supabase project
-- **Database SQL functions**: versioned through `supabase/migrations/*.sql`
+There are **no Edge Functions** in this project.
 
-If you want, next step I can also generate a dedicated snapshot file with the current `public` SQL function definitions from the database.
+Database SQL functions (RPCs) are the backend layer and are versioned through `supabase/migrations/*.sql`. Schema, RPC, RLS, or migration work must read the migration history first and must not edit pushed migrations.
+
+The `functions/` directory is kept for future Edge Functions if workflows outgrow SQL RPCs or require external integrations.

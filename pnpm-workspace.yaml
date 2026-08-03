@@ -1,2 +1,36 @@
+# pnpm secure configuration — gate each key by installed version (pnpm 11.1.1)
+# Supply chain docs: https://pnpm.io/supply-chain-security
 nodeLinker: hoisted
-storeDir: /home/jona/.local/share/pnpm/store/v10
+overrides:
+  '@expo/metro-config>lightningcss': 1.30.1
+  '@expo/metro-config@55.0.21>lightningcss': 1.30.1
+  lightningcss: 1.30.1
+  '@expo/metro-runtime': 55.0.12
+  minimatch@3.1.5>brace-expansion: 1.1.17
+  minimatch@10.2.5>brace-expansion: 5.0.8
+  xcode>uuid: 11.1.1
+allowBuilds:
+  lefthook: true
+strictDepBuilds: true
+minimumReleaseAge: 20160
+minimumReleaseAgeExclude:
+  - '@types/react'
+  - typescript
+  - uuid@11.1.1
+  - shell-quote@1.8.4
+  - form-data@4.0.6
+  - js-yaml@3.15.0
+  - js-yaml@4.1.2
+  - ws@8.21.0
+  - ws@7.5.11
+  - '@babel/core@7.29.1'
+  - js-yaml@4.3.0
+  - shell-quote@1.8.5
+  - postcss@8.5.18
+  - brace-expansion
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+# semver@6.3.1: canonical npm org package, required by @babel/helper-compilation-targets;
+# registry metadata lacks provenance vs. earlier publishes (metadata artifact, not an incident).
+trustPolicyExclude:
+  - semver@6.3.1

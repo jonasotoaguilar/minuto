@@ -14,6 +14,8 @@ import {
 } from '@/lib/profile-update-feedback';
 import { supabase } from '@/lib/supabase';
 import {
+  Avatar,
+  FeedbackBlock,
   GlassCard,
   PrimaryButton,
   Screen,
@@ -181,23 +183,11 @@ export default function ProfileTabScreen() {
           </ThemedText>
         </View>
 
-        <View
-          style={[
-            styles.heroAvatar,
-            {
-              backgroundColor: theme.surface.glass.tint,
-              borderColor: theme.surface.glass.border,
-            },
-          ]}
-        >
-          <ThemedText
-            colorToken="accent"
-            style={styles.heroAvatarText}
-            variant="heading"
-          >
-            {profileSnapshot.initials}
-          </ThemedText>
-        </View>
+        <Avatar
+          accessibilityLabel="Tu avatar"
+          initials={profileSnapshot.initials}
+          size="lg"
+        />
 
         <View style={styles.heroCopy}>
           <ThemedText style={styles.name} variant="heading">
@@ -281,53 +271,18 @@ export default function ProfileTabScreen() {
       </GlassCard>
 
       {profileUpdateFeedback ? (
-        <View
-          style={[
-            styles.messageCard,
-            {
-              backgroundColor:
-                profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
-                  ? theme.surface.danger
-                  : theme.colors.brand.muted,
-              borderColor:
-                profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
-                  ? theme.surface.glass.border
-                  : theme.colors.border.default,
-            },
-          ]}
-        >
-          <ThemedText
-            colorToken={
-              profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
-                ? 'error'
-                : 'primary'
-            }
-            style={styles.messageText}
-            variant="bodySmall"
-          >
-            {profileUpdateFeedback.message}
-          </ThemedText>
-        </View>
+        <FeedbackBlock
+          tone={
+            profileUpdateFeedback.status === PROFILE_UPDATE_STATUS.ERROR
+              ? 'error'
+              : 'success'
+          }
+          message={profileUpdateFeedback.message}
+        />
       ) : null}
 
       {errorMessage ? (
-        <View
-          style={[
-            styles.messageCard,
-            {
-              backgroundColor: theme.surface.danger,
-              borderColor: theme.surface.glass.border,
-            },
-          ]}
-        >
-          <ThemedText
-            colorToken="error"
-            style={styles.messageText}
-            variant="bodySmall"
-          >
-            {errorMessage}
-          </ThemedText>
-        </View>
+        <FeedbackBlock tone="error" message={errorMessage} />
       ) : null}
 
       <View style={styles.footerActions}>
@@ -391,17 +346,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'flex-start',
   },
-  heroAvatar: {
-    width: 112,
-    height: 112,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  heroAvatarText: {
-    textAlign: 'center',
-  },
+
   heroCopy: {
     alignItems: 'center',
     gap: 4,
@@ -454,15 +399,7 @@ const styles = StyleSheet.create({
   settingArrow: {
     textAlign: 'center',
   },
-  messageCard: {
-    borderWidth: 1,
-    borderRadius: 24,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-  messageText: {
-    textAlign: 'center',
-  },
+
   footerActions: {
     marginBottom: 16,
   },

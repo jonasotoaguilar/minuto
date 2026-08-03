@@ -68,12 +68,6 @@ revoke truncate on table "public"."spatial_ref_sys" from "service_role";
 
 revoke update on table "public"."spatial_ref_sys" from "service_role";
 
-drop type "public"."geometry_dump";
-
-drop function if exists "public"."is_active_member_of_organization"(p_organization_id uuid);
-
-drop type "public"."valid_detail";
-
 drop function if exists "public"."create_membership_invitation"(p_organization_id uuid, p_invited_email text, p_role text);
 
 drop index if exists "public"."attendance_records_clock_in_point_gist";
@@ -94,11 +88,9 @@ alter table "public"."employee_profiles" add column "weekly_hours" numeric not n
 
 alter table "public"."employee_profiles" enable row level security;
 
-alter table "public"."organization_offices" alter column "location_point" set data type extensions.geography(Point,4326) using "location_point"::extensions.geography(Point,4326);
+alter table "public"."organization_offices" alter column "location_point" set data type public.geography(Point,4326) using "location_point"::public.geography(Point,4326);
 
 alter table "public"."organizations" drop column "location";
-
-drop extension if exists "postgis";
 
 alter table "public"."employee_profiles" add constraint "employee_profiles_weekly_hours_check" CHECK (((weekly_hours > (0)::numeric) AND (weekly_hours <= (100)::numeric))) not valid;
 
@@ -106,7 +98,7 @@ alter table "public"."employee_profiles" validate constraint "employee_profiles_
 
 set check_function_bodies = off;
 
-CREATE OR REPLACE FUNCTION public.is_active_member_of_organization(target_organization_id uuid)
+CREATE OR REPLACE FUNCTION public.is_active_member_of_organization(p_organization_id uuid)
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
@@ -115,7 +107,7 @@ AS $function$
   select exists (
     select 1
     from public.memberships m
-    where m.organization_id = target_organization_id
+    where m.organization_id = p_organization_id
       and m.user_id = auth.uid()
       and m.status = 'active'
   );
@@ -241,7 +233,7 @@ CREATE OR REPLACE FUNCTION public.attendance_clock_in(p_organization_id uuid, p_
 AS $function$
 DECLARE
   v_record_id uuid; v_office_id uuid; v_office_name text;
-  v_user_point extensions.geography; v_user_org_id uuid; v_open_shift jsonb;
+  v_user_point public.geography; v_user_org_id uuid; v_open_shift jsonb;
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.memberships AS m WHERE m.id = p_membership_id AND m.user_id = auth.uid()
@@ -270,7 +262,7 @@ BEGIN
   ELSE
     IF p_accuracy > 50 THEN
       RETURN jsonb_build_object('success', false, 'error_code', 'GPS_ACCURACY_TOO_LOW'); END IF;
-    v_user_point := extensions.ST_SetSRID(extensions.ST_MakePoint(p_longitude, p_latitude), 4326)::extensions.geography;
+    v_user_point := extensions.ST_SetSRID(extensions.ST_MakePoint(p_longitude, p_latitude), 4326)::public.geography;
     SELECT id, name INTO v_office_id, v_office_name FROM public.organization_offices
     WHERE organization_id = v_user_org_id AND is_remote = false
       AND extensions.ST_DWithin(location_point, v_user_point, 100)
@@ -488,7 +480,7 @@ BEGIN
 
   INSERT INTO public.organization_offices (organization_id, name, address_label, location_point, is_remote)
   VALUES (p_organization_id, v_name, v_address_label,
-    extensions.ST_SetSRID(extensions.ST_MakePoint(p_longitude, p_latitude), 4326)::extensions.geography, false)
+    extensions.ST_SetSRID(extensions.ST_MakePoint(p_longitude, p_latitude), 4326)::public.geography, false)
   RETURNING * INTO v_office;
   RETURN v_office;
 END;
@@ -650,7 +642,7 @@ BEGIN
       extensions.ST_SetSRID(
         extensions.ST_MakePoint(p_office_longitude, p_office_latitude),
         4326
-      )::extensions.geography,
+      )::public.geography,
       false
     );
   END IF;
@@ -730,8 +722,8 @@ BEGIN
     oo.name,
     oo.address_label,
     oo.is_remote,
-    extensions.ST_Y(oo.location_point::extensions.geometry) as latitude,
-    extensions.ST_X(oo.location_point::extensions.geometry) as longitude,
+    extensions.ST_Y(oo.location_point::public.geometry) as latitude,
+    extensions.ST_X(oo.location_point::public.geometry) as longitude,
     oo.organization_id
   FROM organization_offices oo
   WHERE oo.organization_id = p_organization_id
@@ -954,7 +946,7 @@ AS $function$
 DECLARE
   v_office_id uuid;
   v_office_name text;
-  v_user_point extensions.geography;
+  v_user_point public.geography;
 BEGIN
   IF p_accuracy > 50 THEN
     RETURN jsonb_build_object(
@@ -966,7 +958,7 @@ BEGIN
   v_user_point := extensions.ST_SetSRID(
     extensions.ST_MakePoint(p_longitude, p_latitude),
     4326
-  )::extensions.geography;
+  )::public.geography;
 
   SELECT id, name
   INTO v_office_id, v_office_name
@@ -992,5 +984,4 @@ BEGIN
 END;
 $function$
 ;
-
 

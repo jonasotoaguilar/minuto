@@ -1,10 +1,14 @@
 import { Link } from 'expo-router';
-import { type ReactNode } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { loginScreenLimits, useLoginScreen } from '@/hooks/use-login-screen';
 import { useTheme } from '@/hooks/use-theme';
 import { buildAuthRouteWithRedirect } from '@/lib/auth-redirect';
-import { PrimaryButton, Screen, ThemedText } from '@/theme/primitives';
+import {
+  PrimaryButton,
+  Screen,
+  TextField,
+  ThemedText,
+} from '@/theme/primitives';
 
 export default function LoginScreen() {
   const theme = useTheme();
@@ -19,6 +23,8 @@ export default function LoginScreen() {
         {
           paddingTop: theme.spacing['2xl'],
           paddingBottom: theme.spacing['3xl'],
+          paddingHorizontal: theme.spacing.lg,
+          gap: theme.spacing.lg,
         },
       ]}
     >
@@ -35,11 +41,14 @@ function LoginBrandHeader() {
 
   return (
     <View style={styles.topBar}>
-      <View style={styles.brand}>
+      <View style={[styles.brand, { gap: theme.spacing.sm }]}>
         <View
           style={[
             styles.brandIcon,
-            { backgroundColor: theme.colors.brand.primary },
+            {
+              backgroundColor: theme.colors.brand.primary,
+              borderRadius: theme.radius.lg,
+            },
           ]}
         >
           <ThemedText
@@ -75,7 +84,9 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
         styles.card,
         {
           backgroundColor: theme.colors.background.card,
+          borderRadius: theme.radius.xl,
           shadowColor: theme.colors.shadow.color,
+          ...theme.elevation.elevated,
         },
       ]}
     >
@@ -88,7 +99,10 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
         <View
           style={[
             styles.cardShield,
-            { backgroundColor: theme.colors.brand.muted },
+            {
+              backgroundColor: theme.colors.brand.muted,
+              borderRadius: theme.radius.lg,
+            },
           ]}
         >
           <ThemedText
@@ -106,7 +120,12 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
         </View>
       </View>
 
-      <View style={styles.cardBody}>
+      <View
+        style={[
+          styles.cardBody,
+          { padding: theme.spacing.lg, gap: theme.spacing.lg },
+        ]}
+      >
         <ThemedText variant="heading" style={styles.cardTitle}>
           Bienvenido a Minuto
         </ThemedText>
@@ -120,11 +139,10 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
           Ingresa a tu cuenta
         </ThemedText>
 
-        <View style={styles.form}>
-          <Field
+        <View style={[styles.form, { gap: theme.spacing.sm }]}>
+          <TextField
             label="Email"
             placeholder="nombre@empresa.com"
-            icon="@"
             value={screen.email}
             onChangeText={screen.setEmail}
             keyboardType="email-address"
@@ -136,7 +154,7 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
               screen.setFocusedField(null);
               screen.markFieldTouched('email');
             }}
-            error={
+            errorMessage={
               screen.touchedFields.email && screen.focusedField !== 'email'
                 ? screen.fieldErrors.email
                 : undefined
@@ -155,10 +173,8 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
               ¿Olvidaste la contraseña?
             </ThemedText>
           </View>
-          <Field
+          <PasswordField
             placeholder="********"
-            icon="*"
-            secure={!screen.isPasswordVisible}
             value={screen.password}
             onChangeText={screen.setPassword}
             autoCorrect={false}
@@ -168,31 +184,17 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
               screen.setFocusedField(null);
               screen.markFieldTouched('password');
             }}
-            error={
+            errorMessage={
               screen.touchedFields.password &&
               screen.focusedField !== 'password'
                 ? screen.fieldErrors.password
                 : undefined
             }
-            rightElement={
-              <Pressable
-                onPress={() =>
-                  screen.setIsPasswordVisible((current) => !current)
-                }
-                hitSlop={8}
-              >
-                <ThemedText
-                  colorToken="brand"
-                  variant="caption"
-                  style={[
-                    styles.toggleText,
-                    { fontWeight: theme.typography.label.fontWeight },
-                  ]}
-                >
-                  {screen.isPasswordVisible ? 'Ocultar' : 'Ver'}
-                </ThemedText>
-              </Pressable>
+            secure={!screen.isPasswordVisible}
+            onToggleSecure={() =>
+              screen.setIsPasswordVisible((current) => !current)
             }
+            toggleLabel={screen.isPasswordVisible ? 'Ocultar' : 'Ver'}
           />
         </View>
 
@@ -282,98 +284,100 @@ function LoginFormCard({ screen }: { screen: LoginScreenState }) {
   );
 }
 
-type FieldProps = {
-  label?: string;
+type PasswordFieldProps = {
   placeholder: string;
-  icon: string;
-  secure?: boolean;
   value?: string;
   onChangeText?: (value: string) => void;
-  keyboardType?: 'default' | 'email-address';
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   autoCorrect?: boolean;
   maxLength?: number;
-  error?: string;
-  rightElement?: ReactNode;
-  onBlur?: () => void;
+  errorMessage?: string;
+  secure?: boolean;
+  onToggleSecure?: () => void;
+  toggleLabel?: string;
   onFocus?: () => void;
+  onBlur?: () => void;
 };
 
-function Field({
-  label,
+function PasswordField({
   placeholder,
-  icon,
-  secure,
   value,
   onChangeText,
-  keyboardType,
-  autoCapitalize,
   autoCorrect,
   maxLength,
-  error,
-  rightElement,
-  onBlur,
+  errorMessage,
+  secure,
+  onToggleSecure,
+  toggleLabel,
   onFocus,
-}: FieldProps) {
+  onBlur,
+}: PasswordFieldProps) {
   const theme = useTheme();
 
   return (
-    <View style={styles.fieldGroup}>
-      {label ? <ThemedText variant="label">{label}</ThemedText> : null}
+    <View style={{ gap: theme.spacing.xs }}>
       <View
         style={[
-          styles.field,
+          styles.passwordField,
           {
-            borderColor: error
+            borderColor: errorMessage
               ? theme.colors.status.error
               : theme.colors.border.default,
+            borderRadius: theme.radius.full,
+            paddingHorizontal: theme.spacing.sm,
+            paddingVertical: theme.spacing.xs,
+            gap: theme.spacing.xs,
           },
         ]}
       >
-        <ThemedText
-          colorToken="brand"
-          style={[
-            styles.fieldIcon,
-            {
-              fontSize: theme.typography.bodySmall.fontSize,
-              fontWeight: theme.typography.label.fontWeight,
-            },
-          ]}
-        >
-          {icon}
-        </ThemedText>
         <TextInput
           placeholder={placeholder}
           placeholderTextColor={theme.colors.text.muted}
           style={[
-            styles.fieldInput,
+            styles.passwordFieldInput,
             {
               color: theme.colors.text.primary,
               fontSize: theme.typography.bodySmall.fontSize,
+              paddingVertical: theme.spacing.xs,
             },
           ]}
           secureTextEntry={secure}
           value={value}
           onChangeText={onChangeText}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
           autoCorrect={autoCorrect}
           maxLength={maxLength}
-          onBlur={onBlur}
           onFocus={onFocus}
+          onBlur={onBlur}
         />
-        {rightElement}
+        {toggleLabel && onToggleSecure ? (
+          <Pressable
+            accessibilityLabel={toggleLabel}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onToggleSecure}
+            style={({ pressed }) => [
+              styles.passwordToggle,
+              { opacity: pressed ? 0.72 : 1 },
+            ]}
+          >
+            <ThemedText
+              colorToken="brand"
+              variant="caption"
+              style={{
+                fontWeight: theme.typography.label.fontWeight,
+              }}
+            >
+              {toggleLabel}
+            </ThemedText>
+          </Pressable>
+        ) : null}
       </View>
-      {error ? (
+      {errorMessage ? (
         <ThemedText
           colorToken="error"
           variant="caption"
-          style={[
-            styles.fieldError,
-            { fontWeight: theme.typography.label.fontWeight },
-          ]}
+          style={{ fontWeight: theme.typography.label.fontWeight }}
         >
-          {error}
+          {errorMessage}
         </ThemedText>
       ) : null}
     </View>
@@ -382,8 +386,7 @@ function Field({
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    gap: 16,
+    flex: 1,
   },
   topBar: {
     flexDirection: 'row',
@@ -393,12 +396,10 @@ const styles = StyleSheet.create({
   brand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   brandIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -416,12 +417,7 @@ const styles = StyleSheet.create({
     // fontWeight applied inline via theme.typography.label
   },
   card: {
-    borderRadius: 28,
     overflow: 'hidden',
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
   },
   cardBanner: {
     height: 120,
@@ -431,7 +427,6 @@ const styles = StyleSheet.create({
   cardShield: {
     width: 68,
     height: 68,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -439,8 +434,7 @@ const styles = StyleSheet.create({
     // Using body typography with semibold weight
   },
   cardBody: {
-    padding: 16,
-    gap: 16,
+    alignItems: 'stretch',
   },
   cardTitle: {
     textAlign: 'center',
@@ -450,27 +444,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   form: {
-    gap: 8,
+    alignItems: 'stretch',
   },
-  fieldGroup: {
-    gap: 4,
-  },
-  field: {
+  passwordField: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
   },
-  fieldIcon: {
-    // Typography applied inline via theme.typography.label
-  },
-  fieldInput: {
+  passwordFieldInput: {
     flex: 1,
-    // fontSize applied inline via theme.typography.bodySmall
-    paddingVertical: 4,
+  },
+  passwordToggle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
   },
   passwordRow: {
     flexDirection: 'row',
@@ -478,12 +466,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   linkText: {
-    // fontWeight applied inline via theme.typography.label
-  },
-  toggleText: {
-    // fontWeight applied inline via theme.typography.label (bold)
-  },
-  fieldError: {
     // fontWeight applied inline via theme.typography.label
   },
   messageText: {

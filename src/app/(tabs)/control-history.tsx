@@ -13,6 +13,8 @@ import {
 } from '@/lib/attendance';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
+  AttendanceIcon,
+  EmptyState,
   GlassCard,
   Screen,
   SecondaryButton,
@@ -295,15 +297,20 @@ export default function ControlHistoryScreen() {
 
       <View style={styles.tableCard}>
         {displayRows.length === 0 ? (
-          <ThemedText
-            colorToken="secondary"
-            style={styles.emptyText}
-            variant="bodySmall"
-          >
-            {isLoading
-              ? 'Cargando...'
-              : 'No hay registros para el mes seleccionado.'}
-          </ThemedText>
+          isLoading ? (
+            <ThemedText
+              colorToken="secondary"
+              style={styles.emptyText}
+              variant="bodySmall"
+            >
+              Cargando...
+            </ThemedText>
+          ) : (
+            <EmptyState
+              description="No hay registros para el mes seleccionado."
+              title="Sin registros"
+            />
+          )
         ) : (
           displayRows.map((row) => {
             const dayLabel = formatWorkdayLabel(row.workDate, currentTimezone);
@@ -449,75 +456,14 @@ function JourneyEvent({ tone, label }: JourneyEventProps) {
         isEntry ? styles.journeyEventLeft : styles.journeyEventRight,
       ]}
     >
-      <AttendanceEventIconCompact
+      <AttendanceIcon
         color={color}
         direction={isEntry ? 'in' : 'out'}
+        size="sm"
       />
       <ThemedText style={styles.journeyEventLabel} variant="subtitle">
         {label}
       </ThemedText>
-    </View>
-  );
-}
-
-function AttendanceEventIconCompact({
-  color,
-  direction,
-}: {
-  color: string;
-  direction: 'in' | 'out';
-}) {
-  const theme = useTheme();
-  const isEntry = direction === 'in';
-
-  return (
-    <View
-      style={[
-        styles.typeIconShell,
-        {
-          backgroundColor: isEntry
-            ? theme.surface.glass.tint
-            : theme.surface.glass.soft,
-          borderColor: color,
-          transform: [{ scaleX: isEntry ? -1 : 1 }],
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.attendanceIconFrameVerticalCompact,
-          { backgroundColor: color },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconFrameHorizontalCompact,
-          styles.attendanceIconFrameHorizontalTopCompact,
-          { backgroundColor: color },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconFrameHorizontalCompact,
-          styles.attendanceIconFrameHorizontalBottomCompact,
-          { backgroundColor: color },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconArrowShaftCompact,
-          { backgroundColor: color },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconArrowHeadCompact,
-          {
-            borderLeftColor: 'transparent',
-            borderRightColor: color,
-          },
-        ]}
-      />
     </View>
   );
 }
@@ -775,9 +721,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 999,
     borderWidth: 1,
-    height: 42,
+    height: 44,
     justifyContent: 'center',
-    width: 42,
+    width: 44,
   },
   monthArrowLabel: {
     lineHeight: 24,
@@ -884,55 +830,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     width: '100%',
   },
-  typeIconShell: {
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 18,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    width: 18,
-  },
-  attendanceIconFrameVerticalCompact: {
-    borderRadius: 999,
-    height: 8,
-    left: 5,
-    position: 'absolute',
-    top: 5,
-    width: 1,
-  },
-  attendanceIconFrameHorizontalCompact: {
-    borderRadius: 999,
-    height: 1,
-    left: 5,
-    position: 'absolute',
-    width: 5,
-  },
-  attendanceIconFrameHorizontalTopCompact: {
-    top: 5,
-  },
-  attendanceIconFrameHorizontalBottomCompact: {
-    bottom: 5,
-  },
-  attendanceIconArrowShaftCompact: {
-    borderRadius: 999,
-    height: 1,
-    left: 8,
-    position: 'absolute',
-    top: 9,
-    width: 5,
-  },
-  attendanceIconArrowHeadCompact: {
-    borderBottomColor: 'transparent',
-    borderBottomWidth: 2,
-    borderLeftWidth: 3,
-    borderRightWidth: 3,
-    borderTopColor: 'transparent',
-    borderTopWidth: 2,
-    left: 4,
-    position: 'absolute',
-    top: 7,
-  },
+
   emptyText: {
     paddingVertical: 8,
   },

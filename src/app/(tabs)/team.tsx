@@ -39,7 +39,10 @@ import {
 import { ROLE_PERMISSION_SUMMARIES } from '@/lib/role-permission-summaries';
 import { supabase } from '@/lib/supabase';
 import {
+  Avatar,
   Chip,
+  EmptyState,
+  FeedbackBlock,
   GlassCard,
   PrimaryButton,
   Screen,
@@ -574,7 +577,7 @@ export default function TeamScreen() {
       </GlassCard>
 
       {errorMessage ? (
-        <FeedbackCard tone="error">{errorMessage}</FeedbackCard>
+        <FeedbackBlock tone="error" message={errorMessage} />
       ) : null}
 
       {isLoadingMembers ? (
@@ -584,9 +587,10 @@ export default function TeamScreen() {
       ) : null}
 
       {!isLoadingMembers && filteredMembers.length === 0 ? (
-        <ThemedText colorToken="secondary" variant="body">
-          No hay miembros para ese filtro.
-        </ThemedText>
+        <EmptyState
+          description="No hay miembros para ese filtro."
+          title="Sin miembros"
+        />
       ) : null}
 
       {filteredMembers.map((member) => (
@@ -689,19 +693,7 @@ function TeamMemberCard({
   return (
     <GlassCard style={styles.memberCard} variant="soft">
       <View style={styles.memberTopRow}>
-        <View
-          style={[
-            styles.avatar,
-            {
-              backgroundColor: theme.surface.glass.tint,
-              borderColor: theme.surface.glass.border,
-            },
-          ]}
-        >
-          <ThemedText colorToken="accent" variant="subtitle">
-            {member.initials}
-          </ThemedText>
-        </View>
+        <Avatar initials={member.initials} size="sm" />
 
         <View style={styles.memberChipsRow}>
           <Chip label={getRoleLabel(member.role)} tone="brand" />
@@ -1151,7 +1143,7 @@ function EditMemberModal({
           )}
 
           {editFormMessage ? (
-            <FeedbackCard tone="error">{editFormMessage}</FeedbackCard>
+            <FeedbackBlock message={editFormMessage} tone="error" />
           ) : null}
 
           <View style={styles.modalActions}>
@@ -1171,27 +1163,6 @@ function EditMemberModal({
         </GlassCard>
       </View>
     </Modal>
-  );
-}
-
-function FeedbackCard({ children, tone }: { children: string; tone: 'error' }) {
-  const theme = useTheme();
-
-  return (
-    <View
-      style={[
-        styles.feedbackCard,
-        {
-          backgroundColor: tone === 'error' ? theme.surface.danger : undefined,
-          borderColor: theme.surface.glass.border,
-          borderRadius: theme.radius.lg,
-        },
-      ]}
-    >
-      <ThemedText colorToken="error" variant="bodySmall">
-        {children}
-      </ThemedText>
-    </View>
   );
 }
 
@@ -1616,11 +1587,6 @@ const styles = StyleSheet.create({
   departmentsRow: {
     gap: 8,
   },
-  feedbackCard: {
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
   memberCard: {
     gap: 12,
   },
@@ -1629,14 +1595,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     justifyContent: 'space-between',
-  },
-  avatar: {
-    alignItems: 'center',
-    borderWidth: 1,
-    height: 54,
-    justifyContent: 'center',
-    width: 54,
-    borderRadius: 999,
   },
   memberCopy: {
     gap: 4,

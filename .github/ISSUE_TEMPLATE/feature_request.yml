@@ -1,12 +1,23 @@
 name: Feature Request
 description: Suggest a new feature or improvement for Minuto
 title: "[Feature]: "
-labels: ["type:feature", "status:triage"]
+labels: ["type:feature", "status:needs-review"]
+
 body:
   - type: markdown
     attributes:
       value: |
-        Have an idea to make Minuto better? Describe it below.
+        Have an idea to make Minuto better? Describe it below. Issues start with `status:needs-review`; a maintainer must add `status:approved` before implementation PRs can pass validation.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      options:
+        - label: I checked existing issues and this is not a duplicate.
+          required: true
+        - label: I understand PRs must link an issue with `status:approved`.
+          required: true
 
   - type: textarea
     id: problem
@@ -36,18 +47,20 @@ body:
       required: false
 
   - type: dropdown
-    id: scope
+    id: area
     attributes:
-      label: Scope
-      description: Which area of the app does this affect?
+      label: Affected Area
+      description: Which part of Minuto does this affect?
       multiple: true
       options:
-        - Attendance / Check-in
-        - Profile / User management
-        - Navigation / UI
-        - Notifications
-        - Reporting / Analytics
-        - Authentication
+        - Authentication / Onboarding
+        - Attendance Control
+        - Team Management
+        - Member Profile
+        - UI / Design System
+        - Supabase / Database
+        - Build / Tooling
+        - Documentation
         - Other
     validations:
       required: true
@@ -67,10 +80,14 @@ body:
       required: true
 
   - type: textarea
-    id: mockups
+    id: acceptance
     attributes:
-      label: Mockups / References
-      description: Drag and drop images, wireframes, or links to similar features in other apps.
+      label: Acceptance Criteria
+      description: What must be true for this feature to be considered done?
+      placeholder: |
+        - [ ] Users can...
+        - [ ] The system prevents...
+        - [ ] Tests cover...
     validations:
       required: false
 
@@ -78,6 +95,6 @@ body:
     id: context
     attributes:
       label: Additional Context
-      description: Any other information, user stories, or business justification.
+      description: Links, screenshots, sketches, or related issues.
     validations:
       required: false

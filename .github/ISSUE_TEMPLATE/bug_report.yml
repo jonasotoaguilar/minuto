@@ -1,12 +1,23 @@
 name: Bug Report
 description: Report a bug or unexpected behavior in Minuto
 title: "[Bug]: "
-labels: ["type:bug", "status:triage"]
+labels: ["type:bug", "status:needs-review"]
+
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug! Please fill out the sections below so we can reproduce and fix it quickly.
+        Thanks for reporting a bug. Issues start with `status:needs-review`; a maintainer must add `status:approved` before a PR can be opened, otherwise PR validation will fail.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight Checklist
+      options:
+        - label: I checked existing issues and this is not a duplicate.
+          required: true
+        - label: I understand PRs must link an issue with `status:approved`.
+          required: true
 
   - type: textarea
     id: description
@@ -25,8 +36,7 @@ body:
       placeholder: |
         1. Go to '...'
         2. Tap on '...'
-        3. Scroll down to '...'
-        4. See error
+        3. See error
     validations:
       required: true
 
@@ -61,20 +71,39 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Area
+      description: Which part of Minuto is affected?
+      multiple: true
+      options:
+        - Authentication / Onboarding
+        - Attendance Control
+        - Team Management
+        - Member Profile
+        - UI / Design System
+        - Supabase / Database
+        - Build / Tooling
+        - Documentation
+        - Other
+    validations:
+      required: true
+
   - type: input
     id: expo-version
     attributes:
       label: Expo SDK Version
-      description: "Run `npx expo --version` or check app.json"
-      placeholder: "55.0.6"
+      description: Check package.json or app runtime info.
+      placeholder: "55.x"
     validations:
       required: false
 
   - type: input
     id: device
     attributes:
-      label: Device / Emulator
-      description: "e.g., iPhone 15 Pro, Pixel 8 emulator, Chrome 120"
+      label: Device / Browser
+      description: "Example: iPhone 15 Pro, Pixel 8 emulator, Chrome 120."
       placeholder: "iPhone 15 Pro"
     validations:
       required: false
@@ -83,7 +112,7 @@ body:
     id: logs
     attributes:
       label: Logs / Error Output
-      description: Paste any relevant logs or error messages.
+      description: Paste relevant logs or error messages.
       render: shell
     validations:
       required: false
@@ -100,6 +129,6 @@ body:
     id: context
     attributes:
       label: Additional Context
-      description: Any other information that might help (workarounds tried, related issues, etc.)
+      description: Workarounds tried, related issues, or anything else that helps.
     validations:
       required: false

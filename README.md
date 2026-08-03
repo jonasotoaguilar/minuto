@@ -12,7 +12,7 @@ Minuto es una aplicación móvil y web que permite a las organizaciones gestiona
 - **Multi-organización**: Soporta múltiples organizaciones por usuario (ideal para consultores, freelancers o empleados con múltiples trabajos).
 - **Historial y reportes**: Visualización de registros diarios, semanales y totales de horas trabajadas.
 - **Multiplataforma**: Funciona en iOS, Android y Web desde una única base de código.
-- **Autenticación segura**: Login y registro con validación de email y RUT (Chile).
+- **Autenticación segura**: Login y registro con validación de email y teléfono.
 
 ---
 
@@ -22,11 +22,12 @@ Este proyecto está en **desarrollo activo**. Las siguientes funcionalidades est
 
 ### ✅ Funcionalidades completadas
 
-- **Autenticación**: Login y registro con validación de email/RUT, disponibilidad de campos y restricciones de longitud.
+- **Autenticación**: Login y registro con validación de email/teléfono y restricciones de longitud.
 - **Multi-organización**: Creación de organizaciones, switcher, validación con Zod, protección contra nombres duplicados.
 - **Control de asistencia**: Registro de clock-in y clock-out con geolocalización (latitude, longitude, accuracy).
 - **Historial de asistencia**: Vista de eventos recientes, registros por rango de fechas, totales semanales.
 - **Gestión de equipos**: Vista de empleados por organización.
+- **Invitaciones**: Invitaciones por código con pantalla de invitaciones y gestión de miembros/invitados en el equipo.
 - **Perfil de usuario**: Edición de datos personales.
 - **Políticas de acceso**: Row Level Security (RLS) en Supabase para membresías organizacionales.
 
@@ -36,7 +37,6 @@ Este proyecto está en **desarrollo activo**. Las siguientes funcionalidades est
 - No hay reportes exportables (PDF, Excel).
 - No hay gestión de permisos/vacaciones.
 - No hay integración con sistemas de nómina.
-- El sistema de invitaciones por código está preparado en la base de datos pero no implementado en la UI.
 
 ---
 
@@ -44,10 +44,10 @@ Este proyecto está en **desarrollo activo**. Las siguientes funcionalidades est
 
 ### Frontend
 
-- **Expo ~55**: Framework para desarrollo universal (iOS, Android, Web).
-- **React Native 0.83.2** + **React 19.2.0**: UI y lógica de aplicación.
+- **Expo ~55.0.28**: Framework para desarrollo universal (iOS, Android, Web).
+- **React Native 0.83.10** + **React 19.2.0**: UI y lógica de aplicación.
 - **Expo Router**: Navegación basada en archivos (file-based routing).
-- **NativeWind 5**: Tailwind CSS para React Native (styling universal).
+- **Estilos**: StyleSheet con tokens de tema en `src/theme` (colores, tipografía, spacing, elevación); NativeWind/Tailwind solo para estilos web globales (`src/global.css` y componentes web puntuales).
 - **TypeScript**: Tipado estático en todo el proyecto.
 
 ### Backend
@@ -59,8 +59,8 @@ Este proyecto está en **desarrollo activo**. Las siguientes funcionalidades est
 ### Herramientas
 
 - **Biome**: Linting y formateo (reemplaza ESLint + Prettier).
-- **pnpm**: Gestor de paquetes.
-- **Husky**: Git hooks para calidad de código.
+- **pnpm**: Gestor de paquetes y runner de scripts (la versión exacta vive en el campo `packageManager` de `package.json`).
+- **Lefthook**: Git hooks para calidad de código (se instala con `pnpm install`).
 - **Zod**: Validación de esquemas en tiempo de ejecución.
 
 ---
@@ -69,8 +69,8 @@ Este proyecto está en **desarrollo activo**. Las siguientes funcionalidades est
 
 ### Prerrequisitos
 
-- Node.js 18+ (recomendado: 20+)
-- pnpm (instalar con `npm install -g pnpm`)
+- Node.js 24 (ver `.nvmrc`) compatible con Expo tooling
+- pnpm 11.1.1 (ver `packageManager` en `package.json`)
 - Expo CLI (se instala automáticamente con las dependencias)
 - Cuenta de Supabase (para backend)
 
@@ -89,25 +89,26 @@ pnpm install
 
 ### 3. Configurar variables de entorno
 
-Crear un archivo `.env` en la raíz del proyecto con las siguientes variables:
+Copiar `.env.example` a `.env` y completar los valores:
 
 ```bash
 EXPO_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=tu_clave_publica
+EXPO_PUBLIC_MAPBOX_PUBLIC_TOKEN=tu_token_publico_de_mapbox
 ```
 
-> **Nota**: Las claves actuales en el repositorio apuntan a una instancia de desarrollo. Para producción, crear tu propia instancia de Supabase.
+> **Nota sobre claves**: `.env` no se sube a git y no debe commitearse. La app falla al arrancar si faltan las variables de Supabase. El token de Mapbox debe ser público (solo Search Box), nunca una clave secreta; recomendá crear un token por entorno con restricciones de URL/aplicación (ver comentarios en `.env.example`).
 
 ### 4. Ejecutar la aplicación
 
 ```bash
 # Iniciar en modo desarrollo (elige plataforma en el menú)
-pnpm start
+pnpm run start
 
 # O directamente en una plataforma específica:
-pnpm android   # Android
-pnpm ios       # iOS (requiere macOS)
-pnpm web       # Web
+pnpm run android   # Android
+pnpm run ios       # iOS (requiere macOS)
+pnpm run web       # Web
 ```
 
 ### 5. Opciones de desarrollo
@@ -127,20 +128,26 @@ minuto/
 │   ├── app/                # Rutas de la aplicación (Expo Router)
 │   │   ├── (auth)/        # Pantallas de autenticación (login, register)
 │   │   ├── (tabs)/        # Pantallas principales (home, control, historial, equipo, perfil)
-│   │   ├── _layout.tsx    # Layout raíz
-│   │   └── index.tsx      # Pantalla de entrada
+│   │   ├── invite/        # Invitaciones y alta de organizaciones
+│   │   └── ...            # Rutas sueltas (edit-profile, org-settings, invitations)
 │   ├── components/        # Componentes reutilizables
+│   ├── constants/         # Constantes de configuración
 │   ├── hooks/             # Custom hooks (useOrganization, useTheme, etc.)
 │   ├── lib/               # Lógica de negocio (attendance, supabase, validación)
-│   ├── constants/         # Constantes de tema y configuración
-│   └── global.css         # Estilos globales (Tailwind)
+│   ├── theme/             # Tokens y primitivas de diseño (StyleSheet)
+│   └── global.css         # Estilos web globales (Tailwind/NativeWind)
 ├── assets/                # Imágenes, iconos, splash screens
 ├── scripts/               # Scripts de desarrollo
+├── supabase/              # Config, migraciones y funciones de Supabase
+├── tests/e2e/             # Tests E2E web con Playwright
 ├── .env                   # Variables de entorno (no subir a git)
 ├── app.json               # Configuración de Expo
 ├── package.json           # Dependencias y scripts
 ├── tsconfig.json          # Configuración de TypeScript
-└── biome.json             # Configuración de Biome (linting)
+├── biome.json             # Configuración de Biome (linting)
+├── PRD.md                 # Decisiones de producto
+├── ARCHITECTURE.md        # Decisiones de sistema/arquitectura
+└── DESIGN.md              # Decisiones de UI y sistema de diseño
 ```
 
 ---
@@ -148,26 +155,30 @@ minuto/
 ## 🧪 Scripts disponibles
 
 ```bash
-pnpm start          # Iniciar en modo desarrollo
-pnpm android        # Abrir en Android
-pnpm ios            # Abrir en iOS
-pnpm web            # Abrir en web
-pnpm lint           # Ejecutar Biome (linting y formateo)
-pnpm typecheck      # Validar tipos con TypeScript
+pnpm run start             # Iniciar en modo desarrollo
+pnpm run android           # Abrir en Android
+pnpm run ios               # Abrir en iOS
+pnpm run web               # Abrir en web
+pnpm run lint              # Ejecutar Biome (linting)
+pnpm run typecheck         # Validar tipos con TypeScript
+pnpm run check             # Lint + typecheck
+pnpm test                  # Ejecutar tests unitarios (Jest)
+pnpm run test:coverage     # Tests unitarios con cobertura
+pnpm run test:e2e:install  # Instalar navegador de Playwright
+pnpm run test:e2e          # Ejecutar E2E web con Playwright
 ```
-
----
 
 ## 🔐 Configuración de Supabase
 
 Para usar tu propia instancia de Supabase:
 
 1. Crear un proyecto en [supabase.com](https://supabase.com).
-2. Ejecutar las migraciones de base de datos (pendiente: agregar carpeta `supabase/migrations/`).
-3. Configurar Row Level Security (RLS) según las políticas del proyecto.
-4. Actualizar las variables de entorno en `.env`.
+2. Ejecutar las migraciones de `supabase/migrations/` en orden (fuente de verdad del esquema y de las RPCs).
+3. No editar migraciones ya publicadas: los cambios correctivos se agregan como nuevas migraciones (`supabase migration new`).
+4. Configurar Row Level Security (RLS) según las políticas del proyecto.
+5. Actualizar las variables de entorno en `.env`.
 
-> **Pendiente**: Documentar esquema de base de datos y migraciones.
+Para levantar Supabase local: `supabase start` y `supabase migration list --local` (ver `CONTRIBUTING.md`).
 
 ---
 
@@ -179,13 +190,11 @@ Este proyecto está bajo la licencia MIT. Ver archivo [LICENSE](./LICENSE) para 
 
 ## 🤝 Contribuir
 
-Este proyecto está en desarrollo activo. Para contribuir:
+Este proyecto está en desarrollo activo. Para contribuir, seguí `CONTRIBUTING.md`. Las decisiones de producto, arquitectura y diseño viven en:
 
-1. Fork del repositorio.
-2. Crear una rama con tu feature (`git checkout -b feature/nueva-funcionalidad`).
-3. Hacer commit de tus cambios siguiendo conventional commits.
-4. Push a tu rama (`git push origin feature/nueva-funcionalidad`).
-5. Abrir un Pull Request.
+- `PRD.md`
+- `ARCHITECTURE.md`
+- `DESIGN.md`
 
 ---
 

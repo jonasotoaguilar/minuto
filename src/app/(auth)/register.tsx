@@ -13,7 +13,12 @@ import {
 import { useTheme } from '@/hooks/use-theme';
 import { buildAuthRouteWithRedirect } from '@/lib/auth-redirect';
 import { getPhoneCountry, type PhoneCountryCode } from '@/lib/phone';
-import { PrimaryButton, Screen, ThemedText } from '@/theme/primitives';
+import {
+  PrimaryButton,
+  Screen,
+  TextField,
+  ThemedText,
+} from '@/theme/primitives';
 
 type AppTheme = ReturnType<typeof useTheme>;
 
@@ -30,6 +35,8 @@ export default function RegisterScreen() {
         {
           paddingTop: theme.spacing['2xl'],
           paddingBottom: theme.spacing['3xl'],
+          paddingHorizontal: theme.spacing.lg,
+          gap: theme.spacing.lg,
         },
       ]}
     >
@@ -61,11 +68,14 @@ export default function RegisterScreen() {
 function RegisterBrandHeader({ theme }: { theme: AppTheme }) {
   return (
     <View style={styles.topBar}>
-      <View style={styles.brand}>
+      <View style={[styles.brand, { gap: theme.spacing.sm }]}>
         <View
           style={[
             styles.brandIcon,
-            { backgroundColor: theme.colors.brand.primary },
+            {
+              backgroundColor: theme.colors.brand.primary,
+              borderRadius: theme.radius.lg,
+            },
           ]}
         >
           <ThemedText
@@ -139,7 +149,9 @@ function RegisterFormCard({
         styles.card,
         {
           backgroundColor: theme.colors.background.card,
+          borderRadius: theme.radius.xl,
           shadowColor: theme.colors.shadow.color,
+          ...theme.elevation.elevated,
         },
       ]}
     >
@@ -152,7 +164,10 @@ function RegisterFormCard({
         <View
           style={[
             styles.cardShield,
-            { backgroundColor: theme.colors.brand.muted },
+            {
+              backgroundColor: theme.colors.brand.muted,
+              borderRadius: theme.radius.lg,
+            },
           ]}
         >
           <ThemedText
@@ -170,7 +185,12 @@ function RegisterFormCard({
         </View>
       </View>
 
-      <View style={styles.cardBody}>
+      <View
+        style={[
+          styles.cardBody,
+          { padding: theme.spacing.lg, gap: theme.spacing.lg },
+        ]}
+      >
         <ThemedText variant="heading" style={styles.cardTitle}>
           Crea tu cuenta
         </ThemedText>
@@ -289,12 +309,12 @@ function RegisterFormFields({
   touchedFields,
   validationFieldErrors,
 }: RegisterFormFieldsProps) {
+  const theme = useTheme();
   return (
-    <View style={styles.form}>
-      <Field
+    <View style={[styles.form, { gap: theme.spacing.sm }]}>
+      <TextField
         label="Nombre completo"
         placeholder="Nombre y apellido"
-        icon="A"
         value={formValues.fullName}
         onChangeText={(value) => setFieldValue('fullName', value)}
         onFocus={() => setFocusedField('fullName')}
@@ -302,20 +322,15 @@ function RegisterFormFields({
           setFocusedField(null);
           setTouched('fullName');
         }}
-        error={touchedFields.fullName ? validationFieldErrors.fullName : ''}
-        isValid={
-          Boolean(touchedFields.fullName) &&
-          Boolean(formValues.fullName.trim()) &&
-          !validationFieldErrors.fullName
+        errorMessage={
+          touchedFields.fullName ? validationFieldErrors.fullName : undefined
         }
-        isDisabled={isSubmitting}
+        editable={!isSubmitting}
         maxLength={registerScreenLimits.MAX_NAME_LENGTH}
-        isFocused={focusedField === 'fullName'}
       />
-      <Field
+      <TextField
         label="Dirección"
         placeholder="Av. Siempre Viva 123"
-        icon="D"
         value={formValues.address}
         onChangeText={(value) => setFieldValue('address', value)}
         onFocus={() => setFocusedField('address')}
@@ -323,20 +338,15 @@ function RegisterFormFields({
           setFocusedField(null);
           setTouched('address');
         }}
-        error={touchedFields.address ? validationFieldErrors.address : ''}
-        isValid={
-          Boolean(touchedFields.address) &&
-          Boolean(formValues.address.trim()) &&
-          !validationFieldErrors.address
+        errorMessage={
+          touchedFields.address ? validationFieldErrors.address : undefined
         }
-        isDisabled={isSubmitting}
+        editable={!isSubmitting}
         maxLength={registerScreenLimits.MAX_ADDRESS_LENGTH}
-        isFocused={focusedField === 'address'}
       />
-      <Field
+      <TextField
         label="Email"
         placeholder="nombre@empresa.com"
-        icon="@"
         value={formValues.email}
         onChangeText={(value) => setFieldValue('email', value)}
         onFocus={() => setFocusedField('email')}
@@ -346,15 +356,11 @@ function RegisterFormFields({
         }}
         keyboardType="email-address"
         autoCapitalize="none"
-        error={touchedFields.email ? validationFieldErrors.email : ''}
-        isValid={
-          Boolean(touchedFields.email) &&
-          Boolean(formValues.email.trim()) &&
-          !validationFieldErrors.email
+        errorMessage={
+          touchedFields.email ? validationFieldErrors.email : undefined
         }
-        isDisabled={isSubmitting}
+        editable={!isSubmitting}
         maxLength={registerScreenLimits.MAX_EMAIL_LENGTH}
-        isFocused={focusedField === 'email'}
       />
       <PhoneField
         label="Teléfono"
@@ -371,19 +377,12 @@ function RegisterFormFields({
           setTouched('phone');
         }}
         error={touchedFields.phone ? validationFieldErrors.phone : ''}
-        isValid={
-          Boolean(touchedFields.phone) &&
-          Boolean(formValues.phone.trim()) &&
-          !validationFieldErrors.phone
-        }
         isDisabled={isSubmitting}
         isFocused={focusedField === 'phone'}
       />
-      <Field
+      <PasswordField
         label="Contraseña"
         placeholder="********"
-        icon="*"
-        secure={!isPasswordVisible}
         value={formValues.password}
         onChangeText={(value) => setFieldValue('password', value)}
         onFocus={() => setFocusedField('password')}
@@ -391,23 +390,18 @@ function RegisterFormFields({
           setFocusedField(null);
           setTouched('password');
         }}
-        error={touchedFields.password ? validationFieldErrors.password : ''}
-        isValid={
-          Boolean(touchedFields.password) &&
-          Boolean(formValues.password) &&
-          !validationFieldErrors.password
+        errorMessage={
+          touchedFields.password ? validationFieldErrors.password : undefined
         }
-        actionLabel={isPasswordVisible ? 'Ocultar' : 'Mostrar'}
-        onPressAction={() => setIsPasswordVisible((current) => !current)}
-        isDisabled={isSubmitting}
+        secure={!isPasswordVisible}
+        onToggleSecure={() => setIsPasswordVisible((current) => !current)}
+        toggleLabel={isPasswordVisible ? 'Ocultar' : 'Mostrar'}
+        editable={!isSubmitting}
         maxLength={registerScreenLimits.MAX_PASSWORD_LENGTH}
-        isFocused={focusedField === 'password'}
       />
-      <Field
+      <PasswordField
         label="Confirmar contraseña"
         placeholder="********"
-        icon="*"
-        secure={!isConfirmPasswordVisible}
         value={formValues.confirmPassword}
         onChangeText={(value) => setFieldValue('confirmPassword', value)}
         onFocus={() => setFocusedField('confirmPassword')}
@@ -415,104 +409,80 @@ function RegisterFormFields({
           setFocusedField(null);
           setTouched('confirmPassword');
         }}
-        error={
+        errorMessage={
           touchedFields.confirmPassword
             ? validationFieldErrors.confirmPassword
-            : ''
+            : undefined
         }
-        isValid={
-          Boolean(touchedFields.confirmPassword) &&
-          Boolean(formValues.confirmPassword) &&
-          !validationFieldErrors.confirmPassword
+        secure={!isConfirmPasswordVisible}
+        onToggleSecure={() =>
+          setIsConfirmPasswordVisible((current) => !current)
         }
-        actionLabel={isConfirmPasswordVisible ? 'Ocultar' : 'Mostrar'}
-        onPressAction={() => setIsConfirmPasswordVisible((current) => !current)}
-        isDisabled={isSubmitting}
+        toggleLabel={isConfirmPasswordVisible ? 'Ocultar' : 'Mostrar'}
+        editable={!isSubmitting}
         maxLength={registerScreenLimits.MAX_PASSWORD_LENGTH}
-        isFocused={focusedField === 'confirmPassword'}
       />
     </View>
   );
 }
 
-type FieldProps = {
+type PasswordFieldProps = {
   label: string;
   placeholder: string;
-  icon: string;
-  secure?: boolean;
   value?: string;
   onChangeText?: (value: string) => void;
   onFocus?: () => void;
   onBlur?: () => void;
-  keyboardType?: 'default' | 'email-address' | 'phone-pad';
-  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
-  error?: string;
-  isValid?: boolean;
-  actionLabel?: string;
-  onPressAction?: () => void;
-  isDisabled?: boolean;
+  errorMessage?: string;
+  secure?: boolean;
+  onToggleSecure?: () => void;
+  toggleLabel?: string;
+  editable?: boolean;
   maxLength?: number;
-  isFocused?: boolean;
 };
 
-function Field({
+function PasswordField({
   label,
   placeholder,
-  icon,
-  secure,
   value,
   onChangeText,
   onFocus,
   onBlur,
-  keyboardType,
-  autoCapitalize,
-  error,
-  isValid,
-  actionLabel,
-  onPressAction,
-  isDisabled,
+  errorMessage,
+  secure,
+  onToggleSecure,
+  toggleLabel,
+  editable,
   maxLength,
-  isFocused,
-}: FieldProps) {
+}: PasswordFieldProps) {
   const theme = useTheme();
 
   return (
-    <View style={styles.fieldGroup}>
+    <View style={{ gap: theme.spacing.xs }}>
       <ThemedText variant="label">{label}</ThemedText>
       <View
         style={[
-          styles.field,
+          styles.passwordField,
           {
-            borderColor: isFocused
-              ? theme.colors.brand.primary
-              : error
-                ? theme.colors.status.error
-                : isValid
-                  ? theme.colors.brand.primary
-                  : theme.colors.border.default,
+            borderColor: errorMessage
+              ? theme.colors.status.error
+              : theme.colors.border.default,
+            borderRadius: theme.radius.full,
+            paddingHorizontal: theme.spacing.sm,
+            paddingVertical: theme.spacing.xs,
+            gap: theme.spacing.xs,
           },
         ]}
       >
-        <ThemedText
-          colorToken="brand"
-          style={[
-            styles.fieldIcon,
-            {
-              fontSize: theme.typography.bodySmall.fontSize,
-              fontWeight: theme.typography.label.fontWeight,
-            },
-          ]}
-        >
-          {icon}
-        </ThemedText>
         <TextInput
           placeholder={placeholder}
           placeholderTextColor={theme.colors.text.muted}
           style={[
-            styles.fieldInput,
+            styles.passwordFieldInput,
             {
               color: theme.colors.text.primary,
               fontSize: theme.typography.bodySmall.fontSize,
+              paddingVertical: theme.spacing.xs,
             },
           ]}
           secureTextEntry={secure}
@@ -520,38 +490,39 @@ function Field({
           onChangeText={onChangeText}
           onFocus={onFocus}
           onBlur={onBlur}
-          keyboardType={keyboardType}
-          autoCapitalize={autoCapitalize}
-          editable={!isDisabled}
+          editable={editable}
           maxLength={maxLength}
         />
-        {actionLabel && onPressAction ? (
-          <Pressable onPress={onPressAction} hitSlop={8}>
+        {toggleLabel && onToggleSecure ? (
+          <Pressable
+            accessibilityLabel={toggleLabel}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={onToggleSecure}
+            style={({ pressed }) => [
+              styles.passwordToggle,
+              { opacity: pressed ? 0.72 : 1 },
+            ]}
+          >
             <ThemedText
               colorToken="brand"
-              style={[
-                styles.fieldActionText,
-                {
-                  fontSize: theme.typography.caption.fontSize,
-                  fontWeight: theme.typography.label.fontWeight,
-                },
-              ]}
+              variant="caption"
+              style={{
+                fontWeight: theme.typography.label.fontWeight,
+              }}
             >
-              {actionLabel}
+              {toggleLabel}
             </ThemedText>
           </Pressable>
         ) : null}
       </View>
-      {!isFocused && error ? (
+      {errorMessage ? (
         <ThemedText
           colorToken="error"
           variant="caption"
-          style={[
-            styles.fieldErrorText,
-            { fontWeight: theme.typography.label.fontWeight },
-          ]}
+          style={{ fontWeight: theme.typography.label.fontWeight }}
         >
-          {error}
+          {errorMessage}
         </ThemedText>
       ) : null}
     </View>
@@ -567,7 +538,6 @@ type PhoneFieldProps = {
   onFocus?: () => void;
   onBlur?: () => void;
   error?: string;
-  isValid?: boolean;
   isDisabled?: boolean;
   isFocused?: boolean;
 };
@@ -581,7 +551,6 @@ function PhoneField({
   onFocus,
   onBlur,
   error,
-  isValid,
   isDisabled,
   isFocused,
 }: PhoneFieldProps) {
@@ -589,7 +558,7 @@ function PhoneField({
   const selectedCountry = getPhoneCountry(countryCode);
 
   return (
-    <View style={styles.fieldGroup}>
+    <View style={{ gap: theme.spacing.xs }}>
       <ThemedText variant="label">{label}</ThemedText>
       <View
         style={[
@@ -599,9 +568,11 @@ function PhoneField({
               ? theme.colors.brand.primary
               : error
                 ? theme.colors.status.error
-                : isValid
-                  ? theme.colors.brand.primary
-                  : theme.colors.border.default,
+                : theme.colors.border.default,
+            borderRadius: theme.radius.full,
+            paddingHorizontal: theme.spacing.xs,
+            paddingVertical: theme.spacing.xs,
+            gap: theme.spacing.xs,
           },
         ]}
       >
@@ -627,6 +598,7 @@ function PhoneField({
             {
               color: theme.colors.text.primary,
               fontSize: theme.typography.bodySmall.fontSize,
+              paddingVertical: theme.spacing.xs,
             },
           ]}
           value={nationalNumber}
@@ -641,10 +613,7 @@ function PhoneField({
         <ThemedText
           colorToken="error"
           variant="caption"
-          style={[
-            styles.fieldErrorText,
-            { fontWeight: theme.typography.label.fontWeight },
-          ]}
+          style={{ fontWeight: theme.typography.label.fontWeight }}
         >
           {error}
         </ThemedText>
@@ -655,8 +624,7 @@ function PhoneField({
 
 const styles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    gap: 16,
+    flex: 1,
   },
   topBar: {
     flexDirection: 'row',
@@ -665,12 +633,10 @@ const styles = StyleSheet.create({
   brand: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
   brandIcon: {
     width: 40,
     height: 40,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -681,11 +647,7 @@ const styles = StyleSheet.create({
     // fontSize applied inline via theme.typography.title
   },
   card: {
-    borderRadius: 28,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+    overflow: 'hidden',
   },
   cardBanner: {
     height: 120,
@@ -695,7 +657,6 @@ const styles = StyleSheet.create({
   cardShield: {
     width: 68,
     height: 68,
-    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -703,8 +664,7 @@ const styles = StyleSheet.create({
     // Using body typography with semibold weight
   },
   cardBody: {
-    padding: 16,
-    gap: 16,
+    alignItems: 'stretch',
   },
   cardTitle: {
     textAlign: 'center',
@@ -714,28 +674,26 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   form: {
-    gap: 8,
+    alignItems: 'stretch',
   },
-  fieldGroup: {
-    gap: 4,
-  },
-  field: {
+  passwordField: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    gap: 4,
+  },
+  passwordFieldInput: {
+    flex: 1,
+  },
+  passwordToggle: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 44,
   },
   phoneField: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 4,
-    paddingVertical: 4,
-    gap: 4,
   },
   phoneFieldDivider: {
     width: 1,
@@ -743,22 +701,6 @@ const styles = StyleSheet.create({
   },
   phoneFieldInput: {
     flex: 1,
-    // fontSize applied inline via theme.typography.bodySmall
-    paddingVertical: 4,
-  },
-  fieldIcon: {
-    // Typography applied inline via theme.typography.label
-  },
-  fieldInput: {
-    flex: 1,
-    // fontSize applied inline via theme.typography.bodySmall
-    paddingVertical: 4,
-  },
-  fieldActionText: {
-    // Typography applied inline via theme.typography.caption with semibold
-  },
-  fieldErrorText: {
-    // fontWeight applied inline via theme.typography.label
   },
   messageText: {
     // Typography applied inline via theme.typography.caption with semibold

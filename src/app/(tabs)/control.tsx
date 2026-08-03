@@ -4,13 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Modal,
   Pressable,
-  type StyleProp,
   StyleSheet,
   View,
-  type ViewStyle,
 } from 'react-native';
 
 import { AppHeader } from '@/components/header-user-menu';
@@ -39,13 +35,17 @@ import {
 import { getErrorMessage } from '@/lib/error';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
+  AttendanceIcon,
   Chip,
+  FeedbackBlock,
   GlassCard,
-  PlainCard,
+  MetricCard,
+  ModalCard,
   PrimaryButton,
   Screen,
   SecondaryButton,
   SectionHeader,
+  Skeleton,
   ThemedText,
 } from '@/theme/primitives';
 
@@ -458,7 +458,7 @@ export default function ControlScreen() {
           chipLabel: 'Ubicación validada',
           chipTone: 'success' as const,
           helper: proximity.state.officeName
-            ? `✓ ${proximity.state.officeName}`
+            ? `Validado: ${proximity.state.officeName}`
             : 'Ubicación validada.',
         };
       }
@@ -466,7 +466,7 @@ export default function ControlScreen() {
         return {
           chipLabel: 'Fuera de rango',
           chipTone: 'warning' as const,
-          helper: '⚠ Fuera de rango. Reintentá o registrate como remoto.',
+          helper: 'Fuera de rango. Reintentá o registrate como remoto.',
         };
       case CONTROL_MODE.GPS_ERROR:
         return {
@@ -480,7 +480,7 @@ export default function ControlScreen() {
         return {
           chipLabel: 'Trabajo Remoto',
           chipTone: 'brand' as const,
-          helper: '📍 Remoto',
+          helper: 'Remoto',
         };
       case CONTROL_MODE.CLOCKED_IN:
         return {
@@ -491,9 +491,9 @@ export default function ControlScreen() {
             ? ('warning' as const)
             : ('success' as const),
           helper: openShiftRecord?.officeIsRemote
-            ? '📍 Remoto'
+            ? 'Remoto'
             : openShiftRecord?.officeName
-              ? `✓ ${openShiftRecord.officeName}`
+              ? `Validado: ${openShiftRecord.officeName}`
               : 'Tu jornada está activa.',
         };
       case CONTROL_MODE.COMPLETED:
@@ -867,7 +867,7 @@ function ControlHeroCard({
       ) : null}
 
       {errorMessage ? (
-        <FeedbackText tone="error">{errorMessage}</FeedbackText>
+        <FeedbackBlock tone="error" message={errorMessage} />
       ) : null}
     </GlassCard>
   );
@@ -910,7 +910,10 @@ function RecentHistoryCard({
               },
             ]}
           >
-            <AttendanceEventIcon type={event.type} />
+            <AttendanceIcon
+              direction={event.type === 'clock_in' ? 'in' : 'out'}
+              size="md"
+            />
 
             <View style={styles.historyInfo}>
               <ThemedText variant="subtitle">
@@ -960,179 +963,56 @@ function OvertimeActionsModal({
   onDismiss,
   overtimeStandardCloseAt,
   overtimeTitle,
-  theme,
   visible,
 }: OvertimeActionsModalProps) {
   return (
-    <Modal
-      animationType="fade"
-      onRequestClose={onDismiss}
-      transparent
+    <ModalCard
       visible={visible}
+      onDismiss={onDismiss}
+      title="Tu jornada habitual ya terminó"
+      subtitle={overtimeTitle}
     >
-      <View
-        style={[styles.modalRoot, { backgroundColor: theme.overlay.modal }]}
+      <ThemedText
+        colorToken="secondary"
+        style={styles.modalBody}
+        variant="bodySmall"
       >
-        <Pressable onPress={onDismiss} style={styles.modalBackdrop} />
-
-        <PlainCard style={styles.modalCard}>
-          <SectionHeader
-            subtitle={overtimeTitle}
-            title="Tu jornada habitual ya terminó"
-          />
-
-          <ThemedText
-            colorToken="secondary"
-            style={styles.modalBody}
-            variant="bodySmall"
-          >
-            Si te olvidaste de marcar la salida, podés cerrarla con la hora
-            actual o con el horario habitual calculado.
-          </ThemedText>
-
-          <PrimaryButton
-            label="Cerrar con hora actual"
-            loading={isSubmitting}
-            onPress={onCloseWithCurrentTime}
-          />
-          <SecondaryButton
-            label={`Cerrar con jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
-            loading={isSubmitting}
-            onPress={onCloseAtStandardTime}
-          />
-        </PlainCard>
-      </View>
-    </Modal>
-  );
-}
-
-type AttendanceEventIconProps = {
-  type: RecentHistoryItem['type'];
-};
-
-function AttendanceEventIcon({ type }: AttendanceEventIconProps) {
-  const theme = useTheme();
-  const isEntry = type === 'clock_in';
-  const color = isEntry
-    ? theme.colors.status.success
-    : theme.colors.status.error;
-
-  return (
-    <View
-      style={[
-        styles.historyIcon,
-        {
-          backgroundColor: isEntry
-            ? theme.surface.glass.tint
-            : theme.surface.glass.soft,
-          borderColor: color,
-          transform: [{ scaleX: isEntry ? -1 : 1 }],
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.attendanceIconFrameVertical,
-          { left: 11, backgroundColor: color },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconFrameHorizontal,
-          {
-            left: 11,
-            top: 12,
-            backgroundColor: color,
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconFrameHorizontal,
-          {
-            left: 11,
-            bottom: 12,
-            backgroundColor: color,
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconArrowShaft,
-          {
-            backgroundColor: color,
-            left: 18,
-          },
-        ]}
-      />
-      <View
-        style={[
-          styles.attendanceIconArrowHead,
-          {
-            borderLeftColor: 'transparent',
-            borderRightColor: color,
-            left: 10,
-          },
-        ]}
-      />
-    </View>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: string }) {
-  const theme = useTheme();
-
-  return (
-    <GlassCard style={styles.metricCard} variant="soft">
-      <View
-        style={[
-          styles.metricIcon,
-          {
-            backgroundColor: theme.surface.glass.tint,
-            borderColor: theme.surface.glass.border,
-          },
-        ]}
-      />
-      <ThemedText style={styles.metricValue} variant="heading">
-        {value}
+        Si te olvidaste de marcar la salida, podés cerrarla con la hora actual o
+        con el horario habitual calculado.
       </ThemedText>
-      <ThemedText colorToken="secondary" variant="bodySmall">
-        {label}
-      </ThemedText>
-    </GlassCard>
-  );
-}
 
-function FeedbackText({ children, tone }: { children: string; tone: 'error' }) {
-  return (
-    <ThemedText
-      colorToken={tone === 'error' ? 'error' : 'secondary'}
-      style={styles.feedbackText}
-      variant="bodySmall"
-    >
-      {children}
-    </ThemedText>
+      <PrimaryButton
+        label="Cerrar con hora actual"
+        loading={isSubmitting}
+        onPress={onCloseWithCurrentTime}
+      />
+      <SecondaryButton
+        label={`Cerrar con jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
+        loading={isSubmitting}
+        onPress={onCloseAtStandardTime}
+      />
+    </ModalCard>
   );
 }
 
 function HeroCardSkeleton() {
   return (
     <GlassCard style={styles.heroCard}>
-      <SkeletonBlock style={styles.skeletonChip} />
-      <SkeletonBlock style={styles.skeletonClock} />
-      <SkeletonBlock style={styles.skeletonDate} />
+      <Skeleton style={styles.skeletonChip} />
+      <Skeleton style={styles.skeletonClock} />
+      <Skeleton style={styles.skeletonDate} />
 
       <View style={styles.statusContainer}>
-        <SkeletonBlock style={styles.skeletonHelperLineLong} />
-        <SkeletonBlock style={styles.skeletonHelperLineShort} />
+        <Skeleton style={styles.skeletonHelperLineLong} />
+        <Skeleton style={styles.skeletonHelperLineShort} />
       </View>
 
       <View style={styles.actionButtonsRow}>
-        <SkeletonBlock style={[styles.skeletonButton, styles.flexButton]} />
-        <SkeletonBlock style={[styles.skeletonButton, styles.flexButton]} />
+        <Skeleton style={[styles.skeletonButton, styles.flexButton]} />
+        <Skeleton style={[styles.skeletonButton, styles.flexButton]} />
       </View>
 
-      <SkeletonBlock style={styles.skeletonButton} />
+      <Skeleton style={styles.skeletonButton} />
     </GlassCard>
   );
 }
@@ -1149,9 +1029,9 @@ function MetricsSkeleton() {
 function MetricSkeletonCard() {
   return (
     <GlassCard style={styles.metricCard} variant="soft">
-      <SkeletonBlock style={styles.skeletonMetricIcon} />
-      <SkeletonBlock style={styles.skeletonMetricValue} />
-      <SkeletonBlock style={styles.skeletonMetricLabel} />
+      <Skeleton style={styles.skeletonMetricIcon} />
+      <Skeleton style={styles.skeletonMetricValue} />
+      <Skeleton style={styles.skeletonMetricLabel} />
     </GlassCard>
   );
 }
@@ -1160,8 +1040,8 @@ function HistorySkeleton() {
   return (
     <GlassCard style={styles.historyCard} variant="soft">
       <View style={styles.skeletonHistoryHeader}>
-        <SkeletonBlock style={styles.skeletonHistoryTitle} />
-        <SkeletonBlock style={styles.skeletonHistoryAction} />
+        <Skeleton style={styles.skeletonHistoryTitle} />
+        <Skeleton style={styles.skeletonHistoryAction} />
       </View>
 
       {Array.from({ length: 3 }).map((_, index) => (
@@ -1169,62 +1049,20 @@ function HistorySkeleton() {
           key={`history-skeleton-${index}`}
           style={styles.skeletonHistoryRow}
         >
-          <SkeletonBlock style={styles.skeletonHistoryIcon} />
+          <Skeleton style={styles.skeletonHistoryIcon} />
 
           <View style={styles.skeletonHistoryInfo}>
-            <SkeletonBlock style={styles.skeletonHistoryLinePrimary} />
-            <SkeletonBlock style={styles.skeletonHistoryLineSecondary} />
+            <Skeleton style={styles.skeletonHistoryLinePrimary} />
+            <Skeleton style={styles.skeletonHistoryLineSecondary} />
           </View>
 
           <View style={styles.skeletonHistoryMeta}>
-            <SkeletonBlock style={styles.skeletonHistoryLineTime} />
-            <SkeletonBlock style={styles.skeletonHistoryLineDate} />
+            <Skeleton style={styles.skeletonHistoryLineTime} />
+            <Skeleton style={styles.skeletonHistoryLineDate} />
           </View>
         </View>
       ))}
     </GlassCard>
-  );
-}
-
-function SkeletonBlock({ style }: { style?: StyleProp<ViewStyle> }) {
-  const theme = useTheme();
-  const opacity = useMemo(() => new Animated.Value(0.45), []);
-
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          toValue: 0.9,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          toValue: 0.45,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-
-    pulse.start();
-
-    return () => {
-      pulse.stop();
-    };
-  }, [opacity]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.skeletonBase,
-        {
-          backgroundColor: theme.surface.glass.soft,
-          borderColor: theme.surface.glass.border,
-          opacity,
-        },
-        style,
-      ]}
-    />
   );
 }
 
@@ -1393,9 +1231,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  feedbackText: {
-    textAlign: 'center',
-  },
+
   statusChip: {
     alignSelf: 'center',
   },
@@ -1422,34 +1258,12 @@ const styles = StyleSheet.create({
     minHeight: 148,
     justifyContent: 'space-between',
   },
-  metricIcon: {
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 36,
-    width: 36,
-  },
-  metricValue: {
-    letterSpacing: -0.4,
-  },
+
   historyCard: {
     gap: 16,
   },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
   modalBody: {
     textAlign: 'left',
-  },
-  modalCard: {
-    gap: 12,
-    maxWidth: 520,
-    width: '100%',
-  },
-  modalRoot: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    padding: 16,
   },
   historyRow: {
     alignItems: 'center',
@@ -1461,44 +1275,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  historyIcon: {
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-  },
-  attendanceIconFrameVertical: {
-    borderRadius: 999,
-    height: 16,
-    position: 'absolute',
-    top: 12,
-    width: 2,
-  },
-  attendanceIconFrameHorizontal: {
-    borderRadius: 999,
-    height: 2,
-    position: 'absolute',
-    width: 10,
-  },
-  attendanceIconArrowShaft: {
-    borderRadius: 999,
-    height: 2,
-    position: 'absolute',
-    top: 19,
-    width: 12,
-  },
-  attendanceIconArrowHead: {
-    borderBottomColor: 'transparent',
-    borderBottomWidth: 5,
-    borderLeftWidth: 7,
-    borderRightWidth: 7,
-    borderTopColor: 'transparent',
-    borderTopWidth: 5,
-    position: 'absolute',
-    top: 14,
-  },
+
   historyInfo: {
     flex: 1,
     gap: 4,
@@ -1513,11 +1290,7 @@ const styles = StyleSheet.create({
   historyDate: {
     textAlign: 'right',
   },
-  skeletonBase: {
-    borderCurve: 'continuous',
-    borderRadius: 12,
-    borderWidth: 1,
-  },
+
   skeletonChip: {
     alignSelf: 'center',
     borderRadius: 999,

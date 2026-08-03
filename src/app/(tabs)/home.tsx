@@ -9,16 +9,21 @@ import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import { supabase } from '@/lib/supabase';
 import {
+  Avatar,
   Chip,
   GlassCard,
+  MetricCard,
   Screen,
   SectionHeader,
   ThemedText,
 } from '@/theme/primitives';
 
-const QUICK_ACTIONS: ReadonlyArray<{ href?: '/(tabs)/team'; label: string }> = [
-  { label: 'Payroll' },
-  { label: 'Benefits' },
+const QUICK_ACTIONS: ReadonlyArray<{
+  href?: '/(tabs)/control' | '/(tabs)/control-history' | '/(tabs)/team';
+  label: string;
+}> = [
+  { href: '/(tabs)/control', label: 'Control' },
+  { href: '/(tabs)/control-history', label: 'History' },
   { href: '/(tabs)/team', label: 'Team' },
 ];
 
@@ -119,28 +124,12 @@ export default function HomeScreen() {
 
       <GlassCard style={styles.profileCard}>
         <View style={styles.profileHeader}>
-          <View
-            style={[
-              styles.avatarLarge,
-              {
-                backgroundColor: theme.surface.glass.tint,
-                borderColor: theme.surface.glass.border,
-              },
-            ]}
-          >
-            <ThemedText colorToken="accent" variant="heading">
-              {userSnapshot.initials}
-            </ThemedText>
-            <View
-              style={[
-                styles.onlineDot,
-                {
-                  backgroundColor: theme.colors.status.success,
-                  borderColor: theme.colors.background.card,
-                },
-              ]}
-            />
-          </View>
+          <Avatar
+            accessibilityLabel="Tu avatar"
+            initials={userSnapshot.initials}
+            size="lg"
+            status="online"
+          />
 
           <View style={styles.profileCopy}>
             <ThemedText style={styles.profileName} variant="heading">
@@ -172,19 +161,20 @@ export default function HomeScreen() {
         ]}
         variant="soft"
       >
-        <Chip label="PENDING SIGNATURE" tone="brand" />
+        <Chip label="ATTENDANCE" tone="brand" />
 
         <View style={styles.highlightCopy}>
           <ThemedText colorToken="inverse" variant="heading">
-            Q3 Performance Review & Bonus Agreement
+            Track your workday
           </ThemedText>
           <ThemedText colorToken="inverse" variant="body">
-            Due in 2 days
+            Register entry and exit to keep accurate attendance records.
           </ThemedText>
         </View>
 
         <Pressable
           accessibilityRole="button"
+          onPress={() => router.push('/(tabs)/control')}
           style={({ pressed }) => [
             styles.highlightButton,
             {
@@ -194,14 +184,24 @@ export default function HomeScreen() {
           ]}
         >
           <ThemedText colorToken="accent" variant="label">
-            Sign Document →
+            Go to Control →
           </ThemedText>
         </Pressable>
       </GlassCard>
 
       <View style={styles.metricsRow}>
-        <MetricCard label="VACATION" value="15" caption="Days remaining" />
-        <MetricCard label="ATTENDANCE" value="98%" caption="On-time rate" />
+        <MetricCard
+          helper="Target goal"
+          icon={<MetricIconPlaceholder />}
+          label="WEEKLY HOURS"
+          value="40h"
+        />
+        <MetricCard
+          helper="On-time rate"
+          icon={<MetricIconPlaceholder />}
+          label="ATTENDANCE"
+          value="98%"
+        />
       </View>
 
       <View style={styles.quickRow}>
@@ -259,12 +259,12 @@ export default function HomeScreen() {
 
         <ActivityItem
           accentColor={theme.colors.status.success}
-          title="Bonus payment approved"
+          title="Shift completed"
           when="Yesterday, 4:30 PM"
         />
         <ActivityItem
           accentColor={theme.colors.background.selected}
-          title="Updated address in portal"
+          title="Attendance recorded at Main Office"
           when="Oct 12, 11:20 AM"
         />
       </GlassCard>
@@ -335,37 +335,26 @@ function ContactItem({ label }: { label: string }) {
   );
 }
 
-function MetricCard(props: { caption: string; label: string; value: string }) {
+function MetricIconPlaceholder() {
   const theme = useTheme();
 
   return (
-    <GlassCard style={styles.metricCard} variant="soft">
+    <View
+      style={[
+        styles.metricIcon,
+        {
+          backgroundColor: theme.surface.glass.tint,
+          borderColor: theme.surface.glass.border,
+        },
+      ]}
+    >
       <View
         style={[
-          styles.metricIcon,
-          {
-            backgroundColor: theme.surface.glass.tint,
-            borderColor: theme.surface.glass.border,
-          },
+          styles.metricIconInner,
+          { backgroundColor: theme.colors.brand.primary },
         ]}
-      >
-        <View
-          style={[
-            styles.metricIconInner,
-            { backgroundColor: theme.colors.brand.primary },
-          ]}
-        />
-      </View>
-      <ThemedText colorToken="secondary" variant="label">
-        {props.label}
-      </ThemedText>
-      <ThemedText style={styles.metricValue} variant="heading">
-        {props.value}
-      </ThemedText>
-      <ThemedText colorToken="secondary" variant="bodySmall">
-        {props.caption}
-      </ThemedText>
-    </GlassCard>
+      />
+    </View>
   );
 }
 

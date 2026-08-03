@@ -136,6 +136,11 @@ jest.mock('@/lib/supabase', () => ({
 }));
 
 jest.mock('@/theme/primitives', () => ({
+  Avatar: ({ initials }: { initials: string }) => {
+    const React = require('react');
+    const { Text } = require('react-native');
+    return React.createElement(Text, null, initials);
+  },
   Chip: ({ label, onPress }: { label: string; onPress?: () => void }) => {
     const React = require('react');
     const { Pressable, Text } = require('react-native');
@@ -143,6 +148,32 @@ jest.mock('@/theme/primitives', () => ({
       Pressable,
       { onPress },
       React.createElement(Text, null, label),
+    );
+  },
+  EmptyState: ({
+    title,
+    description,
+  }: {
+    title: string;
+    description?: string;
+  }) => {
+    const React = require('react');
+    const { View, Text } = require('react-native');
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, null, title),
+      description ? React.createElement(Text, null, description) : null,
+    );
+  },
+  FeedbackBlock: ({ message, title }: { message: string; title?: string }) => {
+    const React = require('react');
+    const { View, Text } = require('react-native');
+    return React.createElement(
+      View,
+      null,
+      title ? React.createElement(Text, null, title) : null,
+      React.createElement(Text, null, message),
     );
   },
   GlassCard: ({ children }: { children: ReactNode }) => {

@@ -1,0 +1,15 @@
+# Lefthook quality gates for Minuto.
+# Installed automatically by `pnpm install` (prepare script), or with: pnpm exec lefthook install
+
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      run: pnpm run lint
+    typecheck:
+      run: pnpm run typecheck
+
+pre-push:
+  commands:
+    test:
+      run: pnpm test

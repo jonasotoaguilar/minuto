@@ -1,3 +1,0 @@
-# Then lint-staged for formatting
-pnpm lint
-pnpm typecheck

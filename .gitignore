@@ -47,10 +47,5 @@ app-example
 .agents
 skills-lock.json
 .atl
-.gga
-.command-hooks.jsonc
-codedb.snapshot
-.superset
-.opencode
-graphify-out
 coverage
+opencode.json

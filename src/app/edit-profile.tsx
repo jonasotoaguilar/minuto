@@ -18,6 +18,7 @@ import {
 } from '@/lib/phone';
 import { supabase } from '@/lib/supabase';
 import {
+  FeedbackBlock,
   GlassCard,
   PrimaryButton,
   Screen,
@@ -362,11 +363,11 @@ export default function EditProfileScreen() {
         )}
 
         {errorMessage ? (
-          <StatusMessage tone="error">{errorMessage}</StatusMessage>
+          <FeedbackBlock tone="error" message={errorMessage} />
         ) : null}
 
         {successMessage ? (
-          <StatusMessage tone="success">{successMessage}</StatusMessage>
+          <FeedbackBlock tone="success" message={successMessage} />
         ) : null}
       </GlassCard>
 
@@ -490,41 +491,6 @@ function PhoneField({
   );
 }
 
-function StatusMessage({
-  children,
-  tone,
-}: {
-  children: string;
-  tone: 'error' | 'success';
-}) {
-  const theme = useTheme();
-  const isError = tone === 'error';
-
-  return (
-    <View
-      style={[
-        styles.messageCard,
-        {
-          backgroundColor: isError
-            ? theme.surface.danger
-            : theme.colors.brand.muted,
-          borderColor: isError
-            ? theme.surface.glass.border
-            : theme.colors.border.default,
-          borderRadius: theme.radius.lg,
-        },
-      ]}
-    >
-      <ThemedText
-        colorToken={isError ? 'error' : 'primary'}
-        variant="bodySmall"
-      >
-        {children}
-      </ThemedText>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
@@ -564,10 +530,5 @@ const styles = StyleSheet.create({
   },
   phoneInput: {
     flex: 1,
-  },
-  messageCard: {
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
   },
 });

@@ -1,82 +1,143 @@
-<!-- 
-  ⚠️ READ BEFORE SUBMITTING
-  
-  Every PR must:
-  1. Link an approved issue (with status:approved label)
-  2. Have exactly one type:* label
-  3. Pass all automated checks
-  
-  See CONTRIBUTING.md for the full workflow.
+<!-- ⚠️ READ BEFORE SUBMITTING
+  Every PR must be linked to an issue that has the "status:approved" label.
+  PRs without a linked approved issue will be automatically rejected by CI.
+  See the issue templates and PR checks for the contribution workflow.
 -->
 
 ## 🔗 Linked Issue
 
-<!-- REQUIRED: Replace the # below with the issue number. -->
-<!-- Automated check: "Check Issue Reference" verifies this exists. -->
-<!-- Automated check: "Check Issue Has status:approved" verifies the issue is approved. -->
+<!-- REQUIRED:
+  - Tracker PR or default-branch PR: use `Closes #NNN`
+  - Child PR in feature-branch-chain: use `Related to #NNN`
+  - Do NOT include both.
+-->
 
+<!-- Tracker or default-branch PR -->
 Closes #
+
+<!-- Child PR in feature-branch-chain -->
+Related to #
+
+<!-- Use EXACTLY ONE:
+  - Tracker / default-branch PR: Closes #42
+  - Child PR in feature-branch-chain: Related to #42
+-->
 
 ---
 
 ## 🏷️ PR Type
 
-<!-- REQUIRED: Check exactly ONE type below, then add the matching label to the PR. -->
-<!-- Automated check: "Check PR Has type:* Label" verifies the label exists. -->
+What kind of change does this PR introduce?
 
-- [ ] `type:bug` — Bug fix
-- [ ] `type:feature` — New feature
+- [ ] `type:bug` — Bug fix (non-breaking change that fixes an issue)
+- [ ] `type:feature` — New feature (non-breaking change that adds functionality)
 - [ ] `type:docs` — Documentation only
-- [ ] `type:refactor` — Code refactoring (no behavior change)
-- [ ] `type:chore` — Maintenance, dependencies, tooling
-- [ ] `type:breaking-change` — Breaking change
+- [ ] `type:refactor` — Code refactoring (no functional changes)
+- [ ] `type:chore` — Build, CI, or tooling changes
+- [ ] `type:breaking-change` — Breaking change (fix or feature that changes existing behavior)
 
 ---
 
 ## 📝 Summary
 
-<!-- What does this PR do? Be concise — 1-3 bullet points. -->
+<!-- Provide a clear and concise description of what this PR does and why. -->
 
-- 
+---
 
 ## 📂 Changes
 
-<!-- Key files changed and what was modified in each. -->
+| File / Area | What Changed |
+|-------------|-------------|
+| `path/to/file` | Brief description |
 
-| File | Change |
-|------|--------|
-| `path/to/file` | What changed |
+---
+
+## Chain Context
+
+<!-- Fill ONLY if this PR is part of a chain.
+  IMPORTANT:
+  - Keep this heading EXACTLY as `## Chain Context` (no emoji/prefix changes), CI parses it literally.
+  - Tracker PRs target `main` and use `Position | tracker`.
+  - Child PRs target the tracker branch or the immediate parent branch, never `main`.
+  - Child PRs use `Position | N of total`.
+  - Tracker PRs must keep the Chain Status table below and list every child PR in the chain.
+-->
+
+| Field | Value |
+|-------|-------|
+| Chain | <feature or stack name> |
+| Tracker PR | <#NNN, "self" for tracker drafts before the PR number exists, or "Not needed"> |
+| Position | <"tracker" for tracker PRs, or "N of total" for child PRs> |
+| Base | `<target branch>` |
+| Depends on | <PR/issue/link or "None"> |
+| Follow-up | <next PR or "None"> |
+| Review budget | <changed lines> / 400 |
+| Starts at | <branch, PR, or state this builds on> |
+| Ends with | <standalone result delivered by this PR> |
+
+### Chain Overview
+
+```text
+<!-- For a single PR: just "📍 This PR"
+     For a chain: show the full dependency tree marking this PR with 📍 -->
+
+📍 This PR
+```
+
+### Chain Status
+
+<!-- Keep this table updated manually as local review context. -->
+
+| PR | Scope | Status |
+|----|-------|--------|
+| #<!-- PR number --> | <!-- brief scope --> | 🟡 Open |
+
+---
 
 ## 🧪 Test Plan
 
-<!-- How did you verify this works? -->
+<!-- Describe how you tested this change. Include commands to run. -->
 
+```bash
+pnpm run check && pnpm test
+```
 
-<!-- Describe any manual testing steps: -->
+- [ ] Lint passes
+- [ ] Format check passes
+- [ ] Type check passes
+- [ ] Tests pass
+- [ ] Manually tested locally
 
 ---
 
 ## 🤖 Automated Checks
 
-These run automatically and **all must pass** before merge:
+The following checks run automatically on this PR:
 
-| Check | What it verifies |
-|-------|-----------------|
-| CodeQL | Security vulnerabilities via static analysis |
-| Dependabot | Dependency security alerts |
+| Check | Status | Description |
+|-------|--------|-------------|
+| Check PR Cognitive Load | ⏳ | PR should stay within 400 changed lines (`additions + deletions`) or use maintainer-applied `size:exception` |
+| Check Issue Reference | ⏳ | Tracker/default PR: `Closes/Fixes/Resolves #N`; child PR: `Related to #N` |
+| Check Issue Has `status:approved` | ⏳ | Linked issue must have been approved before work began |
+| Check PR Has `type:*` Label | ⏳ | Exactly one `type:*` label must be applied |
 
 ---
 
 ## ✅ Contributor Checklist
 
-- [ ] I linked an approved issue above (`Closes #N`)
-- [ ] I added exactly **one** `type:*` label to this PR
-- [ ] Docs updated (if behavior changed)
-- [ ] Commits follow [conventional commits](https://www.conventionalcommits.org/) format
-- [ ] No `Co-Authored-By` trailers in commits
+- [ ] PR is linked to an issue with `status:approved`
+- [ ] PR stays within 400 changed lines, or I have requested/obtained maintainer-applied `size:exception` with rationale documented
+- [ ] Tracker/default PR uses `Closes #N`, child PR uses `Related to #N`
+- [ ] If chained, this PR targets tracker/parent branch, not `main`
+- [ ] I have added the appropriate `type:*` label to this PR
+- [ ] Lint and format checks pass
+- [ ] Tests pass
+- [ ] I have updated documentation if necessary
+- [ ] My commits follow [Conventional Commits](https://www.conventionalcommits.org/) format
+- [ ] My commits do not include `Co-Authored-By` trailers
 
 ---
 
 ## 💬 Notes for Reviewers
 
-<!-- Optional: anything the reviewer should know — context, tradeoffs, open questions. -->
+<!-- Optional: anything you want reviewers to pay special attention to. -->
