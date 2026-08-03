@@ -214,6 +214,13 @@ The shape language is rounded and friendly:
 
 Do not introduce sharp-corner components unless the whole design system changes.
 
+## Accessibility
+
+- **Field labels**: `TextField` wires its `label` to the input with generated ids (`accessibilityLabelledBy`, rendered as `aria-labelledby` on web). Callers pass `label` and the association is automatic; never rely on `placeholder` as an accessible name.
+- **Errors**: `TextField` `errorMessage` renders with alert semantics (`accessibilityRole="alert"` + `accessibilityLiveRegion="polite"`, rendered as `role="alert"`/`aria-live` on web) and is linked to the input via `aria-describedby` (`accessibilityDescribedBy`). `FeedbackBlock` uses the same alert-region contract for page-level error banners.
+- **Landmarks**: the top-level route screen passes `role="main"` to `Screen` — one `main` per document; modals and secondary surfaces omit it. `Screen` forwards the role to its container on web and native.
+- **Headings**: document outline headings use `ThemedText` with `variant="heading"` (or `"title"`) plus `role="heading"` and `accessibilityLevel`; screen-owning lanes apply this to their screens.
+
 ## Components
 
 ### Existing primitives to preserve
