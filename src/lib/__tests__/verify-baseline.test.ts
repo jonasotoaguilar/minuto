@@ -14,6 +14,20 @@ const TRACKED_INVENTORY = join(
   process.cwd(),
   'openspec/changes/stabilize-project-foundations/baseline-inventory.jsonl',
 );
+const childEnv = (): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (/^(GIT|LEFTHOOK)/.test(key)) delete env[key];
+  }
+  return env;
+};
+const runGit = (repo: string, ...args: string[]): string =>
+  execSync(
+    ['git', '-c', 'core.hooksPath=/dev/null', ...args]
+      .map((arg) => JSON.stringify(arg))
+      .join(' '),
+    { cwd: repo, env: childEnv(), encoding: 'utf8' },
+  ).toString();
 const realGitStatus = (): string =>
   execSync('git status --porcelain', { cwd: process.cwd(), encoding: 'utf8' });
 describe('verify-baseline', () => {
@@ -32,6 +46,7 @@ describe('verify-baseline', () => {
   const run = (args: string[], cwd: string) =>
     execFileSync('python3', [SCRIPT, ...args], {
       cwd,
+      env: childEnv(),
       encoding: 'utf8',
       stdio: 'pipe',
     });
@@ -46,18 +61,18 @@ describe('verify-baseline', () => {
     const dir = join(parent, name);
     mkdirSync(dir);
     [
-      'git init',
-      'git config user.email test@example.com',
-      'git config user.name Test',
-      'git config core.excludesfile ""',
-    ].forEach((cmd) => execSync(cmd, { cwd: dir }));
+      ['init'],
+      ['config', 'user.email', 'test@example.com'],
+      ['config', 'user.name', 'Test'],
+      ['config', 'core.excludesfile', ''],
+    ].forEach((args) => runGit(dir, ...args));
     repos.push(parent);
     return dir;
   }
   function commit(repo: string, path: string, content: string) {
     writeFileSync(join(repo, path), content);
-    execSync('git add .', { cwd: repo });
-    execSync('git commit -m commit', { cwd: repo });
+    runGit(repo, 'add', '.');
+    runGit(repo, 'commit', '-m', 'commit');
   }
   describe('0.1 verifier rejects invalid states', () => {
     it('rejects running outside a git repository', () => {
@@ -89,7 +104,7 @@ describe('verify-baseline', () => {
       const repo = createRepo();
       commit(repo, 'a.txt', 'committed');
       writeFileSync(join(repo, 'a.txt'), 'staged');
-      execSync('git add a.txt', { cwd: repo });
+      runGit(repo, 'add', 'a.txt');
       writeFileSync(join(repo, 'a.txt'), 'unstaged');
       const inv = join(repo, 'inventory.jsonl');
       run(['--output', inv], repo);
@@ -102,7 +117,7 @@ describe('verify-baseline', () => {
     it('records a deletion as a deletion marker', () => {
       const repo = createRepo();
       commit(repo, 'a.txt', 'hello');
-      execSync('git rm a.txt', { cwd: repo });
+      runGit(repo, 'rm', 'a.txt');
       const inv = join(repo, 'inventory.jsonl');
       run(['--output', inv], repo);
       const record = parse(inv).find((r) => r.path === 'a.txt');
@@ -136,7 +151,7 @@ describe('verify-baseline', () => {
       const repo = createRepo();
       commit(repo, 'a.txt', 'hello');
       writeFileSync(join(repo, 'a.txt'), 'modified');
-      execSync('git add a.txt', { cwd: repo });
+      runGit(repo, 'add', 'a.txt');
       const inv = join(repo, 'inventory.jsonl');
       run(['--output', inv], repo);
       const record = parse(inv).find((r) => r.path === 'a.txt');
