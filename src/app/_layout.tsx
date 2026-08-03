@@ -17,9 +17,11 @@ import { useEffect } from 'react';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { OrganizationProvider } from '@/hooks/use-organization';
+import { useSession } from '@/hooks/use-session';
 import { ThemeProvider } from '@/theme';
 
-// Keep the native splash screen visible while we load fonts.
+// Keep the native splash screen visible while we load fonts and resolve the
+// persisted session, so the first frame is always the correct gate state.
 SplashScreen.preventAutoHideAsync();
 
 export default function TabLayout() {
@@ -34,15 +36,19 @@ export default function TabLayout() {
     Manrope_700Bold,
   });
 
+  const { isInitializing, isSignedIn } = useSession();
+
   useEffect(() => {
-    // Hide the splash screen once fonts are ready (or on error — graceful degradation).
-    if (fontsLoaded || fontError) {
+    // Hide the splash once fonts are ready (or on error) and session
+    // bootstrap has settled, so the first frame is the correct gate state.
+    if ((fontsLoaded || fontError) && !isInitializing) {
       SplashScreen.hideAsync();
     }
-  }, [fontsLoaded, fontError]);
+  }, [fontsLoaded, fontError, isInitializing]);
 
-  // Don't render the navigation tree until fonts are ready.
-  if (!fontsLoaded && !fontError) {
+  // Don't render the navigation tree until fonts are ready and the session
+  // state is known; rendering before either would flash the wrong route.
+  if ((!fontsLoaded && !fontError) || isInitializing) {
     return null;
   }
 
@@ -51,12 +57,14 @@ export default function TabLayout() {
       <OrganizationProvider>
         <AnimatedSplashOverlay />
         <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
+          <Stack.Protected guard={isSignedIn}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="edit-profile" />
+            <Stack.Screen name="invitations" />
+            <Stack.Screen name="org-settings" />
+          </Stack.Protected>
           <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="edit-profile" />
           <Stack.Screen name="invite/[code]" />
-          <Stack.Screen name="invitations" />
-          <Stack.Screen name="org-settings" />
           <Stack.Screen name="index" />
         </Stack>
       </OrganizationProvider>
