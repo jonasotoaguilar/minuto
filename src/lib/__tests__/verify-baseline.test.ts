@@ -10,12 +10,35 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const SCRIPT = join(process.cwd(), 'scripts/verify-baseline.py');
-const INVENTORY_DEFAULT = join(
+const TRACKED_INVENTORY = join(
   process.cwd(),
   'openspec/changes/stabilize-project-foundations/baseline-inventory.jsonl',
 );
+const childEnv = (): NodeJS.ProcessEnv => {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (/^(GIT|LEFTHOOK)/.test(key)) delete env[key];
+  }
+  return env;
+};
+const runGit = (repo: string, ...args: string[]): string =>
+  execSync(
+    ['git', '-c', 'core.hooksPath=/dev/null', ...args]
+      .map((arg) => JSON.stringify(arg))
+      .join(' '),
+    { cwd: repo, env: childEnv(), encoding: 'utf8' },
+  ).toString();
+const realGitStatus = (): string =>
+  execSync('git status --porcelain', { cwd: process.cwd(), encoding: 'utf8' });
 describe('verify-baseline', () => {
   let repos: string[] = [];
+  let statusBefore: string;
+  beforeAll(() => {
+    statusBefore = realGitStatus();
+  });
+  afterAll(() => {
+    expect(realGitStatus()).toBe(statusBefore);
+  });
   afterEach(() => {
     for (const repo of repos) rmSync(repo, { recursive: true, force: true });
     repos = [];
@@ -23,6 +46,7 @@ describe('verify-baseline', () => {
   const run = (args: string[], cwd: string) =>
     execFileSync('python3', [SCRIPT, ...args], {
       cwd,
+      env: childEnv(),
       encoding: 'utf8',
       stdio: 'pipe',
     });
@@ -37,18 +61,18 @@ describe('verify-baseline', () => {
     const dir = join(parent, name);
     mkdirSync(dir);
     [
-      'git init',
-      'git config user.email test@example.com',
-      'git config user.name Test',
-      'git config core.excludesfile ""',
-    ].forEach((cmd) => execSync(cmd, { cwd: dir }));
+      ['init'],
+      ['config', 'user.email', 'test@example.com'],
+      ['config', 'user.name', 'Test'],
+      ['config', 'core.excludesfile', ''],
+    ].forEach((args) => runGit(dir, ...args));
     repos.push(parent);
     return dir;
   }
   function commit(repo: string, path: string, content: string) {
     writeFileSync(join(repo, path), content);
-    execSync('git add .', { cwd: repo });
-    execSync('git commit -m commit', { cwd: repo });
+    runGit(repo, 'add', '.');
+    runGit(repo, 'commit', '-m', 'commit');
   }
   describe('0.1 verifier rejects invalid states', () => {
     it('rejects running outside a git repository', () => {
@@ -80,7 +104,7 @@ describe('verify-baseline', () => {
       const repo = createRepo();
       commit(repo, 'a.txt', 'committed');
       writeFileSync(join(repo, 'a.txt'), 'staged');
-      execSync('git add a.txt', { cwd: repo });
+      runGit(repo, 'add', 'a.txt');
       writeFileSync(join(repo, 'a.txt'), 'unstaged');
       const inv = join(repo, 'inventory.jsonl');
       run(['--output', inv], repo);
@@ -93,7 +117,7 @@ describe('verify-baseline', () => {
     it('records a deletion as a deletion marker', () => {
       const repo = createRepo();
       commit(repo, 'a.txt', 'hello');
-      execSync('git rm a.txt', { cwd: repo });
+      runGit(repo, 'rm', 'a.txt');
       const inv = join(repo, 'inventory.jsonl');
       run(['--output', inv], repo);
       const record = parse(inv).find((r) => r.path === 'a.txt');
@@ -127,7 +151,7 @@ describe('verify-baseline', () => {
       const repo = createRepo();
       commit(repo, 'a.txt', 'hello');
       writeFileSync(join(repo, 'a.txt'), 'modified');
-      execSync('git add a.txt', { cwd: repo });
+      runGit(repo, 'add', 'a.txt');
       const inv = join(repo, 'inventory.jsonl');
       run(['--output', inv], repo);
       const record = parse(inv).find((r) => r.path === 'a.txt');
@@ -180,18 +204,40 @@ describe('verify-baseline', () => {
       expect(Array.isArray(record.chunks)).toBe(true);
       expect(record.chunks.length).toBeGreaterThan(1);
     });
-    it('generates baseline-inventory.jsonl for the current repository', () => {
-      try {
-        rmSync(INVENTORY_DEFAULT);
-      } catch {
-        /* ignore */
-      }
-      run(['--output', INVENTORY_DEFAULT], process.cwd());
-      const records = parse(INVENTORY_DEFAULT);
-      const head = records.find((r) => r.type === 'head');
-      expect(head).toBeDefined();
-      expect(head.commit).toMatch(/^[0-9a-f]{40}$/);
-      expect(records.some((r) => r.path === 'pnpm-lock.yaml')).toBe(true);
+    it('captures a deliberately touched lockfile-like file', () => {
+      const repo = createRepo();
+      commit(repo, 'initial.txt', 'init');
+      commit(repo, 'pnpm-lock.yaml', 'lockfileVersion: "6.0"\n');
+      writeFileSync(
+        join(repo, 'pnpm-lock.yaml'),
+        'lockfileVersion: "6.0"\npackages:\n',
+      );
+      const inv = join(repo, 'inventory.jsonl');
+      run(['--output', inv], repo);
+      const record = parse(inv).find((r) => r.path === 'pnpm-lock.yaml');
+      expect(record).toBeDefined();
+      expect(record.status).toBe('.M');
+      expect(record.sha256).toMatch(/^[0-9a-f]{64}$/);
+    });
+  });
+  describe('0.3 hermetic operation', () => {
+    it('verifies a clean temp repository without drift', () => {
+      const repo = createRepo();
+      commit(repo, 'a.txt', 'hello');
+      const inv = join(repo, 'inventory.jsonl');
+      run(['--output', inv], repo);
+      expect(() => run(['--gate', '--inventory', inv], repo)).not.toThrow();
+    });
+    it('never mutates the real repository', () => {
+      const before = realGitStatus();
+      const beforeInventory = readFileSync(TRACKED_INVENTORY);
+      const repo = createRepo();
+      commit(repo, 'a.txt', 'hello');
+      const inv = join(repo, 'inventory.jsonl');
+      run(['--output', inv], repo);
+      run(['--gate', '--inventory', inv], repo);
+      expect(readFileSync(TRACKED_INVENTORY)).toEqual(beforeInventory);
+      expect(realGitStatus()).toBe(before);
     });
   });
 });
