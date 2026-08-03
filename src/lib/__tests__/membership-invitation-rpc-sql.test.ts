@@ -181,4 +181,95 @@ describe('membership invitation SQL migration regression', () => {
     expect(sql).toMatch(/memberships\.id\s*=/);
     expect(sql).toMatch(/memberships\.invitation_code\s*=/);
   });
+
+  it('hardens every SECURITY DEFINER RPC to an empty search_path (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260803223744_harden_rpc_search_path.sql',
+      ),
+      'utf8',
+    );
+
+    const hardenedFunctions = [
+      'public.accept_membership_invitation(text)',
+      'public.attendance_clock_in(uuid, uuid, date, double precision, double precision, double precision, uuid, boolean)',
+      'public.attendance_clock_out(uuid, double precision, double precision, double precision, boolean, timestamp with time zone, boolean)',
+      'public.auto_close_stale_shifts()',
+      'public.create_membership_invitation(uuid, text, text)',
+      'public.create_organization_office(uuid, text, text, double precision, double precision)',
+      'public.create_organization_with_owner(text, text, text, text, text, double precision, double precision)',
+      'public.delete_expired_membership_invitations()',
+      'public.delete_membership(uuid)',
+      'public.get_attendance_history_page(uuid, uuid, integer, integer, integer, integer)',
+      'public.get_attendance_records(uuid, uuid, date, date)',
+      'public.get_open_shift(uuid)',
+      'public.get_organization_team_members(uuid)',
+      'public.handle_new_user_profile()',
+      'public.is_active_member_of_organization(uuid)',
+      'public.list_my_membership_invitations(text)',
+      'public.list_pending_membership_invitations(uuid)',
+      'public.revoke_membership_invitation(uuid)',
+      'public.rls_auto_enable()',
+      'public.suspend_membership(uuid)',
+      'public.update_employee_profile(uuid, numeric, numeric, text, text, date)',
+      'public.update_employee_profile(uuid, numeric, numeric, text, text, date, numeric)',
+      'public.update_membership_role(uuid, text)',
+      'public.update_organization_settings(uuid, text, text)',
+    ];
+
+    for (const signature of hardenedFunctions) {
+      expect(sql).toContain(
+        `ALTER FUNCTION ${signature} SET search_path = '';`,
+      );
+    }
+
+    expect(sql).not.toContain("SET search_path TO 'public';");
+
+    const executableLines = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'));
+    expect(executableLines.join('\n')).not.toContain("search_path TO 'public'");
+  });
+
+  it('qualifies table references in recreated RPC bodies (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260803223744_harden_rpc_search_path.sql',
+      ),
+      'utf8',
+    );
+
+    expect(sql).toContain('FROM public.organization_offices oo');
+    expect(sql).toContain('FROM public.organization_offices\n');
+  });
+
+  it('recreates RPCs with unqualified table refs with empty search_path (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260803223744_harden_rpc_search_path.sql',
+      ),
+      'utf8',
+    );
+
+    expect(sql).toContain(
+      'CREATE OR REPLACE FUNCTION public.get_organization_offices',
+    );
+    expect(sql).toContain(
+      'CREATE OR REPLACE FUNCTION public.validate_proximity',
+    );
+    const recreated = sql.split('CREATE OR REPLACE FUNCTION');
+    for (const fn of recreated) {
+      if (
+        !fn.includes('get_organization_offices') &&
+        !fn.includes('validate_proximity')
+      ) {
+        continue;
+      }
+      expect(fn).toContain("SET search_path = ''");
+      expect(fn).toContain('SECURITY DEFINER');
+    }
+  });
 });
