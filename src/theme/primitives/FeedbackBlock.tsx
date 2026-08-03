@@ -69,6 +69,8 @@ export function FeedbackBlock({
   const theme = useTheme();
   const colors = resolveFeedbackColors(theme, tone);
 
+  const isError = tone === FEEDBACK_TONES.error;
+
   return (
     <View
       style={[
@@ -87,7 +89,12 @@ export function FeedbackBlock({
         </ThemedText>
       ) : null}
 
-      <ThemedText colorToken={colors.textColorToken} variant="bodySmall">
+      <ThemedText
+        accessibilityLiveRegion={isError ? 'polite' : undefined}
+        accessibilityRole={isError ? 'alert' : undefined}
+        colorToken={colors.textColorToken}
+        variant="bodySmall"
+      >
         {message}
       </ThemedText>
 

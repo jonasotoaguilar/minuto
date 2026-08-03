@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import {
   type StyleProp,
   StyleSheet,
@@ -14,6 +14,11 @@ import { ThemedText } from '@/theme/primitives/ThemedText';
 
 export interface TextFieldProps
   extends Omit<TextInputProps, 'placeholderTextColor' | 'style'> {
+  /**
+   * Overrides the error/helper text association. Defaults to the generated
+   * id of the supporting text, which renders as `aria-describedby` on web.
+   */
+  accessibilityDescribedBy?: string;
   containerStyle?: StyleProp<ViewStyle>;
   errorMessage?: string;
   helperText?: string;
@@ -33,6 +38,10 @@ export function TextField({
 }: TextFieldProps) {
   const theme = useTheme();
   const [isFocused, setIsFocused] = useState(false);
+  const inputId = useId().replace(/:/g, '');
+  const effectiveInputId = props.nativeID ?? inputId;
+  const labelId = `${effectiveInputId}-label`;
+  const supportId = `${effectiveInputId}-support`;
   const supportingText = errorMessage ?? helperText;
   const supportingColorToken = errorMessage ? 'error' : 'secondary';
   const borderColor = errorMessage
@@ -43,7 +52,11 @@ export function TextField({
 
   return (
     <View style={[styles.wrapper, { gap: theme.spacing.sm }, containerStyle]}>
-      {label ? <ThemedText variant="label">{label}</ThemedText> : null}
+      {label ? (
+        <ThemedText nativeID={labelId} variant="label">
+          {label}
+        </ThemedText>
+      ) : null}
       <View
         style={[
           styles.inputFrame,
@@ -60,6 +73,16 @@ export function TextField({
       >
         <TextInput
           {...props}
+          {...(supportingText && !props.accessibilityDescribedBy
+            ? { accessibilityDescribedBy: supportId }
+            : {})}
+          {...(!props.nativeID ? { nativeID: inputId } : {})}
+          {...(label &&
+          !props.accessibilityLabelledBy &&
+          !props.accessibilityLabel &&
+          !props['aria-labelledby']
+            ? { accessibilityLabelledBy: [labelId] }
+            : {})}
           onBlur={(event) => {
             setIsFocused(false);
             onBlur?.(event);
@@ -83,7 +106,13 @@ export function TextField({
         />
       </View>
       {supportingText ? (
-        <ThemedText colorToken={supportingColorToken} variant="caption">
+        <ThemedText
+          accessibilityLiveRegion="polite"
+          accessibilityRole={errorMessage ? 'alert' : undefined}
+          colorToken={supportingColorToken}
+          nativeID={supportId}
+          variant="caption"
+        >
           {supportingText}
         </ThemedText>
       ) : null}
