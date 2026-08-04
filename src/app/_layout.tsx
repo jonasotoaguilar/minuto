@@ -11,12 +11,14 @@ import {
   Manrope_700Bold,
 } from '@expo-google-fonts/manrope';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
 import { OrganizationProvider } from '@/hooks/use-organization';
 import { useSession } from '@/hooks/use-session';
+import { setRouteContext } from '@/lib/telemetry-context';
+import { installUncaughtErrorReporting } from '@/lib/telemetry-install';
 import { ThemeProvider } from '@/theme';
 
 // Keep the native splash screen visible while we load fonts and resolve the
@@ -36,6 +38,15 @@ export default function TabLayout() {
   });
 
   const { isInitializing, isSignedIn } = useSession();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setRouteContext(pathname);
+  }, [pathname]);
+
+  useEffect(() => {
+    installUncaughtErrorReporting();
+  }, []);
 
   useEffect(() => {
     // Hide the splash once fonts are ready (or on error) and session
