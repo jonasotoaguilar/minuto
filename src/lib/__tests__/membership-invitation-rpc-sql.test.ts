@@ -522,4 +522,69 @@ describe('membership invitation SQL migration regression', () => {
     expect(createBody).toMatch(/m\.status\s*=/);
     expect(createBody).toMatch(/m\.role\b/);
   });
+
+  it('versions least-privilege table grants and revokes client extras (F05)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260804014310_version_least_privilege_table_grants_and_cron_parity.sql',
+      ),
+      'utf8',
+    );
+
+    const coreTables = [
+      'attendance_records',
+      'employee_profiles',
+      'memberships',
+      'organization_offices',
+      'organizations',
+      'user_profiles',
+    ];
+    for (const table of coreTables) {
+      expect(sql).toContain(
+        `REVOKE ALL ON TABLE public.${table} FROM PUBLIC, anon, authenticated, service_role;`,
+      );
+    }
+
+    expect(sql).toContain(
+      'GRANT SELECT ON TABLE public.memberships TO authenticated;',
+    );
+    expect(sql).toContain(
+      'GRANT SELECT ON TABLE public.organization_offices TO authenticated;',
+    );
+    expect(sql).toContain(
+      'GRANT SELECT ON TABLE public.organizations TO authenticated;',
+    );
+
+    const grantStatements = sql.match(/GRANT [^;]+;/g) ?? [];
+    expect(grantStatements).toHaveLength(3);
+    for (const grant of grantStatements) {
+      expect(grant).toMatch(/GRANT SELECT ON TABLE/);
+      expect(grant).not.toMatch(/INSERT|UPDATE|DELETE/);
+      expect(grant).toContain('TO authenticated');
+    }
+
+    const revokeStatements = sql.match(/REVOKE ALL ON TABLE [^;]+;/g) ?? [];
+    expect(revokeStatements).toHaveLength(6);
+  });
+
+  it('repairs fresh-reset cron parity idempotently (F05)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260804014310_version_least_privilege_table_grants_and_cron_parity.sql',
+      ),
+      'utf8',
+    );
+
+    expect(sql).toContain('CREATE EXTENSION IF NOT EXISTS "pg_cron"');
+    expect(sql).toContain('cron.unschedule');
+    expect(sql).toContain('cron.schedule');
+    expect(sql).toContain("'auto-close-stale-shifts'");
+    expect(sql).toContain("'cleanup-expired-membership-invitations'");
+    expect(sql).toContain('SELECT public.auto_close_stale_shifts()');
+    expect(sql).toContain(
+      'SELECT public.delete_expired_membership_invitations()',
+    );
+  });
 });
