@@ -1,18 +1,5 @@
-import {
-  Lora_400Regular,
-  Lora_500Medium,
-  Lora_600SemiBold,
-  Lora_700Bold,
-} from '@expo-google-fonts/lora';
-import {
-  Manrope_400Regular,
-  Manrope_500Medium,
-  Manrope_600SemiBold,
-  Manrope_700Bold,
-} from '@expo-google-fonts/manrope';
 import '../global.css';
 
-import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
@@ -20,26 +7,18 @@ import { OrganizationProvider } from '@/hooks/use-organization';
 import { useSession } from '@/hooks/use-session';
 import { ThemeProvider } from '@/theme';
 
+// Web typography resolves through the CSS font stacks declared in global.css
+// (--font-display / --font-sans), which fall back to system families. No
+// @font-face rule is registered for the expo-font family names on web, so the
+// Lora/Manrope assets useFonts() would load are never applied to rendered
+// text; loading them would only preload ~1 MB of TTFs on every exported page
+// and delay first paint. The web layout therefore renders immediately and
+// never gates the navigator on font state. The navigator stays mounted from
+// the first frame (a null frame makes expo-router fail URL matching);
+// protected screens render empty shells without a session and are locked once
+// the session resolves.
 export default function TabLayout() {
-  const [fontsLoaded, fontError] = useFonts({
-    Lora_400Regular,
-    Lora_500Medium,
-    Lora_600SemiBold,
-    Lora_700Bold,
-    Manrope_400Regular,
-    Manrope_500Medium,
-    Manrope_600SemiBold,
-    Manrope_700Bold,
-  });
-
   const { isInitializing, isSignedIn } = useSession();
-
-  // On web the navigator must stay mounted while fonts load (a null frame
-  // makes expo-router fail URL matching); protected screens render empty
-  // shells without a session and are locked once the session resolves.
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
 
   return (
     <ThemeProvider>
