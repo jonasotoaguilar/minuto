@@ -1,23 +1,16 @@
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
-
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
 import {
   CONTROL_MODE,
-  type ControlButtonState,
-  type ControlMode,
-  type ControlStatusViewModel,
   resolveButtonState,
   resolveControlMode,
   resolveProximityStatus,
 } from '@/components/control/control-model';
 import {
   buildRecentHistoryItems,
-  formatCompactDate,
-  formatDisplayDate,
   formatOvertimeTitle,
-  formatTime,
   getStandardCloseAt,
   isOvertimeThresholdExceeded,
   type RecentHistoryItem,
@@ -27,9 +20,15 @@ import {
   HeroCardSkeleton,
 } from '@/components/control/hero-card';
 import { MetricsSkeleton, WeeklyMetrics } from '@/components/control/metrics';
+import { OvertimeActionsModal } from '@/components/control/overtime-modal';
+import {
+  HistorySkeleton,
+  RecentHistoryCard,
+} from '@/components/control/recent-history';
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
+import { useAttendanceFocusRefresh } from '@/hooks/use-attendance-refresh';
 import { useOrganization } from '@/hooks/use-organization';
 import { useProximityValidation } from '@/hooks/use-proximity-validation';
 import { useTheme } from '@/hooks/use-theme';
@@ -51,21 +50,10 @@ import {
 } from '@/lib/attendance';
 import { getErrorMessage } from '@/lib/error';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
-import {
-  AttendanceIcon,
-  GlassCard,
-  ModalCard,
-  PrimaryButton,
-  Screen,
-  SecondaryButton,
-  SectionHeader,
-  Skeleton,
-  ThemedText,
-} from '@/theme/primitives';
+import { useFeedback } from '@/theme/feedback';
+import { Screen, ThemedText } from '@/theme/primitives';
 
 const VALIDATION_TIMEOUT_MS = 5 * 60 * 1000;
-
-type AppTheme = ReturnType<typeof useTheme>;
 
 export default function ControlScreen() {
   const router = useRouter();
@@ -79,8 +67,8 @@ export default function ControlScreen() {
   const currentTimezone = resolveOrganizationTimezone(
     activeOrganization?.defaultTimezone,
   );
-
   const proximity = useProximityValidation();
+  const feedback = useFeedback();
 
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -95,9 +83,12 @@ export default function ControlScreen() {
   const [recentEvents, setRecentEvents] = useState<RecentHistoryItem[]>([]);
   const [isOvertimeAutoDismissed, setIsOvertimeAutoDismissed] = useState(false);
 
+  const hasLoadedAttendanceRef = useRef(false);
+
   const loadAttendance = useCallback(async () => {
     if (!activeOrganization) return;
 
+    hasLoadedAttendanceRef.current = true;
     setIsLoadingAttendance(true);
     setErrorMessage('');
 
@@ -147,9 +138,17 @@ export default function ControlScreen() {
     }
   }, [activeOrganization, currentTimezone]);
 
+  const { refresh: refreshAttendance } = useAttendanceFocusRefresh({
+    refresh: loadAttendance,
+  });
+
   useEffect(() => {
-    void loadAttendance();
-  }, [loadAttendance]);
+    if (!activeOrganization || hasLoadedAttendanceRef.current) {
+      return;
+    }
+
+    void refreshAttendance();
+  }, [activeOrganization, refreshAttendance]);
 
   const hasActiveClockIn = Boolean(openShiftRecord?.clockInAt);
 
@@ -364,7 +363,7 @@ export default function ControlScreen() {
         await submitClockOut({ attendanceId: openShiftRecord.recordId });
       }
 
-      await loadAttendance();
+      await refreshAttendance();
       proximity.reset();
     } catch (error) {
       if (error instanceof ProximityError) {
@@ -395,9 +394,9 @@ export default function ControlScreen() {
     activeOrganization,
     controlMode,
     currentTimezone,
-    loadAttendance,
     openShiftRecord,
     proximity,
+    refreshAttendance,
     submitClockOut,
   ]);
 
@@ -432,17 +431,19 @@ export default function ControlScreen() {
 
     try {
       await submitClockOut({ attendanceId: openShiftRecord.recordId });
-      await loadAttendance();
+      await refreshAttendance();
       proximity.reset();
     } catch (error) {
       const detail =
         getErrorMessage(error) ?? 'Ocurrió un problema inesperado.';
-      Alert.alert(
-        'No se pudo cerrar la jornada',
-        `No pudimos cerrar la jornada con la hora actual (${detail}).`,
-      );
+      feedback.show({
+        tone: 'error',
+        title: 'No se pudo cerrar la jornada',
+        message: `No pudimos cerrar la jornada con la hora actual (${detail}).`,
+        durationMs: 0,
+      });
     }
-  }, [loadAttendance, openShiftRecord, proximity, submitClockOut]);
+  }, [feedback, openShiftRecord, proximity, refreshAttendance, submitClockOut]);
 
   const onCloseAtStandardTime = useCallback(async () => {
     if (!openShiftRecord || !overtimeStandardCloseAt) {
@@ -455,21 +456,24 @@ export default function ControlScreen() {
         autoClosed: true,
         customCloseAt: overtimeStandardCloseAt.toISOString(),
       });
-      await loadAttendance();
+      await refreshAttendance();
       proximity.reset();
     } catch (error) {
       const detail =
         getErrorMessage(error) ?? 'Ocurrió un problema inesperado.';
-      Alert.alert(
-        'No se pudo cerrar la jornada',
-        `No pudimos cerrar la jornada con el horario habitual (${detail}).`,
-      );
+      feedback.show({
+        tone: 'error',
+        title: 'No se pudo cerrar la jornada',
+        message: `No pudimos cerrar la jornada con el horario habitual (${detail}).`,
+        durationMs: 0,
+      });
     }
   }, [
-    loadAttendance,
+    feedback,
     openShiftRecord,
     overtimeStandardCloseAt,
     proximity,
+    refreshAttendance,
     submitClockOut,
   ]);
 
@@ -536,7 +540,6 @@ export default function ControlScreen() {
           currentTimezone={currentTimezone}
           onPressViewAll={() => router.push('/(tabs)/control-history' as never)}
           recentEvents={recentEvents}
-          theme={theme}
         />
       )}
 
@@ -548,162 +551,9 @@ export default function ControlScreen() {
         onDismiss={dismissOvertimeModal}
         overtimeStandardCloseAt={overtimeStandardCloseAt}
         overtimeTitle={overtimeTitle}
-        theme={theme}
         visible={isOvertimeModalVisible}
       />
     </Screen>
-  );
-}
-
-type RecentHistoryCardProps = {
-  currentTimezone: string;
-  onPressViewAll: () => void;
-  recentEvents: RecentHistoryItem[];
-  theme: AppTheme;
-};
-
-function RecentHistoryCard({
-  currentTimezone,
-  onPressViewAll,
-  recentEvents,
-  theme,
-}: RecentHistoryCardProps) {
-  return (
-    <GlassCard style={styles.historyCard} variant="soft">
-      <SectionHeader
-        actionLabel="Ver todo"
-        actionProps={{ onPress: onPressViewAll }}
-        title="Historial reciente"
-      />
-
-      {recentEvents.length === 0 ? (
-        <ThemedText colorToken="secondary" variant="bodySmall">
-          Todavía no hay registros.
-        </ThemedText>
-      ) : (
-        recentEvents.map((event) => (
-          <View
-            key={event.id}
-            style={[
-              styles.historyRow,
-              {
-                backgroundColor: theme.surface.glass.soft,
-                borderColor: theme.surface.glass.border,
-              },
-            ]}
-          >
-            <AttendanceIcon
-              direction={event.type === 'clock_in' ? 'in' : 'out'}
-              size="md"
-            />
-
-            <View style={styles.historyInfo}>
-              <ThemedText variant="subtitle">
-                {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
-              </ThemedText>
-              <ThemedText colorToken="secondary" variant="bodySmall">
-                {event.officeName}
-              </ThemedText>
-            </View>
-
-            <View style={styles.historyMeta}>
-              <ThemedText style={styles.historyTime} variant="subtitle">
-                {formatTime(event.occurredAt, currentTimezone)}
-              </ThemedText>
-              <ThemedText
-                colorToken="secondary"
-                style={styles.historyDate}
-                variant="bodySmall"
-              >
-                {formatCompactDate(event.occurredAt, currentTimezone)}
-              </ThemedText>
-            </View>
-          </View>
-        ))
-      )}
-    </GlassCard>
-  );
-}
-
-type OvertimeActionsModalProps = {
-  currentTimezone: string;
-  isSubmitting: boolean;
-  onCloseAtStandardTime: () => void;
-  onCloseWithCurrentTime: () => void;
-  onDismiss: () => void;
-  overtimeStandardCloseAt: Date | null;
-  overtimeTitle: string;
-  theme: AppTheme;
-  visible: boolean;
-};
-
-function OvertimeActionsModal({
-  currentTimezone,
-  isSubmitting,
-  onCloseAtStandardTime,
-  onCloseWithCurrentTime,
-  onDismiss,
-  overtimeStandardCloseAt,
-  overtimeTitle,
-  visible,
-}: OvertimeActionsModalProps) {
-  return (
-    <ModalCard
-      visible={visible}
-      onDismiss={onDismiss}
-      title="Tu jornada habitual ya terminó"
-      subtitle={overtimeTitle}
-    >
-      <ThemedText
-        colorToken="secondary"
-        style={styles.modalBody}
-        variant="bodySmall"
-      >
-        Si te olvidaste de marcar la salida, podés cerrarla con la hora actual o
-        con el horario habitual calculado.
-      </ThemedText>
-
-      <PrimaryButton
-        label="Cerrar con hora actual"
-        loading={isSubmitting}
-        onPress={onCloseWithCurrentTime}
-      />
-      <SecondaryButton
-        label={`Cerrar con jornada habitual (${overtimeStandardCloseAt ? formatTime(overtimeStandardCloseAt.toISOString(), currentTimezone) : '--:--'})`}
-        loading={isSubmitting}
-        onPress={onCloseAtStandardTime}
-      />
-    </ModalCard>
-  );
-}
-
-function HistorySkeleton() {
-  return (
-    <GlassCard style={styles.historyCard} variant="soft">
-      <View style={styles.skeletonHistoryHeader}>
-        <Skeleton style={styles.skeletonHistoryTitle} />
-        <Skeleton style={styles.skeletonHistoryAction} />
-      </View>
-
-      {Array.from({ length: 3 }).map((_, index) => (
-        <View
-          key={`history-skeleton-${index}`}
-          style={styles.skeletonHistoryRow}
-        >
-          <Skeleton style={styles.skeletonHistoryIcon} />
-
-          <View style={styles.skeletonHistoryInfo}>
-            <Skeleton style={styles.skeletonHistoryLinePrimary} />
-            <Skeleton style={styles.skeletonHistoryLineSecondary} />
-          </View>
-
-          <View style={styles.skeletonHistoryMeta}>
-            <Skeleton style={styles.skeletonHistoryLineTime} />
-            <Skeleton style={styles.skeletonHistoryLineDate} />
-          </View>
-        </View>
-      ))}
-    </GlassCard>
   );
 }
 
@@ -719,97 +569,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
-  },
-
-  historyCard: {
-    gap: 16,
-  },
-  modalBody: {
-    textAlign: 'left',
-  },
-  historyRow: {
-    alignItems: 'center',
-    borderRadius: 24,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    minHeight: 88,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-
-  historyInfo: {
-    flex: 1,
-    gap: 4,
-  },
-  historyMeta: {
-    alignItems: 'flex-end',
-    gap: 4,
-  },
-  historyTime: {
-    textAlign: 'right',
-  },
-  historyDate: {
-    textAlign: 'right',
-  },
-
-  skeletonHistoryHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  skeletonHistoryTitle: {
-    borderRadius: 12,
-    height: 24,
-    width: 180,
-  },
-  skeletonHistoryAction: {
-    borderRadius: 10,
-    height: 16,
-    width: 64,
-  },
-  skeletonHistoryRow: {
-    alignItems: 'center',
-    borderColor: 'transparent',
-    borderRadius: 24,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    minHeight: 88,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  skeletonHistoryIcon: {
-    borderRadius: 999,
-    height: 40,
-    width: 40,
-  },
-  skeletonHistoryInfo: {
-    flex: 1,
-    gap: 8,
-  },
-  skeletonHistoryLinePrimary: {
-    borderRadius: 10,
-    height: 18,
-    width: '56%',
-  },
-  skeletonHistoryLineSecondary: {
-    borderRadius: 8,
-    height: 14,
-    width: '72%',
-  },
-  skeletonHistoryMeta: {
-    alignItems: 'flex-end',
-    gap: 8,
-  },
-  skeletonHistoryLineTime: {
-    borderRadius: 8,
-    height: 16,
-    width: 56,
-  },
-  skeletonHistoryLineDate: {
-    borderRadius: 8,
-    height: 14,
-    width: 74,
   },
 });
