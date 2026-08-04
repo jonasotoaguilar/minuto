@@ -47,7 +47,7 @@ Este proyecto está en **desarrollo activo**. Las siguientes funcionalidades est
 - **Expo ~55.0.28**: Framework para desarrollo universal (iOS, Android, Web).
 - **React Native 0.83.10** + **React 19.2.0**: UI y lógica de aplicación.
 - **Expo Router**: Navegación basada en archivos (file-based routing).
-- **Estilos**: StyleSheet con tokens de tema en `src/theme` (colores, tipografía, spacing, elevación); NativeWind/Tailwind solo para estilos web globales (`src/global.css` y componentes web puntuales).
+- **Estilos**: StyleSheet con tokens de tema en `src/theme` (colores, tipografía, spacing, elevación); estilos web globales en `src/global.css`.
 - **TypeScript**: Tipado estático en todo el proyecto.
 
 ### Backend
@@ -135,7 +135,7 @@ minuto/
 │   ├── hooks/             # Custom hooks (useOrganization, useTheme, etc.)
 │   ├── lib/               # Lógica de negocio (attendance, supabase, validación)
 │   ├── theme/             # Tokens y primitivas de diseño (StyleSheet)
-│   └── global.css         # Estilos web globales (Tailwind/NativeWind)
+│   └── global.css         # Estilos web globales (variables CSS)
 ├── assets/                # Imágenes, iconos, splash screens
 ├── scripts/               # Scripts de desarrollo
 ├── supabase/              # Config, migraciones y funciones de Supabase
@@ -203,5 +203,4 @@ Este proyecto está en desarrollo activo. Para contribuir, seguí `CONTRIBUTING.
 - [Expo documentation](https://docs.expo.dev/)
 - [React Native documentation](https://reactnative.dev/)
 - [Supabase documentation](https://supabase.com/docs)
-- [NativeWind documentation](https://www.nativewind.dev/)
 - [Expo Router documentation](https://docs.expo.dev/router/introduction/)
