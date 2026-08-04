@@ -23,6 +23,17 @@ import { z } from 'zod';
 
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
+import {
+  DEFAULT_DEPARTMENT,
+  DEPARTMENT_FILTERS,
+  deriveInitials,
+  deriveName,
+  filterTeamMembers,
+  getRoleLabel,
+  mapMembershipRole,
+  normalizeDepartment,
+  type TeamMember,
+} from '@/components/team/team-member';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -83,22 +94,6 @@ const roleUpdateResponseSchema = z.object({
   error_code: z.string().optional(),
 });
 
-type TeamMember = {
-  breakDurationHours: number;
-  department: string;
-  hireDate: string;
-  id: string;
-  initials: string;
-  email: string;
-  phone: string;
-  name: string;
-  position: string;
-  role: MembershipRole;
-  roleLabel: string;
-  shiftDurationHours: number;
-  weeklyHours: number;
-};
-
 interface EditEmployeeFormValues {
   breakDurationHours: string;
   department: string;
@@ -138,11 +133,6 @@ type UpdateEmployeeProfileFn = (
   params: UpdateEmployeeProfileParams,
 ) => Promise<UpdateEmployeeProfileResult>;
 
-const DEPARTMENT_FILTERS = {
-  all: 'ALL',
-} as const;
-
-const DEFAULT_DEPARTMENT = 'General';
 const DEFAULT_BREAK_DURATION_HOURS = 0.75;
 const DEFAULT_SHIFT_DURATION_HOURS = 8;
 const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
@@ -259,22 +249,10 @@ export default function TeamScreen() {
     return [DEPARTMENT_FILTERS.all, ...uniqueDepartments];
   }, [members]);
 
-  const filteredMembers = useMemo(() => {
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-
-    return members.filter((member) => {
-      const matchesDepartment =
-        selectedDepartment === DEPARTMENT_FILTERS.all ||
-        member.department === selectedDepartment;
-      const matchesSearch =
-        normalizedSearch.length === 0 ||
-        member.name.toLowerCase().includes(normalizedSearch) ||
-        member.roleLabel.toLowerCase().includes(normalizedSearch) ||
-        member.department.toLowerCase().includes(normalizedSearch);
-
-      return matchesDepartment && matchesSearch;
-    });
-  }, [members, searchQuery, selectedDepartment]);
+  const filteredMembers = useMemo(
+    () => filterTeamMembers(members, searchQuery, selectedDepartment),
+    [members, searchQuery, selectedDepartment],
+  );
 
   const isEditModalVisible = selectedMember !== null;
 
@@ -1166,49 +1144,6 @@ function EditMemberModal({
   );
 }
 
-function deriveName(
-  fullName: string | undefined,
-  email: string | null,
-  userId: string | null,
-  fallbackId: string,
-) {
-  if (fullName && fullName.trim().length > 0) {
-    return fullName.trim();
-  }
-
-  if (email) {
-    const localPart = email.split('@')[0] ?? '';
-    const fromEmail = localPart
-      .replace(/[._-]+/g, ' ')
-      .trim()
-      .split(' ')
-      .filter(Boolean)
-      .map((token) => token[0].toUpperCase() + token.slice(1).toLowerCase())
-      .join(' ');
-    if (fromEmail) {
-      return fromEmail;
-    }
-  }
-
-  if (userId) {
-    return `Member ${userId.slice(0, 6)}`;
-  }
-
-  return `Member ${fallbackId.slice(0, 6)}`;
-}
-
-function deriveInitials(name: string) {
-  const parts = name.split(' ').filter(Boolean);
-  if (parts.length === 0) return 'MM';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-}
-
-function normalizeDepartment(rawDepartment: string | null | undefined) {
-  if (!rawDepartment?.trim()) return DEFAULT_DEPARTMENT;
-  return rawDepartment.trim();
-}
-
 function getEmptyEditFormValues(): EditEmployeeFormValues {
   return {
     breakDurationHours: decimalToHHMM(DEFAULT_BREAK_DURATION_HOURS),
@@ -1469,13 +1404,6 @@ function mapProfileUpdateError(errorCode?: string) {
   }
 }
 
-function mapMembershipRole(role: MembershipRole) {
-  if (role === 'owner') return 'Organization Owner';
-  if (role === 'admin') return 'Administrator';
-  if (role === 'manager') return 'Team Manager';
-  return 'Employee';
-}
-
 function getAllowedRolesForCaller(
   callerRole: MembershipRole,
   targetRole: MembershipRole,
@@ -1485,21 +1413,6 @@ function getAllowedRolesForCaller(
   if (callerRole === 'admin' && targetRole !== 'admin')
     return ['manager', 'employee'];
   return [];
-}
-
-function getRoleLabel(role: MembershipRole): string {
-  switch (role) {
-    case 'owner':
-      return 'Owner';
-    case 'admin':
-      return 'Administrador';
-    case 'manager':
-      return 'Manager';
-    case 'employee':
-      return 'Empleado';
-    default:
-      return role;
-  }
 }
 
 function mapRoleUpdateError(errorCode?: string) {
