@@ -37,6 +37,7 @@ import {
 } from '@/components/team/team-member';
 import { TeamMemberCard } from '@/components/team/team-member-card';
 import { TeamMemberFilters } from '@/components/team/team-member-filters';
+import { TeamMemberList } from '@/components/team/team-member-list';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -515,79 +516,64 @@ export default function TeamScreen() {
   }
 
   return (
-    <Screen
-      scroll
-      contentContainerStyle={[
-        styles.container,
-        {
+    <Screen contentContainerStyle={styles.container}>
+      <TeamMemberList
+        canManageOrganization={canManageOrganization}
+        contentContainerStyle={{
           paddingTop: theme.spacing.lg,
           paddingBottom: BottomTabInset + theme.spacing['2xl'],
-        },
-      ]}
-      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
-    >
-      <AppHeader />
+        }}
+        isApplyingMemberAction={isApplyingMemberAction}
+        isLoadingMembers={isLoadingMembers}
+        ListHeaderComponent={
+          <View style={styles.listHeader}>
+            <AppHeader />
 
-      <GlassCard style={styles.organizationCard}>
-        <SectionHeader eyebrow="Organización" title={activeOrganization.name} />
+            <GlassCard style={styles.organizationCard}>
+              <SectionHeader
+                eyebrow="Organización"
+                title={activeOrganization.name}
+              />
 
-        <View style={styles.organizationMetaRow}>
-          <Chip label={`${members.length} miembros`} tone="brand" />
-        </View>
+              <View style={styles.organizationMetaRow}>
+                <Chip label={`${members.length} miembros`} tone="brand" />
+              </View>
 
-        {canManageOrganization ? (
-          <View style={styles.organizationActions}>
-            <PrimaryButton
-              fullWidth={false}
-              label="Modificar organización"
-              onPress={() => router.push('/org-settings')}
-              style={styles.inlineAction}
+              {canManageOrganization ? (
+                <View style={styles.organizationActions}>
+                  <PrimaryButton
+                    fullWidth={false}
+                    label="Modificar organización"
+                    onPress={() => router.push('/org-settings')}
+                    style={styles.inlineAction}
+                  />
+                  <SecondaryButton
+                    fullWidth={false}
+                    label="Gestionar invitaciones"
+                    onPress={() => router.push('/invitations')}
+                    style={styles.inlineAction}
+                  />
+                </View>
+              ) : null}
+            </GlassCard>
+
+            <TeamMemberFilters
+              members={members}
+              onDepartmentChange={setSelectedDepartment}
+              onSearchChange={setSearchQuery}
+              searchQuery={searchQuery}
+              selectedDepartment={selectedDepartment}
             />
-            <SecondaryButton
-              fullWidth={false}
-              label="Gestionar invitaciones"
-              onPress={() => router.push('/invitations')}
-              style={styles.inlineAction}
-            />
+
+            {errorMessage ? (
+              <FeedbackBlock tone="error" message={errorMessage} />
+            ) : null}
           </View>
-        ) : null}
-      </GlassCard>
-
-      <TeamMemberFilters
-        members={members}
-        onDepartmentChange={setSelectedDepartment}
-        onSearchChange={setSearchQuery}
-        searchQuery={searchQuery}
-        selectedDepartment={selectedDepartment}
+        }
+        members={filteredMembers}
+        onEditMember={onEditMember}
+        onExpel={handleExpel}
       />
-
-      {errorMessage ? (
-        <FeedbackBlock tone="error" message={errorMessage} />
-      ) : null}
-
-      {isLoadingMembers ? (
-        <ThemedText colorToken="secondary" variant="body">
-          Cargando miembros...
-        </ThemedText>
-      ) : null}
-
-      {!isLoadingMembers && filteredMembers.length === 0 ? (
-        <EmptyState
-          description="No hay miembros para ese filtro."
-          title="Sin miembros"
-        />
-      ) : null}
-
-      {filteredMembers.map((member) => (
-        <TeamMemberCard
-          canManageOrganization={canManageOrganization}
-          isApplyingMemberAction={isApplyingMemberAction}
-          key={member.id}
-          member={member}
-          onEditMember={onEditMember}
-          onExpel={handleExpel}
-        />
-      ))}
 
       {expelTarget ? (
         <ExpelMemberDialog
@@ -1262,6 +1248,9 @@ const styles = StyleSheet.create({
   },
   inlineAction: {
     minWidth: 188,
+  },
+  listHeader: {
+    gap: 16,
   },
   invitationCard: {
     gap: 12,
