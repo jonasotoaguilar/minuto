@@ -24,6 +24,7 @@ import { z } from 'zod';
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { ExpelMemberDialog } from '@/components/team/expel-member-dialog';
+import { MemberRoleSection } from '@/components/team/member-role-section';
 import {
   decimalToHHMM,
   formatDateForDisplay,
@@ -777,36 +778,12 @@ function EditMemberModal({
           ) : null}
 
           {!isOwnerMember && allowedRoles.length > 0 ? (
-            <View style={styles.fieldGroup}>
-              <ThemedText variant="label">Rol (permisos)</ThemedText>
-              <View style={styles.roleChipsRow}>
-                {allowedRoles.map((roleOption) => (
-                  <Chip
-                    key={roleOption}
-                    label={getRoleLabel(roleOption)}
-                    onPress={() =>
-                      setEditFormValues((current) => ({
-                        ...current,
-                        role: roleOption,
-                      }))
-                    }
-                    selected={editFormValues.role === roleOption}
-                    tone="brand"
-                  />
-                ))}
-              </View>
-              {editFormErrors.role ? (
-                <ThemedText colorToken="error" variant="caption">
-                  {editFormErrors.role}
-                </ThemedText>
-              ) : null}
-              <ThemedText colorToken="secondary" variant="caption">
-                Seleccioná el nivel de permisos del colaborador.
-              </ThemedText>
-              <ThemedText colorToken="secondary" variant="caption">
-                {ROLE_PERMISSION_SUMMARIES[editFormValues.role].description}
-              </ThemedText>
-            </View>
+            <MemberRoleSection
+              allowedRoles={allowedRoles}
+              editFormErrors={editFormErrors}
+              editFormValues={editFormValues}
+              setEditFormValues={setEditFormValues}
+            />
           ) : null}
 
           {process.env.EXPO_OS === 'web' ? (
@@ -1073,13 +1050,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 16,
-  },
-  fieldGroup: {
-    gap: 8,
-  },
-  roleChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
   },
 });
