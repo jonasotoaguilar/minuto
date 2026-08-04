@@ -219,8 +219,6 @@ export type AttendanceEvent = {
   officeIsRemote?: boolean;
 };
 
-export type AttendanceTypeFilter = 'all' | 'clock_in' | 'clock_out';
-
 export type AttendanceMonthOption = {
   key: string;
   label: string;
@@ -642,41 +640,6 @@ export async function updateEmployeeProfile(
   };
 }
 
-export async function getPaginatedAttendanceRecords(params: {
-  organizationId: string;
-  membershipId: string;
-  page: number;
-  pageSize: number;
-  type?: AttendanceTypeFilter;
-  startDate?: string;
-  endDate?: string;
-}): Promise<{ records: AttendanceRecord[]; total: number }> {
-  let rows = await fetchAttendanceRows({
-    organizationId: params.organizationId,
-    membershipId: params.membershipId,
-    startDate: params.startDate,
-    endDate: params.endDate,
-  });
-
-  if (params.type === 'clock_out') {
-    rows = rows.filter((row) => row.clock_out_at !== null);
-  }
-
-  rows = rows.sort(
-    (left, right) =>
-      new Date(right.work_date).getTime() - new Date(left.work_date).getTime(),
-  );
-
-  const total = rows.length;
-  const from = params.page * params.pageSize;
-  const to = from + params.pageSize;
-
-  return {
-    records: rows.slice(from, to).map(mapAttendanceRow),
-    total,
-  };
-}
-
 export async function getAttendanceHistoryPage(params: {
   organizationId: string;
   membershipId: string;
@@ -734,20 +697,6 @@ function resolveAttendanceDayStatus(params: {
   return params.workedMinutes >= params.requiredMinutes
     ? 'complete'
     : 'incomplete';
-}
-
-export async function getAllAttendanceRecords(params: {
-  organizationId: string;
-  membershipId: string;
-}): Promise<AttendanceRecord[]> {
-  const rows = await fetchAttendanceRows(params);
-
-  return rows
-    .map(mapAttendanceRow)
-    .sort(
-      (left, right) =>
-        new Date(right.workDate).getTime() - new Date(left.workDate).getTime(),
-    );
 }
 
 // ─── Pure calculation helpers ─────────────────────────────────────────────────
