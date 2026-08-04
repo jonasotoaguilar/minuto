@@ -64,6 +64,7 @@ import {
 import { TeamMemberCard } from '@/components/team/team-member-card';
 import { TeamMemberFilters } from '@/components/team/team-member-filters';
 import { TeamMemberList } from '@/components/team/team-member-list';
+import { WorkScheduleFields } from '@/components/team/work-schedule-fields';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -687,65 +688,10 @@ function EditMemberModal({
             vista.
           </ThemedText>
 
-          <TextField
-            keyboardType="numbers-and-punctuation"
-            label="Jornada laboral"
-            onChangeText={(value) =>
-              setEditFormValues((current) => ({
-                ...current,
-                shiftDurationHours: value,
-              }))
-            }
-            onBlur={() =>
-              setEditFormValues((current) => ({
-                ...current,
-                shiftDurationHours: formatTimeInputOnBlur(
-                  current.shiftDurationHours,
-                ),
-              }))
-            }
-            errorMessage={editFormErrors.shiftDurationHours}
-            helperText="Horas diarias del contrato, por ejemplo 08:00."
-            placeholder="08:00"
-            value={editFormValues.shiftDurationHours}
-          />
-
-          <TextField
-            keyboardType="numbers-and-punctuation"
-            label="Colación"
-            onChangeText={(value) =>
-              setEditFormValues((current) => ({
-                ...current,
-                breakDurationHours: value,
-              }))
-            }
-            onBlur={() =>
-              setEditFormValues((current) => ({
-                ...current,
-                breakDurationHours: formatTimeInputOnBlur(
-                  current.breakDurationHours,
-                ),
-              }))
-            }
-            errorMessage={editFormErrors.breakDurationHours}
-            helperText="Horas de colación del contrato, por ejemplo 00:45."
-            placeholder="00:45"
-            value={editFormValues.breakDurationHours}
-          />
-
-          <TextField
-            keyboardType="numeric"
-            label="Jornada semanal"
-            onChangeText={(value) =>
-              setEditFormValues((current) => ({
-                ...current,
-                weeklyHours: value,
-              }))
-            }
-            errorMessage={editFormErrors.weeklyHours}
-            helperText="Horas semanales del contrato, por ejemplo 40."
-            placeholder="40"
-            value={editFormValues.weeklyHours}
+          <WorkScheduleFields
+            editFormErrors={editFormErrors}
+            editFormValues={editFormValues}
+            setEditFormValues={setEditFormValues}
           />
 
           {!isOwnerMember ? (
