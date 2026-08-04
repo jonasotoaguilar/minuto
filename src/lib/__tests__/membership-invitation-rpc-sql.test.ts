@@ -272,4 +272,86 @@ describe('membership invitation SQL migration regression', () => {
       expect(fn).toContain('SECURITY DEFINER');
     }
   });
+
+  it('revokes EXECUTE from PUBLIC/anon and grants authenticated only (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260803231445_revoke_unnecessary_execute.sql',
+      ),
+      'utf8',
+    );
+
+    const clientRpcs = [
+      'accept_membership_invitation(text)',
+      'attendance_clock_in(uuid, uuid, date, double precision, double precision, double precision, uuid, boolean)',
+      'attendance_clock_out(uuid, double precision, double precision, double precision, boolean, timestamp with time zone, boolean)',
+      'create_membership_invitation(uuid, text, text)',
+      'create_organization_office(uuid, text, text, double precision, double precision)',
+      'create_organization_with_owner(text, text, text, text, text, double precision, double precision)',
+      'delete_membership(uuid)',
+      'get_attendance_history_page(uuid, uuid, integer, integer, integer, integer)',
+      'get_attendance_records(uuid, uuid, date, date)',
+      'get_open_shift(uuid)',
+      'get_organization_offices(uuid)',
+      'get_organization_team_members(uuid)',
+      'list_my_membership_invitations(text)',
+      'list_pending_membership_invitations(uuid)',
+      'revoke_membership_invitation(uuid)',
+      'suspend_membership(uuid)',
+      'update_employee_profile(uuid, numeric, numeric, text, text, date)',
+      'update_employee_profile(uuid, numeric, numeric, text, text, date, numeric)',
+      'update_membership_role(uuid, text)',
+      'update_organization_settings(uuid, text, text)',
+      'validate_proximity(uuid, double precision, double precision, double precision)',
+    ];
+
+    for (const signature of clientRpcs) {
+      expect(sql).toContain(
+        `REVOKE ALL ON FUNCTION public.${signature} FROM PUBLIC, anon;`,
+      );
+      expect(sql).toContain(
+        `GRANT EXECUTE ON FUNCTION public.${signature} TO authenticated;`,
+      );
+    }
+
+    const systemOnly = [
+      'auto_close_stale_shifts()',
+      'delete_expired_membership_invitations()',
+      'handle_new_user_profile()',
+      'rls_auto_enable()',
+    ];
+    for (const signature of systemOnly) {
+      expect(sql).toContain(
+        `REVOKE ALL ON FUNCTION public.${signature} FROM PUBLIC, anon, authenticated;`,
+      );
+    }
+    expect(sql).not.toContain('GRANT EXECUTE ON FUNCTION public.auto_close');
+    expect(sql).not.toContain(
+      'GRANT EXECUTE ON FUNCTION public.delete_expired',
+    );
+
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.handle_new_user_profile() TO supabase_auth_admin;',
+    );
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.is_active_member_of_organization(uuid) TO anon, authenticated, service_role;',
+    );
+  });
+
+  it('preserves service_role EXECUTE while hardening client roles (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260803231445_revoke_unnecessary_execute.sql',
+      ),
+      'utf8',
+    );
+
+    expect(sql).not.toContain('FROM service_role');
+    expect(sql).not.toContain('TO service_role;');
+    expect(sql).toContain(
+      'GRANT EXECUTE ON FUNCTION public.is_active_member_of_organization(uuid) TO anon, authenticated, service_role;',
+    );
+  });
 });
