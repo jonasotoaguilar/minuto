@@ -1,0 +1,14 @@
+# Minuto web crawler policy.
+#
+# Public surface: authentication routes only (login/register). Every other
+# route requires a session and must not be crawled or indexed.
+#
+# The Sitemap directive is intentionally omitted: it requires an absolute URL
+# of a verified production origin, which is not defined yet. sitemap.xml is
+# deferred until that origin exists (issue #27).
+
+User-agent: *
+Disallow: /
+Allow: /login
+Allow: /register
+Disallow: /_sitemap
