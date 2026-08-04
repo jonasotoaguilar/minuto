@@ -23,6 +23,7 @@ import { z } from 'zod';
 
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
+import { ExpelMemberDialog } from '@/components/team/expel-member-dialog';
 import {
   DEFAULT_DEPARTMENT,
   DEPARTMENT_FILTERS,
@@ -674,110 +675,15 @@ function TeamMemberCard({
         </View>
       ) : null}
 
-      <Modal
-        animationType="fade"
-        onRequestClose={handleCloseExpelActionModal}
-        transparent
-        visible={expelFlowView.isChoiceVisible}
-      >
-        <View
-          style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
-        >
-          <Pressable
-            onPress={handleCloseExpelActionModal}
-            style={styles.modalBackdrop}
-          />
-          <GlassCard
-            style={[
-              styles.modalCard,
-              { backgroundColor: theme.colors.background.card },
-            ]}
-            variant="soft"
-          >
-            <ThemedText variant="heading">
-              Elegí cómo querés expulsar a este miembro
-            </ThemedText>
-            <View style={styles.fieldGroup}>
-              <ThemedText colorToken="secondary" variant="bodySmall">
-                Desactiva el acceso y mantiene su historial.
-              </ThemedText>
-              <SecondaryButton
-                disabled={isApplyingMemberAction}
-                fullWidth={false}
-                label="Despedir"
-                onPress={handleSelectSuspend}
-              />
-            </View>
-            <View style={styles.fieldGroup}>
-              <ThemedText colorToken="secondary" variant="bodySmall">
-                Borra su membresía y el historial asociado.
-              </ThemedText>
-              <SecondaryButton
-                disabled={isApplyingMemberAction}
-                fullWidth={false}
-                label="Eliminar"
-                onPress={handleSelectDelete}
-              />
-            </View>
-            <View style={styles.modalActions}>
-              <SecondaryButton
-                disabled={isApplyingMemberAction}
-                label="Cancelar"
-                onPress={handleCloseExpelActionModal}
-                style={styles.modalActionButton}
-              />
-            </View>
-          </GlassCard>
-        </View>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={handleCloseConfirmationModal}
-        transparent
-        visible={expelFlowView.isConfirmationVisible}
-      >
-        <View
-          style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
-        >
-          <Pressable
-            onPress={handleCloseConfirmationModal}
-            style={styles.modalBackdrop}
-          />
-          <GlassCard
-            style={[
-              styles.modalCard,
-              { backgroundColor: theme.colors.background.card },
-            ]}
-            variant="soft"
-          >
-            <ThemedText variant="heading">
-              {expelFlowView.confirmation?.title ?? ''}
-            </ThemedText>
-            <ThemedText
-              colorToken="secondary"
-              style={styles.modalBody}
-              variant="body"
-            >
-              {expelFlowView.confirmation?.body ?? ''}
-            </ThemedText>
-            <View style={styles.modalActions}>
-              <SecondaryButton
-                disabled={isApplyingMemberAction}
-                label="Cancelar"
-                onPress={handleCloseConfirmationModal}
-                style={styles.modalActionButton}
-              />
-              <PrimaryButton
-                disabled={isApplyingMemberAction}
-                label="Confirmar"
-                onPress={handleConfirmExpelAction}
-                style={styles.modalActionButton}
-              />
-            </View>
-          </GlassCard>
-        </View>
-      </Modal>
+      <ExpelMemberDialog
+        expelFlowView={expelFlowView}
+        isApplyingMemberAction={isApplyingMemberAction}
+        onCloseChoice={handleCloseExpelActionModal}
+        onCloseConfirmation={handleCloseConfirmationModal}
+        onConfirm={handleConfirmExpelAction}
+        onSelectDelete={handleSelectDelete}
+        onSelectSuspend={handleSelectSuspend}
+      />
     </GlassCard>
   );
 }
