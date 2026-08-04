@@ -34,6 +34,12 @@ yarn-error.*
 .env
 .env*.local
 
+# test runner artifacts
+test-results/
+playwright-report/
+blob-report/
+.last-run.json
+
 # typescript
 *.tsbuildinfo
 
