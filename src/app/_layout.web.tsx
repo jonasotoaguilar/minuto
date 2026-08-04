@@ -5,6 +5,7 @@ import { Stack } from 'expo-router';
 import { OrganizationProvider } from '@/hooks/use-organization';
 import { useSession } from '@/hooks/use-session';
 import { ThemeProvider } from '@/theme';
+import { FeedbackProvider } from '@/theme/feedback';
 
 // Web typography resolves through the CSS font stacks declared in global.css
 // (--font-display / --font-sans), which fall back to system families. No
@@ -21,19 +22,24 @@ export default function TabLayout() {
 
   return (
     <ThemeProvider>
-      <OrganizationProvider>
-        <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
-          <Stack.Protected guard={isInitializing || isSignedIn}>
-            <Stack.Screen name="edit-profile" />
-            <Stack.Screen name="invitations" />
-            <Stack.Screen name="org-settings" />
-          </Stack.Protected>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="invite/[code]" />
-          <Stack.Screen name="index" />
-        </Stack>
-      </OrganizationProvider>
+      <FeedbackProvider>
+        <OrganizationProvider>
+          <Stack
+            screenOptions={{ headerShown: false }}
+            initialRouteName="index"
+          >
+            <Stack.Protected guard={isInitializing || isSignedIn}>
+              <Stack.Screen name="edit-profile" />
+              <Stack.Screen name="invitations" />
+              <Stack.Screen name="org-settings" />
+            </Stack.Protected>
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="invite/[code]" />
+            <Stack.Screen name="index" />
+          </Stack>
+        </OrganizationProvider>
+      </FeedbackProvider>
     </ThemeProvider>
   );
 }

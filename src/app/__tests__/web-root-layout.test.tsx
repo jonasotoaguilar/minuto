@@ -31,6 +31,10 @@ jest.mock('@/theme', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
+jest.mock('@/theme/feedback', () => ({
+  FeedbackProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 jest.mock('expo-router', () => {
   const React = require('react');
   const { Text } = require('react-native');
