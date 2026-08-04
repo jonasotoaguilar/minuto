@@ -1,4 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import {
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react-native';
 import { useState } from 'react';
 import { MemberRoleSection } from '@/components/team/member-role-section';
 import type { EditEmployeeFormValues } from '@/components/team/team-edit-form';
@@ -72,7 +77,9 @@ describe('MemberRoleSection', () => {
     render(<Harness />);
 
     expect(screen.getAllByTestId('chip-selected')).toHaveLength(1);
-    expect(screen.getByTestId('chip-selected').children[0]).toBe('Manager');
+    expect(
+      within(screen.getByTestId('chip-selected')).getByText('Manager'),
+    ).toBeTruthy();
   });
 
   it('updates the role on chip press', () => {
