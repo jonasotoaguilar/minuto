@@ -1,4 +1,5 @@
 import { Link } from 'expo-router';
+import Head from 'expo-router/head';
 import { type Dispatch, type SetStateAction } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
@@ -27,41 +28,64 @@ export default function RegisterScreen() {
   const screen = useRegisterScreen();
 
   return (
-    <Screen
-      keyboardAvoiding
-      scroll
-      contentContainerStyle={[
-        styles.container,
-        {
-          paddingTop: theme.spacing['2xl'],
-          paddingBottom: theme.spacing['3xl'],
-          paddingHorizontal: theme.spacing.lg,
-          gap: theme.spacing.lg,
-        },
-      ]}
-    >
-      <RegisterBrandHeader theme={theme} />
-      <RegisterFormCard
-        errorMessage={screen.errorMessage}
-        focusedField={screen.focusedField}
-        formValues={screen.formValues}
-        handleSignUp={screen.handleSignUp}
-        infoMessage={screen.infoMessage}
-        isConfirmPasswordVisible={screen.isConfirmPasswordVisible}
-        isPasswordVisible={screen.isPasswordVisible}
-        isSubmitDisabled={screen.isSubmitDisabled}
-        isSubmitting={screen.isSubmitting}
-        setFieldValue={screen.setFieldValue}
-        setFocusedField={screen.setFocusedField}
-        setIsConfirmPasswordVisible={screen.setIsConfirmPasswordVisible}
-        setIsPasswordVisible={screen.setIsPasswordVisible}
-        setTouched={screen.setTouched}
-        theme={theme}
-        touchedFields={screen.touchedFields}
-        validationFieldErrors={screen.validationFieldErrors}
-        redirectTo={screen.redirectTo}
-      />
-    </Screen>
+    <>
+      <Head>
+        <title>Crear cuenta | Minuto</title>
+        <meta
+          name="description"
+          content="Crea tu cuenta en Minuto para registrar la asistencia de tu equipo y revisar tus horas trabajadas."
+        />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Minuto" />
+        <meta property="og:locale" content="es_CL" />
+        <meta property="og:title" content="Crear cuenta | Minuto" />
+        <meta
+          property="og:description"
+          content="Crea tu cuenta en Minuto para registrar la asistencia de tu equipo y revisar tus horas trabajadas."
+        />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Crear cuenta | Minuto" />
+        <meta
+          name="twitter:description"
+          content="Crea tu cuenta en Minuto para registrar la asistencia de tu equipo y revisar tus horas trabajadas."
+        />
+      </Head>
+      <Screen
+        keyboardAvoiding
+        scroll
+        contentContainerStyle={[
+          styles.container,
+          {
+            paddingTop: theme.spacing['2xl'],
+            paddingBottom: theme.spacing['3xl'],
+            paddingHorizontal: theme.spacing.lg,
+            gap: theme.spacing.lg,
+          },
+        ]}
+      >
+        <RegisterBrandHeader theme={theme} />
+        <RegisterFormCard
+          errorMessage={screen.errorMessage}
+          focusedField={screen.focusedField}
+          formValues={screen.formValues}
+          handleSignUp={screen.handleSignUp}
+          infoMessage={screen.infoMessage}
+          isConfirmPasswordVisible={screen.isConfirmPasswordVisible}
+          isPasswordVisible={screen.isPasswordVisible}
+          isSubmitDisabled={screen.isSubmitDisabled}
+          isSubmitting={screen.isSubmitting}
+          setFieldValue={screen.setFieldValue}
+          setFocusedField={screen.setFocusedField}
+          setIsConfirmPasswordVisible={screen.setIsConfirmPasswordVisible}
+          setIsPasswordVisible={screen.setIsPasswordVisible}
+          setTouched={screen.setTouched}
+          theme={theme}
+          touchedFields={screen.touchedFields}
+          validationFieldErrors={screen.validationFieldErrors}
+          redirectTo={screen.redirectTo}
+        />
+      </Screen>
+    </>
   );
 }
 

@@ -21,7 +21,11 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "name": "Minuto",
+      "lang": "es-CL",
+      "description": "Registro de asistencia para pequeñas empresas y PyMEs.",
+      "themeColor": "#047857"
     },
     "plugins": [
       "expo-router",
