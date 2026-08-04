@@ -15,8 +15,11 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
+// Simulates the font-loading world even though the web layout never gates on
+// fonts: if a regression reintroduces a font gate, the never-loaded/error
+// variants below make the navigator tree disappear and the tests fail.
 jest.mock('expo-font', () => ({
-  useFonts: () => [true, null],
+  useFonts: jest.fn(() => [true, null]),
 }));
 
 jest.mock('@/components/animated-icon', () => ({
@@ -49,6 +52,8 @@ const authMock = supabase.auth as unknown as {
   getSession: jest.Mock;
   onAuthStateChange: jest.Mock;
 };
+
+const useFontsMock = jest.requireMock('expo-font').useFonts as jest.Mock;
 
 const fakeSession = { user: { id: 'user-1' } } as Session;
 
@@ -97,5 +102,48 @@ describe('web root layout session gate', () => {
     await waitFor(() => {
       expect(getByTestId('protected')).toHaveTextContent('false');
     });
+  });
+
+  it('locks the guards when session bootstrap fails', async () => {
+    mountAuth(Promise.reject(new Error('network down')));
+
+    const { getByTestId } = render(<WebRootLayout />);
+
+    await waitFor(() => {
+      expect(getByTestId('protected')).toHaveTextContent('false');
+    });
+  });
+});
+
+describe('web root layout font behavior', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useFontsMock.mockReturnValue([true, null]);
+  });
+
+  it('renders the navigator tree while fonts never finish loading', async () => {
+    authMock.getSession.mockReturnValue(new Promise(() => undefined));
+    authMock.onAuthStateChange.mockReturnValue({
+      data: { subscription: { unsubscribe: jest.fn() } },
+    });
+    useFontsMock.mockReturnValue([false, null]);
+
+    const { getByTestId } = render(<WebRootLayout />);
+
+    // First paint must not wait on font state: the tree renders and the
+    // guards stay open on the same frame.
+    expect(getByTestId('protected')).toHaveTextContent('true');
+  });
+
+  it('renders the navigator tree when font loading errors', async () => {
+    authMock.getSession.mockReturnValue(new Promise(() => undefined));
+    authMock.onAuthStateChange.mockReturnValue({
+      data: { subscription: { unsubscribe: jest.fn() } },
+    });
+    useFontsMock.mockReturnValue([false, new Error('font failed')]);
+
+    const { getByTestId } = render(<WebRootLayout />);
+
+    expect(getByTestId('protected')).toHaveTextContent('true');
   });
 });
