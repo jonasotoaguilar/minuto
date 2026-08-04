@@ -22,10 +22,6 @@ jest.mock('expo-splash-screen', () => ({
   hideAsync: jest.fn(),
 }));
 
-jest.mock('@/components/animated-icon', () => ({
-  AnimatedSplashOverlay: () => null,
-}));
-
 jest.mock('@/hooks/use-organization', () => ({
   OrganizationProvider: ({ children }: { children: React.ReactNode }) =>
     children,

@@ -15,7 +15,6 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { OrganizationProvider } from '@/hooks/use-organization';
 import { useSession } from '@/hooks/use-session';
 import { ThemeProvider } from '@/theme';
@@ -55,7 +54,6 @@ export default function TabLayout() {
   return (
     <ThemeProvider>
       <OrganizationProvider>
-        <AnimatedSplashOverlay />
         <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
           <Stack.Protected guard={isSignedIn}>
             <Stack.Screen name="(tabs)" />
