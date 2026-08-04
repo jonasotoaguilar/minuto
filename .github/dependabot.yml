@@ -30,9 +30,6 @@ updates:
       testing:
         patterns: ["jest*", "@testing-library*", "@types/jest"]
         update-types: ["minor", "patch"]
-      tailwind:
-        patterns: ["tailwindcss*", "@tailwindcss*", "nativewind*", "tailwind-merge*", "react-native-css*"]
-        update-types: ["minor", "patch"]
       dev-dependencies:
         dependency-type: "development"
         update-types: ["minor", "patch"]
