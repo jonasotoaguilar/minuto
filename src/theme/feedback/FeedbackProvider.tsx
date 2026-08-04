@@ -5,9 +5,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  Animated,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useTheme } from '@/theme/hooks';
@@ -16,17 +23,29 @@ import { ThemedText } from '@/theme/primitives/ThemedText';
 export type FeedbackTone = 'error' | 'info' | 'success';
 
 export interface FeedbackRequest {
+  /** Action button label; rendered only when `onAction` is provided. */
+  actionLabel?: string;
   /** 0 = sticky; negative, non-finite, or overflow values fall back to the default. */
   durationMs?: number;
   message: string;
+  /**
+   * Runs exactly once when the action is pressed, after the message is
+   * dismissed. Exceptions propagate to the caller and never leave a stuck
+   * toast; auto-dismiss and manual dismiss never invoke it.
+   */
+  onAction?: () => void;
   title?: string;
   tone?: FeedbackTone;
 }
 
 export interface FeedbackContextValue {
-  /** Removes the message with the given id; other messages are unaffected. */
+  /** Removes the message with the given id (active or queued); unknown ids are ignored. */
   dismiss: (id: string) => void;
-  /** Shows a message, replacing the current one; returns its id. */
+  /** Removes every active and queued message; stops all timers. */
+  dismissAll: () => void;
+  /** Queues a message FIFO behind the current one; returns its id. */
+  enqueue: (request: FeedbackRequest) => string;
+  /** Replaces the current message and clears the queue; returns its id. */
   show: (request: FeedbackRequest) => string;
 }
 
@@ -98,17 +117,43 @@ export function FeedbackProvider({
 }: PropsWithChildren<{ dismissLabel?: string }>) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [active, setActive] = useState<ActiveMessage | null>(null);
+  const [queue, setQueue] = useState<ActiveMessage[]>([]);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const active = queue[0] ?? null;
   const colors = resolveToneColors(theme, active?.tone ?? 'info');
 
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener(
+      'reduceMotionChanged',
+      setReduceMotion,
+    );
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
   const dismiss = useCallback((id: string) => {
-    setActive((current) => (current?.id === id ? null : current));
+    setQueue((current) => current.filter((message) => message.id !== id));
+  }, []);
+
+  const dismissAll = useCallback(() => setQueue([]), []);
+
+  const enqueue = useCallback((request: FeedbackRequest) => {
+    const id = `feedback-${nextMessageId}`;
+    nextMessageId += 1;
+    setQueue((current) => [...current, { ...request, id }]);
+    return id;
   }, []);
 
   const show = useCallback((request: FeedbackRequest) => {
     const id = `feedback-${nextMessageId}`;
     nextMessageId += 1;
-    setActive({ ...request, id });
+    setQueue([{ ...request, id }]);
     return id;
   }, []);
 
@@ -120,7 +165,36 @@ export function FeedbackProvider({
     return () => clearTimeout(timer);
   }, [active, dismiss]);
 
-  const value = useMemo(() => ({ dismiss, show }), [dismiss, show]);
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(-8)).current;
+
+  useEffect(() => {
+    if (!active) return;
+    if (reduceMotion) {
+      opacity.setValue(1);
+      translateY.setValue(0);
+      return;
+    }
+    const entrance = Animated.parallel([
+      Animated.timing(opacity, {
+        duration: 180,
+        toValue: 1,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        duration: 180,
+        toValue: 0,
+        useNativeDriver: true,
+      }),
+    ]);
+    entrance.start();
+    return () => entrance.stop();
+  }, [active, opacity, reduceMotion, translateY]);
+
+  const value = useMemo(
+    () => ({ dismiss, dismissAll, enqueue, show }),
+    [dismiss, dismissAll, enqueue, show],
+  );
 
   return (
     <FeedbackContext.Provider value={value}>
@@ -129,14 +203,17 @@ export function FeedbackProvider({
         <View
           pointerEvents="box-none"
           style={[styles.host, { top: insets.top + theme.spacing.md }]}
+          testID="feedback-host"
         >
-          <View
+          <Animated.View
             style={[
               styles.toast,
               {
                 backgroundColor: colors.backgroundColor,
                 borderColor: colors.borderColor,
                 borderRadius: theme.radius.lg,
+                opacity,
+                transform: [{ translateY }],
               },
             ]}
           >
@@ -155,6 +232,19 @@ export function FeedbackProvider({
                 {active.message}
               </ThemedText>
             </View>
+            {active.actionLabel && active.onAction ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  dismiss(active.id);
+                  active.onAction?.();
+                }}
+              >
+                <ThemedText colorToken="accent" variant="label">
+                  {active.actionLabel}
+                </ThemedText>
+              </Pressable>
+            ) : null}
             <Pressable
               accessibilityLabel={dismissLabel}
               accessibilityRole="button"
@@ -165,7 +255,7 @@ export function FeedbackProvider({
                 ×
               </ThemedText>
             </Pressable>
-          </View>
+          </Animated.View>
         </View>
       ) : null}
     </FeedbackContext.Provider>
@@ -177,7 +267,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     left: 0,
     paddingHorizontal: 16,
-    position: Platform.select({ web: 'fixed', default: 'absolute' }),
+    position: 'absolute',
     right: 0,
     zIndex: 1000,
   },

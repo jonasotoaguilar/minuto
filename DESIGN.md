@@ -227,6 +227,9 @@ Do not introduce sharp-corner components unless the whole design system changes.
 - One toast is visible at a time; a new `show()` replaces the current message and returns its id, and `dismiss(id)` removes it. `durationMs: 0` pins the message until dismissed (default 4000 ms); timers are cleared on dismiss, replacement, and unmount.
 - Semantics: the message renders `role="alert"` for the error tone and `role="status"` (polite) for other tones, so feedback is announced without stealing focus; the dismiss control carries an accessible label. Tone text colors meet WCAG AA (≥ 4.5:1) against their backgrounds in both themes, locked by contrast assertions.
 - The core does not mount itself: migrating `Alert.alert` call sites and mounting the provider is owned by the screen lanes (L13/L14).
+- Hardening contract: `enqueue()` queues FIFO behind the active toast (one visible at a time) while `show()` keeps its replace-and-clear semantics; `dismissAll()` clears active and queued messages and stops every timer. Queued messages only time out once they become active.
+- Optional `actionLabel`/`onAction` render an action button next to the dismiss control; pressing it dismisses the message first, then invokes the callback exactly once (auto-dismiss and manual dismiss never call it), and exceptions propagate without leaving a stuck toast.
+- Entrance animation runs only when the OS/browser does not prefer reduced motion, and is stopped deterministically on dismissal, replacement, unmount, and queue transitions.
 
 ## Components
 
