@@ -1,5 +1,6 @@
+import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { AppHeader } from '@/components/header-user-menu';
@@ -7,14 +8,23 @@ import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
+import {
+  calculateWeeklyTotals,
+  getAttendanceRecordsForRange,
+  getOrganizationWeekRange,
+} from '@/lib/attendance';
+import { getErrorMessage } from '@/lib/error';
 import { supabase } from '@/lib/supabase';
+import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
   Avatar,
   Chip,
+  FeedbackBlock,
   GlassCard,
   MetricCard,
   Screen,
   SectionHeader,
+  Skeleton,
   ThemedText,
 } from '@/theme/primitives';
 
@@ -44,14 +54,24 @@ const initialHomeUserSnapshot: HomeUserSnapshot = {
 export default function HomeScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const isScreenFocused = useIsFocused();
   const {
     activeOrganization,
     isLoadingOrganizations,
     isOrganizationSetupOpen,
   } = useOrganization();
+  const currentTimezone = resolveOrganizationTimezone(
+    activeOrganization?.defaultTimezone,
+  );
   const [userSnapshot, setUserSnapshot] = useState<HomeUserSnapshot>(
     initialHomeUserSnapshot,
   );
+  const [isLoadingWeekly, setIsLoadingWeekly] = useState(true);
+  const [weeklyErrorMessage, setWeeklyErrorMessage] = useState('');
+  const [weeklyMinutes, setWeeklyMinutes] = useState(0);
+  const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
+  const isMountedRef = useRef(false);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -88,6 +108,61 @@ export default function HomeScreen() {
       isMounted = false;
     };
   }, []);
+
+  const loadWeeklyMetrics = useCallback(async () => {
+    if (!activeOrganization) return;
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+
+    setIsLoadingWeekly(true);
+    setWeeklyErrorMessage('');
+
+    const week = getOrganizationWeekRange(currentTimezone);
+
+    try {
+      const weeklyRecords = await getAttendanceRecordsForRange({
+        organizationId: activeOrganization.id,
+        membershipId: activeOrganization.membershipId,
+        startDate: week.start,
+        endDate: week.end,
+      });
+
+      if (requestId !== requestIdRef.current || !isMountedRef.current) return;
+
+      const totals = calculateWeeklyTotals(weeklyRecords, {
+        includeOpenShiftMinutes: true,
+        now: new Date(),
+      });
+
+      setWeeklyMinutes(totals.totalMinutes);
+      setWeeklyAttendedDays(totals.attendedDays);
+    } catch (error) {
+      if (requestId !== requestIdRef.current || !isMountedRef.current) return;
+
+      setWeeklyErrorMessage(
+        getErrorMessage(error) ?? 'No se pudieron cargar las horas semanales.',
+      );
+    } finally {
+      if (requestId === requestIdRef.current && isMountedRef.current) {
+        setIsLoadingWeekly(false);
+      }
+    }
+  }, [activeOrganization, currentTimezone]);
+
+  useEffect(() => {
+    if (!isScreenFocused) {
+      requestIdRef.current += 1;
+      return;
+    }
+
+    isMountedRef.current = true;
+    void loadWeeklyMetrics();
+
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [isScreenFocused, loadWeeklyMetrics]);
 
   const membershipRoleLabel = useMemo(
     () => formatMembershipRole(activeOrganization?.membershipRole),
@@ -189,20 +264,24 @@ export default function HomeScreen() {
         </Pressable>
       </GlassCard>
 
-      <View style={styles.metricsRow}>
-        <MetricCard
-          helper="Target goal"
-          icon={<MetricIconPlaceholder />}
-          label="WEEKLY HOURS"
-          value="40h"
-        />
-        <MetricCard
-          helper="On-time rate"
-          icon={<MetricIconPlaceholder />}
-          label="ATTENDANCE"
-          value="98%"
-        />
-      </View>
+      {isLoadingWeekly ? (
+        <MetricsSkeleton />
+      ) : weeklyErrorMessage ? (
+        <FeedbackBlock tone="error" message={weeklyErrorMessage} />
+      ) : (
+        <View style={styles.metricsRow}>
+          <MetricCard
+            icon={<MetricIconPlaceholder />}
+            label="Horas semanales"
+            value={formatMinutes(weeklyMinutes)}
+          />
+          <MetricCard
+            icon={<MetricIconPlaceholder />}
+            label="Días asistidos"
+            value={String(weeklyAttendedDays)}
+          />
+        </View>
+      )}
 
       <View style={styles.quickRow}>
         {QUICK_ACTIONS.map((action) => {
@@ -358,6 +437,25 @@ function MetricIconPlaceholder() {
   );
 }
 
+function MetricsSkeleton() {
+  return (
+    <View style={styles.metricsRow}>
+      <MetricSkeletonCard />
+      <MetricSkeletonCard />
+    </View>
+  );
+}
+
+function MetricSkeletonCard() {
+  return (
+    <GlassCard style={styles.metricCard} variant="soft">
+      <Skeleton style={styles.skeletonMetricIcon} />
+      <Skeleton style={styles.skeletonMetricValue} />
+      <Skeleton style={styles.skeletonMetricLabel} />
+    </GlassCard>
+  );
+}
+
 function ActivityItem(props: {
   accentColor: string;
   title: string;
@@ -376,6 +474,13 @@ function ActivityItem(props: {
       </View>
     </View>
   );
+}
+
+function formatMinutes(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  return `${hours}h ${minutes}m`;
 }
 
 const styles = StyleSheet.create({
@@ -398,23 +503,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
-  },
-  avatarLarge: {
-    alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 88,
-    justifyContent: 'center',
-    width: 88,
-  },
-  onlineDot: {
-    borderRadius: 999,
-    borderWidth: 2,
-    bottom: 6,
-    height: 14,
-    position: 'absolute',
-    right: 6,
-    width: 14,
   },
   profileCopy: {
     flex: 1,
@@ -477,9 +565,6 @@ const styles = StyleSheet.create({
     height: 16,
     width: 16,
   },
-  metricValue: {
-    letterSpacing: -0.5,
-  },
   quickRow: {
     flexDirection: 'row',
     gap: 8,
@@ -525,5 +610,20 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     alignItems: 'center',
+  },
+  skeletonMetricIcon: {
+    borderRadius: 999,
+    height: 40,
+    width: 40,
+  },
+  skeletonMetricValue: {
+    borderRadius: 8,
+    height: 28,
+    width: '70%',
+  },
+  skeletonMetricLabel: {
+    borderRadius: 6,
+    height: 14,
+    width: '55%',
   },
 });
