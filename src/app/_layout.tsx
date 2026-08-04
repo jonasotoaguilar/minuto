@@ -20,6 +20,7 @@ import { useSession } from '@/hooks/use-session';
 import { setRouteContext } from '@/lib/telemetry-context';
 import { installUncaughtErrorReporting } from '@/lib/telemetry-install';
 import { ThemeProvider } from '@/theme';
+import { FeedbackProvider } from '@/theme/feedback';
 
 // Keep the native splash screen visible while we load fonts and resolve the
 // persisted session, so the first frame is always the correct gate state.
@@ -64,19 +65,24 @@ export default function TabLayout() {
 
   return (
     <ThemeProvider>
-      <OrganizationProvider>
-        <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
-          <Stack.Protected guard={isSignedIn}>
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="edit-profile" />
-            <Stack.Screen name="invitations" />
-            <Stack.Screen name="org-settings" />
-          </Stack.Protected>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="invite/[code]" />
-          <Stack.Screen name="index" />
-        </Stack>
-      </OrganizationProvider>
+      <FeedbackProvider>
+        <OrganizationProvider>
+          <Stack
+            screenOptions={{ headerShown: false }}
+            initialRouteName="index"
+          >
+            <Stack.Protected guard={isSignedIn}>
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="edit-profile" />
+              <Stack.Screen name="invitations" />
+              <Stack.Screen name="org-settings" />
+            </Stack.Protected>
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="invite/[code]" />
+            <Stack.Screen name="index" />
+          </Stack>
+        </OrganizationProvider>
+      </FeedbackProvider>
     </ThemeProvider>
   );
 }
