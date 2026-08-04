@@ -354,4 +354,84 @@ describe('membership invitation SQL migration regression', () => {
       'GRANT EXECUTE ON FUNCTION public.is_active_member_of_organization(uuid) TO anon, authenticated, service_role;',
     );
   });
+
+  it('converts only offices RPCs to SECURITY INVOKER with ACLs untouched (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260804005812_invoker_conversion_and_revoke_ambiguity.sql',
+      ),
+      'utf8',
+    );
+
+    expect(sql).not.toContain('REVOKE');
+    expect(sql).not.toContain('GRANT ');
+
+    const functions = sql.split('CREATE OR REPLACE FUNCTION');
+    const officesFn = functions.find((f) =>
+      f.startsWith(' public.get_organization_offices'),
+    );
+    const proximityFn = functions.find((f) =>
+      f.startsWith(' public.validate_proximity'),
+    );
+    const revokeFn = functions.find((f) =>
+      f.startsWith(' public.revoke_membership_invitation'),
+    );
+
+    for (const fn of [officesFn, proximityFn]) {
+      expect(fn).toContain('SECURITY INVOKER');
+      expect(fn).toContain("SET search_path = ''");
+      expect(fn).toContain('IF auth.uid() IS NULL THEN');
+    }
+    expect(revokeFn).toContain('SECURITY DEFINER');
+    expect(revokeFn).toContain("SET search_path = ''");
+
+    expect(sql.match(/CREATE OR REPLACE FUNCTION/g)).toHaveLength(3);
+  });
+
+  it('qualifies OUT-param-colliding columns in revoke_membership_invitation (42702)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260804005812_invoker_conversion_and_revoke_ambiguity.sql',
+      ),
+      'utf8',
+    );
+
+    const functions = sql.split('CREATE OR REPLACE FUNCTION');
+    const revokeFn = functions.find((f) =>
+      f.startsWith(' public.revoke_membership_invitation'),
+    );
+    expect(revokeFn).toBeDefined();
+    expect(revokeFn).toBeTruthy();
+    const bodyMatch = (revokeFn ?? '').match(/\$function\$(.*)\$function\$/s);
+    const body = bodyMatch?.[1] ?? '';
+
+    const badPatterns = [
+      /\bWHERE\s+organization_id\s*=/gi,
+      /\bAND\s+organization_id\s*=/gi,
+      /\bWHERE\s+status\s*=/gi,
+      /\bAND\s+status\s*=/gi,
+      /\bWHERE\s+user_id\s*=/gi,
+      /\bAND\s+user_id\s*=/gi,
+      /\bWHERE\s+id\s*=/gi,
+      /\bAND\s+id\s*=/gi,
+      /\bOR\s+id\s*=/gi,
+      /\bSET\s+id\s*=/gi,
+      /\bORDER BY\s+id\b/gi,
+      /\bGROUP BY\s+id\b/gi,
+    ];
+    for (const pattern of badPatterns) {
+      expect(body).not.toMatch(pattern);
+    }
+    expect(body).toMatch(/FROM public\.memberships AS m/);
+    expect(body).toMatch(/m\.organization_id\s*=/);
+    expect(body).toMatch(/m\.user_id\s*=/);
+    expect(body).toMatch(/m\.status\s*=/);
+    expect(body).toMatch(/memberships\.id\s*=/);
+    expect(body).toMatch(/v_invitation\.id/);
+    expect(body).not.toMatch(/\bSELECT\s+id\b/);
+    expect(body).toMatch(/can_manage_membership_role/);
+    expect(body).toMatch(/auth\.uid\(\)/);
+  });
 });
