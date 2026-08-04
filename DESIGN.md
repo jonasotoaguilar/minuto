@@ -221,6 +221,13 @@ Do not introduce sharp-corner components unless the whole design system changes.
 - **Landmarks**: the top-level route screen passes `role="main"` to `Screen` — one `main` per document; modals and secondary surfaces omit it. `Screen` forwards the role to its container on web and native.
 - **Headings**: document outline headings use `ThemedText` with `variant="heading"` (or `"title"`) plus `role="heading"` and `accessibilityLevel`; screen-owning lanes apply this to their screens.
 
+## Feedback
+
+- `src/theme/feedback` provides the cross-platform toast core: mount `FeedbackProvider` once near the root layout and call `useFeedback().show({ message, title, tone, durationMs })`.
+- One toast is visible at a time; a new `show()` replaces the current message and returns its id, and `dismiss(id)` removes it. `durationMs: 0` pins the message until dismissed (default 4000 ms); timers are cleared on dismiss, replacement, and unmount.
+- Semantics: the message renders `role="alert"` for the error tone and `role="status"` (polite) for other tones, so feedback is announced without stealing focus; the dismiss control carries an accessible label. Tone text colors meet WCAG AA (≥ 4.5:1) against their backgrounds in both themes, locked by contrast assertions.
+- The core does not mount itself: migrating `Alert.alert` call sites and mounting the provider is owned by the screen lanes (L13/L14).
+
 ## Components
 
 ### Existing primitives to preserve
