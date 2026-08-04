@@ -1,15 +1,8 @@
 import { useIsFocused } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
-import { LiveClock } from '@/components/control/clock';
 import {
   CONTROL_MODE,
   type ControlButtonState,
@@ -23,13 +16,17 @@ import {
   buildRecentHistoryItems,
   formatCompactDate,
   formatDisplayDate,
-  formatMinutes,
   formatOvertimeTitle,
   formatTime,
   getStandardCloseAt,
   isOvertimeThresholdExceeded,
   type RecentHistoryItem,
 } from '@/components/control/format';
+import {
+  ControlHeroCard,
+  HeroCardSkeleton,
+} from '@/components/control/hero-card';
+import { MetricsSkeleton, WeeklyMetrics } from '@/components/control/metrics';
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
@@ -56,10 +53,7 @@ import { getErrorMessage } from '@/lib/error';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
   AttendanceIcon,
-  Chip,
-  FeedbackBlock,
   GlassCard,
-  MetricCard,
   ModalCard,
   PrimaryButton,
   Screen,
@@ -523,23 +517,16 @@ export default function ControlScreen() {
           onValidateLocation={onValidateLocation}
           openShiftRecord={openShiftRecord}
           proximityStatus={proximityStatus}
-          theme={theme}
         />
       )}
 
       {isLoadingAttendance ? (
         <MetricsSkeleton />
       ) : (
-        <View style={styles.metricsRow}>
-          <MetricCard
-            label="Horas semanales"
-            value={formatMinutes(weeklyMinutes)}
-          />
-          <MetricCard
-            label="Dias asistidos semana"
-            value={`${weeklyAttendedDays} dias`}
-          />
-        </View>
+        <WeeklyMetrics
+          weeklyAttendedDays={weeklyAttendedDays}
+          weeklyMinutes={weeklyMinutes}
+        />
       )}
 
       {isLoadingAttendance ? (
@@ -565,164 +552,6 @@ export default function ControlScreen() {
         visible={isOvertimeModalVisible}
       />
     </Screen>
-  );
-}
-
-type ControlHeroCardProps = {
-  buttonState: ControlButtonState;
-  controlMode: ControlMode;
-  currentTimezone: string;
-  errorMessage: string;
-  isCrossDateOpenShift: boolean;
-  isSubmitting: boolean;
-  onRegisterAction: () => void;
-  onResetValidation: () => void;
-  onSelectRemote: () => void;
-  onValidateLocation: () => void;
-  openShiftRecord: OpenShift | null;
-  proximityStatus: ControlStatusViewModel;
-  theme: AppTheme;
-};
-
-function ControlHeroCard({
-  buttonState,
-  controlMode,
-  currentTimezone,
-  errorMessage,
-  isCrossDateOpenShift,
-  isSubmitting,
-  onRegisterAction,
-  onResetValidation,
-  onSelectRemote,
-  onValidateLocation,
-  openShiftRecord,
-  proximityStatus,
-  theme,
-}: ControlHeroCardProps) {
-  const helperTone =
-    controlMode === CONTROL_MODE.VALID ||
-    controlMode === CONTROL_MODE.CLOCKED_IN
-      ? 'success'
-      : controlMode === CONTROL_MODE.OUT_OF_RANGE
-        ? 'warning'
-        : controlMode === CONTROL_MODE.GPS_ERROR
-          ? 'error'
-          : controlMode === CONTROL_MODE.REMOTE
-            ? 'accent'
-            : 'secondary';
-
-  return (
-    <GlassCard style={styles.heroCard}>
-      <Chip
-        label={proximityStatus.chipLabel}
-        selected={controlMode !== CONTROL_MODE.VALIDATING}
-        style={styles.statusChip}
-        tone={proximityStatus.chipTone}
-      />
-      <LiveClock currentTimezone={currentTimezone} />
-
-      <View style={styles.statusContainer}>
-        {controlMode === CONTROL_MODE.VALIDATING ? (
-          <View style={styles.loadingRow}>
-            <ActivityIndicator
-              color={theme.colors.brand.primary}
-              size="small"
-            />
-            <ThemedText variant="body">Obteniendo ubicación...</ThemedText>
-          </View>
-        ) : null}
-
-        <ThemedText
-          colorToken={helperTone}
-          style={styles.helper}
-          variant="bodySmall"
-        >
-          {proximityStatus.helper}
-        </ThemedText>
-
-        {isCrossDateOpenShift && openShiftRecord ? (
-          <ThemedText colorToken="warning" style={styles.helper} variant="body">
-            {`Tenés una jornada abierta del ${formatDisplayDate(openShiftRecord.workDate, currentTimezone)}.`}
-          </ThemedText>
-        ) : null}
-
-        {controlMode === CONTROL_MODE.IDLE ? (
-          <View style={styles.actionButtonsRow}>
-            <PrimaryButton
-              label="Validar ubicación"
-              loading={isSubmitting}
-              onPress={onValidateLocation}
-              style={styles.flexButton}
-            />
-            <SecondaryButton
-              label="Trabajo Remoto"
-              onPress={onSelectRemote}
-              style={styles.flexButton}
-            />
-          </View>
-        ) : null}
-
-        {controlMode === CONTROL_MODE.OUT_OF_RANGE ||
-        controlMode === CONTROL_MODE.GPS_ERROR ? (
-          <View style={styles.actionButtonsRow}>
-            <PrimaryButton
-              label="Reintentar"
-              loading={isSubmitting}
-              onPress={onValidateLocation}
-              style={styles.flexButton}
-            />
-            <SecondaryButton
-              label="Trabajo Remoto"
-              onPress={onSelectRemote}
-              style={styles.flexButton}
-            />
-          </View>
-        ) : null}
-      </View>
-
-      {controlMode === CONTROL_MODE.VALID ||
-      controlMode === CONTROL_MODE.REMOTE ? (
-        <>
-          <PrimaryButton
-            disabled={buttonState.disabled}
-            label={buttonState.label}
-            loading={isSubmitting}
-            onPress={onRegisterAction}
-          />
-          <SecondaryButton label="← Volver" onPress={onResetValidation} />
-          <ThemedText
-            colorToken="secondary"
-            style={styles.helper}
-            variant="bodySmall"
-          >
-            {buttonState.helper}
-          </ThemedText>
-        </>
-      ) : null}
-
-      {controlMode === CONTROL_MODE.CLOCKED_IN ||
-      controlMode === CONTROL_MODE.COMPLETED ? (
-        <>
-          <PrimaryButton
-            disabled={buttonState.disabled}
-            label={buttonState.label}
-            loading={isSubmitting}
-            onPress={onRegisterAction}
-          />
-          <ThemedText
-            colorToken="secondary"
-            style={styles.helper}
-            variant="bodySmall"
-          >
-            {buttonState.helper}
-          </ThemedText>
-        </>
-      ) : null}
-
-      {errorMessage ? (
-        <FeedbackBlock tone="error" message={errorMessage} />
-      ) : null}
-    </GlassCard>
   );
 }
 
@@ -848,47 +677,6 @@ function OvertimeActionsModal({
   );
 }
 
-function HeroCardSkeleton() {
-  return (
-    <GlassCard style={styles.heroCard}>
-      <Skeleton style={styles.skeletonChip} />
-      <Skeleton style={styles.skeletonClock} />
-      <Skeleton style={styles.skeletonDate} />
-
-      <View style={styles.statusContainer}>
-        <Skeleton style={styles.skeletonHelperLineLong} />
-        <Skeleton style={styles.skeletonHelperLineShort} />
-      </View>
-
-      <View style={styles.actionButtonsRow}>
-        <Skeleton style={[styles.skeletonButton, styles.flexButton]} />
-        <Skeleton style={[styles.skeletonButton, styles.flexButton]} />
-      </View>
-
-      <Skeleton style={styles.skeletonButton} />
-    </GlassCard>
-  );
-}
-
-function MetricsSkeleton() {
-  return (
-    <View style={styles.metricsRow}>
-      <MetricSkeletonCard />
-      <MetricSkeletonCard />
-    </View>
-  );
-}
-
-function MetricSkeletonCard() {
-  return (
-    <GlassCard style={styles.metricCard} variant="soft">
-      <Skeleton style={styles.skeletonMetricIcon} />
-      <Skeleton style={styles.skeletonMetricValue} />
-      <Skeleton style={styles.skeletonMetricLabel} />
-    </GlassCard>
-  );
-}
-
 function HistorySkeleton() {
   return (
     <GlassCard style={styles.historyCard} variant="soft">
@@ -932,45 +720,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  heroCard: {
-    alignItems: 'center',
-    gap: 12,
-  },
-  helper: {
-    textAlign: 'center',
-  },
-  loadingRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-
-  statusChip: {
-    alignSelf: 'center',
-  },
-  statusContainer: {
-    alignItems: 'center',
-    gap: 8,
-    width: '100%',
-  },
-  actionButtonsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    width: '100%',
-  },
-  flexButton: {
-    flex: 1,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  metricCard: {
-    flex: 1,
-    gap: 8,
-    minHeight: 148,
-    justifyContent: 'space-between',
-  },
 
   historyCard: {
     gap: 16,
@@ -1004,52 +753,6 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
 
-  skeletonChip: {
-    alignSelf: 'center',
-    borderRadius: 999,
-    height: 30,
-    width: 148,
-  },
-  skeletonClock: {
-    borderRadius: 16,
-    height: 48,
-    width: 216,
-  },
-  skeletonDate: {
-    borderRadius: 12,
-    height: 22,
-    width: 252,
-  },
-  skeletonHelperLineLong: {
-    alignSelf: 'center',
-    height: 18,
-    width: '82%',
-  },
-  skeletonHelperLineShort: {
-    alignSelf: 'center',
-    height: 16,
-    width: '62%',
-  },
-  skeletonButton: {
-    borderRadius: 20,
-    height: 50,
-    width: '100%',
-  },
-  skeletonMetricIcon: {
-    borderRadius: 999,
-    height: 36,
-    width: 36,
-  },
-  skeletonMetricValue: {
-    borderRadius: 12,
-    height: 30,
-    width: '72%',
-  },
-  skeletonMetricLabel: {
-    borderRadius: 10,
-    height: 18,
-    width: '58%',
-  },
   skeletonHistoryHeader: {
     alignItems: 'center',
     flexDirection: 'row',
