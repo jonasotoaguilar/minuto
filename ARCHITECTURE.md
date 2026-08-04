@@ -155,6 +155,18 @@ The canonical schema source of truth is `supabase/migrations/`. Schema work must
 - CI must run lint, typecheck, unit tests, and eventually Playwright E2E.
 - Supabase advisors should be run during schema hardening.
 - Large files over ~400 lines should be decomposed into reviewable modules.
+- Client telemetry: uncaught errors and unhandled rejections are captured on
+  the client and reported to `EXPO_PUBLIC_TELEMETRY_ENDPOINT` when set. The
+  pipeline is non-blocking and best-effort: a bounded in-memory queue with
+  retries and backoff, then a cooldown after repeated failures; without an
+  endpoint the reporter is a no-op.
+- Payload contract: every event carries a route template (ids masked as
+  `[param]`), an operation label from a small fixed vocabulary, session
+  presence (never the session or a user identifier), and a truncated error
+  description. Free-form metadata is redacted recursively — sensitive keys
+  and credential patterns never leave the client.
+- Telemetry never blocks or crashes the app: capture is synchronous and never
+  throws; delivery failures are internal.
 
 ## Key Decisions
 
@@ -185,7 +197,8 @@ Single Expo app and one Supabase project are appropriate for MVP and early PyME 
 ### Next Triggers
 
 - Add reporting/materialized views when worked-hour reports become slow.
-- Add dedicated observability once production users rely on daily attendance.
+- Configure a production telemetry endpoint (`EXPO_PUBLIC_TELEMETRY_ENDPOINT`)
+  once there is a receiver to accept client error events.
 - Consider Edge Functions only if workflows outgrow SQL RPCs or require external integrations.
 
 ## ADRs

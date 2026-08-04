@@ -41,7 +41,7 @@ jest.mock('expo-router', () => {
   MockStack.Protected = ({ guard }: { guard: boolean }) =>
     React.createElement(Text, { testID: 'protected' }, JSON.stringify(guard));
 
-  return { Stack: MockStack };
+  return { Stack: MockStack, usePathname: () => '/' };
 });
 
 const authMock = supabase.auth as unknown as {
