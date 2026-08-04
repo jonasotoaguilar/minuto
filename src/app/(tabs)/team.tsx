@@ -172,6 +172,9 @@ export default function TeamScreen() {
   const [isHireDatePickerVisible, setIsHireDatePickerVisible] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isApplyingMemberAction, setIsApplyingMemberAction] = useState(false);
+  const [expelTarget, setExpelTarget] = useState<TeamMember | null>(null);
+  const [expelFlowState, setExpelFlowState] = useState<ExpelFlowState>('idle');
+  const expelFlowView = getExpelFlowView(expelFlowState);
   const canManageOrganization = MANAGEMENT_ROLES.includes(
     activeOrganization?.membershipRole ?? 'employee',
   );
@@ -454,6 +457,49 @@ export default function TeamScreen() {
     [loadMembers],
   );
 
+  const handleExpel = useCallback((member: TeamMember) => {
+    setExpelTarget(member);
+    setExpelFlowState((current) =>
+      transitionExpelFlowState(current, 'open-choice'),
+    );
+  }, []);
+
+  const handleCloseExpelActionModal = useCallback(() => {
+    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
+  }, []);
+
+  const handleSelectSuspend = useCallback(() => {
+    setExpelFlowState((current) =>
+      transitionExpelFlowState(current, 'select-suspend'),
+    );
+  }, []);
+
+  const handleSelectDelete = useCallback(() => {
+    setExpelFlowState((current) =>
+      transitionExpelFlowState(current, 'select-delete'),
+    );
+  }, []);
+
+  const handleCloseConfirmationModal = useCallback(() => {
+    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
+  }, []);
+
+  const handleConfirmExpelAction = useCallback(() => {
+    if (!expelTarget) {
+      return;
+    }
+
+    if (expelFlowState === 'confirm-suspend') {
+      void onSuspendMember(expelTarget.id);
+    }
+
+    if (expelFlowState === 'confirm-delete') {
+      void onDeleteMember(expelTarget.id);
+    }
+
+    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
+  }, [expelFlowState, expelTarget, onDeleteMember, onSuspendMember]);
+
   if (isLoadingOrganizations) {
     return (
       <Screen contentContainerStyle={styles.loaderContainer}>
@@ -533,16 +579,27 @@ export default function TeamScreen() {
       ) : null}
 
       {filteredMembers.map((member) => (
-        <TeamMemberCardWithExpel
+        <TeamMemberCard
           canManageOrganization={canManageOrganization}
           isApplyingMemberAction={isApplyingMemberAction}
           key={member.id}
           member={member}
-          onDeleteMember={onDeleteMember}
           onEditMember={onEditMember}
-          onSuspendMember={onSuspendMember}
+          onExpel={handleExpel}
         />
       ))}
+
+      {expelTarget ? (
+        <ExpelMemberDialog
+          expelFlowView={expelFlowView}
+          isApplyingMemberAction={isApplyingMemberAction}
+          onCloseChoice={handleCloseExpelActionModal}
+          onCloseConfirmation={handleCloseConfirmationModal}
+          onConfirm={handleConfirmExpelAction}
+          onSelectDelete={handleSelectDelete}
+          onSelectSuspend={handleSelectSuspend}
+        />
+      ) : null}
 
       <EditMemberModal
         activeOrganizationRole={
@@ -564,87 +621,6 @@ export default function TeamScreen() {
         visible={isEditModalVisible}
       />
     </Screen>
-  );
-}
-
-type TeamMemberCardWithExpelProps = {
-  canManageOrganization: boolean;
-  isApplyingMemberAction: boolean;
-  member: TeamMember;
-  onDeleteMember: (membershipId: string) => Promise<void>;
-  onEditMember: (member: TeamMember) => void;
-  onSuspendMember: (membershipId: string) => Promise<void>;
-};
-
-function TeamMemberCardWithExpel({
-  canManageOrganization,
-  isApplyingMemberAction,
-  member,
-  onDeleteMember,
-  onEditMember,
-  onSuspendMember,
-}: TeamMemberCardWithExpelProps) {
-  const [expelFlowState, setExpelFlowState] = useState<ExpelFlowState>('idle');
-  const expelFlowView = getExpelFlowView(expelFlowState);
-
-  const handleExpel = useCallback((_member: TeamMember) => {
-    setExpelFlowState((current) =>
-      transitionExpelFlowState(current, 'open-choice'),
-    );
-  }, []);
-
-  const handleCloseExpelActionModal = useCallback(() => {
-    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
-  }, []);
-
-  const handleSelectSuspend = useCallback(() => {
-    setExpelFlowState((current) =>
-      transitionExpelFlowState(current, 'select-suspend'),
-    );
-  }, []);
-
-  const handleSelectDelete = useCallback(() => {
-    setExpelFlowState((current) =>
-      transitionExpelFlowState(current, 'select-delete'),
-    );
-  }, []);
-
-  const handleCloseConfirmationModal = useCallback(() => {
-    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
-  }, []);
-
-  const handleConfirmExpelAction = useCallback(() => {
-    if (expelFlowState === 'confirm-suspend') {
-      void onSuspendMember(member.id);
-    }
-
-    if (expelFlowState === 'confirm-delete') {
-      void onDeleteMember(member.id);
-    }
-
-    setExpelFlowState((current) => transitionExpelFlowState(current, 'close'));
-  }, [expelFlowState, member.id, onDeleteMember, onSuspendMember]);
-
-  return (
-    <>
-      <TeamMemberCard
-        canManageOrganization={canManageOrganization}
-        isApplyingMemberAction={isApplyingMemberAction}
-        member={member}
-        onEditMember={onEditMember}
-        onExpel={handleExpel}
-      />
-
-      <ExpelMemberDialog
-        expelFlowView={expelFlowView}
-        isApplyingMemberAction={isApplyingMemberAction}
-        onCloseChoice={handleCloseExpelActionModal}
-        onCloseConfirmation={handleCloseConfirmationModal}
-        onConfirm={handleConfirmExpelAction}
-        onSelectDelete={handleSelectDelete}
-        onSelectSuspend={handleSelectSuspend}
-      />
-    </>
   );
 }
 
