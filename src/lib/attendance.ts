@@ -3,6 +3,9 @@ import { supabase } from '@/lib/supabase';
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
+// Mirrors the server-side page size clamp in get_attendance_history_page.
+const MAX_HISTORY_PAGE_SIZE = 100;
+
 export const PROXIMITY_ERROR_CODE = {
   GPS_ACCURACY_TOO_LOW: 'GPS_ACCURACY_TOO_LOW',
   OUT_OF_RANGE: 'OUT_OF_RANGE',
@@ -458,26 +461,29 @@ export async function getRecentAttendanceEvents(params: {
   recordLimit?: number;
   eventLimit?: number;
 }): Promise<AttendanceEvent[]> {
-  const rows = await fetchAttendanceRows({
+  const recordLimit = Math.min(
+    Math.max(1, params.recordLimit ?? 10),
+    MAX_HISTORY_PAGE_SIZE,
+  );
+
+  const page = await getAttendanceHistoryPage({
     organizationId: params.organizationId,
     membershipId: params.membershipId,
+    page: 0,
+    pageSize: recordLimit,
   });
 
-  const events = rows
-    .sort(
-      (left, right) =>
-        new Date(right.work_date).getTime() -
-        new Date(left.work_date).getTime(),
-    )
-    .slice(0, params.recordLimit ?? 10)
-    .flatMap(buildEventsFromRow)
+  const events = page.items
+    .filter((item) => item.hasRecord)
+    .flatMap(buildEventsFromHistoryItem);
+
+  return events
     .sort(
       (left, right) =>
         new Date(right.occurredAt).getTime() -
         new Date(left.occurredAt).getTime(),
-    );
-
-  return events.slice(0, params.eventLimit ?? 8);
+    )
+    .slice(0, params.eventLimit ?? 8);
 }
 
 export async function validateProximity(
@@ -862,26 +868,30 @@ function mapAttendanceRow(row: AttendanceRow): AttendanceRecord {
   };
 }
 
-function buildEventsFromRow(row: AttendanceRow): AttendanceEvent[] {
-  const events: AttendanceEvent[] = [
-    {
-      id: `${row.id}-in`,
-      type: 'clock_in',
-      occurredAt: row.clock_in_at,
-      workDate: row.work_date,
-      officeName: row.office_name,
-      officeIsRemote: row.office_is_remote,
-    },
-  ];
+function buildEventsFromHistoryItem(
+  item: AttendanceHistoryPageItem,
+): AttendanceEvent[] {
+  const events: AttendanceEvent[] = [];
 
-  if (row.clock_out_at) {
+  if (item.clockInAt) {
     events.push({
-      id: `${row.id}-out`,
+      id: `${item.id}-in`,
+      type: 'clock_in',
+      occurredAt: item.clockInAt,
+      workDate: item.workDate,
+      officeName: item.officeName,
+      officeIsRemote: item.officeIsRemote,
+    });
+  }
+
+  if (item.clockOutAt) {
+    events.push({
+      id: `${item.id}-out`,
       type: 'clock_out',
-      occurredAt: row.clock_out_at,
-      workDate: row.work_date,
-      officeName: row.office_name,
-      officeIsRemote: row.office_is_remote,
+      occurredAt: item.clockOutAt,
+      workDate: item.workDate,
+      officeName: item.officeName,
+      officeIsRemote: item.officeIsRemote,
     });
   }
 
@@ -891,14 +901,14 @@ function buildEventsFromRow(row: AttendanceRow): AttendanceEvent[] {
 async function fetchAttendanceRows(params: {
   organizationId: string;
   membershipId: string;
-  startDate?: string;
-  endDate?: string;
+  startDate: string;
+  endDate: string;
 }) {
   const { data, error } = await supabase.rpc('get_attendance_records', {
     p_organization_id: params.organizationId,
     p_membership_id: params.membershipId,
-    p_start_date: params.startDate ?? undefined,
-    p_end_date: params.endDate ?? undefined,
+    p_start_date: params.startDate,
+    p_end_date: params.endDate,
   });
 
   if (error) {
