@@ -9,9 +9,14 @@ import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import {
+  type AttendanceRecord,
   calculateWeeklyTotals,
   getAttendanceRecordsForRange,
+  getOpenShift,
+  getOrganizationToday,
   getOrganizationWeekRange,
+  getTodayAttendanceRecord,
+  type OpenShift,
 } from '@/lib/attendance';
 import { getErrorMessage } from '@/lib/error';
 import { supabase } from '@/lib/supabase';
@@ -33,8 +38,8 @@ const QUICK_ACTIONS: ReadonlyArray<{
   label: string;
 }> = [
   { href: '/(tabs)/control', label: 'Control' },
-  { href: '/(tabs)/control-history', label: 'History' },
-  { href: '/(tabs)/team', label: 'Team' },
+  { href: '/(tabs)/control-history', label: 'Historial' },
+  { href: '/(tabs)/team', label: 'Equipo' },
 ];
 
 type HomeUserSnapshot = {
@@ -49,6 +54,11 @@ const initialHomeUserSnapshot: HomeUserSnapshot = {
   fullName: 'Usuario Minuto',
   initials: 'UM',
   phone: '',
+};
+
+type TodayStatus = {
+  label: string;
+  tone: 'brand' | 'neutral' | 'success';
 };
 
 export default function HomeScreen() {
@@ -66,10 +76,14 @@ export default function HomeScreen() {
   const [userSnapshot, setUserSnapshot] = useState<HomeUserSnapshot>(
     initialHomeUserSnapshot,
   );
-  const [isLoadingWeekly, setIsLoadingWeekly] = useState(true);
-  const [weeklyErrorMessage, setWeeklyErrorMessage] = useState('');
+  const [isLoadingHome, setIsLoadingHome] = useState(true);
+  const [homeErrorMessage, setHomeErrorMessage] = useState('');
   const [weeklyMinutes, setWeeklyMinutes] = useState(0);
   const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
+  const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
+  const [openShiftRecord, setOpenShiftRecord] = useState<OpenShift | null>(
+    null,
+  );
   const isMountedRef = useRef(false);
   const requestIdRef = useRef(0);
 
@@ -109,24 +123,33 @@ export default function HomeScreen() {
     };
   }, []);
 
-  const loadWeeklyMetrics = useCallback(async () => {
+  const loadHomeData = useCallback(async () => {
     if (!activeOrganization) return;
 
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
 
-    setIsLoadingWeekly(true);
-    setWeeklyErrorMessage('');
+    setIsLoadingHome(true);
+    setHomeErrorMessage('');
 
+    const currentDate = getOrganizationToday(currentTimezone);
     const week = getOrganizationWeekRange(currentTimezone);
 
     try {
-      const weeklyRecords = await getAttendanceRecordsForRange({
-        organizationId: activeOrganization.id,
-        membershipId: activeOrganization.membershipId,
-        startDate: week.start,
-        endDate: week.end,
-      });
+      const [today, weeklyRecords, openShift] = await Promise.all([
+        getTodayAttendanceRecord({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          workDate: currentDate,
+        }),
+        getAttendanceRecordsForRange({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          startDate: week.start,
+          endDate: week.end,
+        }),
+        getOpenShift(activeOrganization.membershipId),
+      ]);
 
       if (requestId !== requestIdRef.current || !isMountedRef.current) return;
 
@@ -135,17 +158,20 @@ export default function HomeScreen() {
         now: new Date(),
       });
 
+      setTodayRecord(today);
+      setOpenShiftRecord(openShift);
       setWeeklyMinutes(totals.totalMinutes);
       setWeeklyAttendedDays(totals.attendedDays);
     } catch (error) {
       if (requestId !== requestIdRef.current || !isMountedRef.current) return;
 
-      setWeeklyErrorMessage(
-        getErrorMessage(error) ?? 'No se pudieron cargar las horas semanales.',
+      setHomeErrorMessage(
+        getErrorMessage(error) ??
+          'No se pudieron cargar tus datos de asistencia.',
       );
     } finally {
       if (requestId === requestIdRef.current && isMountedRef.current) {
-        setIsLoadingWeekly(false);
+        setIsLoadingHome(false);
       }
     }
   }, [activeOrganization, currentTimezone]);
@@ -157,17 +183,33 @@ export default function HomeScreen() {
     }
 
     isMountedRef.current = true;
-    void loadWeeklyMetrics();
+    void loadHomeData();
 
     return () => {
       isMountedRef.current = false;
     };
-  }, [isScreenFocused, loadWeeklyMetrics]);
+  }, [isScreenFocused, loadHomeData]);
 
   const membershipRoleLabel = useMemo(
     () => formatMembershipRole(activeOrganization?.membershipRole),
     [activeOrganization?.membershipRole],
   );
+
+  const todayStatus = useMemo<TodayStatus>(() => {
+    if (openShiftRecord?.clockInAt) {
+      return { label: 'Jornada en curso', tone: 'success' };
+    }
+
+    if (todayRecord?.clockOutAt) {
+      return { label: 'Jornada completada', tone: 'brand' };
+    }
+
+    if (todayRecord?.clockInAt) {
+      return { label: 'Jornada en curso', tone: 'success' };
+    }
+
+    return { label: 'Sin registros hoy', tone: 'neutral' };
+  }, [openShiftRecord, todayRecord]);
 
   if (isLoadingOrganizations) {
     return (
@@ -203,7 +245,6 @@ export default function HomeScreen() {
             accessibilityLabel="Tu avatar"
             initials={userSnapshot.initials}
             size="lg"
-            status="online"
           />
 
           <View style={styles.profileCopy}>
@@ -214,8 +255,6 @@ export default function HomeScreen() {
               {membershipRoleLabel}
             </ThemedText>
           </View>
-
-          <Chip label="En línea" selected tone="success" />
         </View>
 
         <View style={styles.profileFooter}>
@@ -236,14 +275,15 @@ export default function HomeScreen() {
         ]}
         variant="soft"
       >
-        <Chip label="ATTENDANCE" tone="brand" />
+        <Chip label="ASISTENCIA" tone="brand" />
 
         <View style={styles.highlightCopy}>
           <ThemedText colorToken="inverse" variant="heading">
-            Track your workday
+            Registrá tu jornada
           </ThemedText>
           <ThemedText colorToken="inverse" variant="body">
-            Register entry and exit to keep accurate attendance records.
+            Marcá tu entrada y tu salida para mantener un registro de asistencia
+            preciso.
           </ThemedText>
         </View>
 
@@ -259,15 +299,15 @@ export default function HomeScreen() {
           ]}
         >
           <ThemedText colorToken="accent" variant="label">
-            Go to Control →
+            Ir a Control →
           </ThemedText>
         </Pressable>
       </GlassCard>
 
-      {isLoadingWeekly ? (
+      {isLoadingHome ? (
         <MetricsSkeleton />
-      ) : weeklyErrorMessage ? (
-        <FeedbackBlock tone="error" message={weeklyErrorMessage} />
+      ) : homeErrorMessage ? (
+        <FeedbackBlock tone="error" message={homeErrorMessage} />
       ) : (
         <View style={styles.metricsRow}>
           <MetricCard
@@ -349,7 +389,11 @@ export default function HomeScreen() {
       </GlassCard>
 
       <View style={styles.statusRow}>
-        <Chip label="ZONA DE TRABAJO VALIDADA" selected tone="success" />
+        {isLoadingHome ? (
+          <Skeleton radius={999} style={styles.statusSkeleton} />
+        ) : homeErrorMessage ? null : (
+          <Chip label={todayStatus.label} selected tone={todayStatus.tone} />
+        )}
       </View>
     </Screen>
   );
@@ -610,6 +654,10 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     alignItems: 'center',
+  },
+  statusSkeleton: {
+    height: 28,
+    width: 180,
   },
   skeletonMetricIcon: {
     borderRadius: 999,
