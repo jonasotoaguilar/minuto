@@ -9,9 +9,11 @@ import {
 
 import HomeScreen from '@/app/(tabs)/home';
 import {
+  type AttendanceEvent,
   type AttendanceRecord,
   getAttendanceRecordsForRange,
   getOpenShift,
+  getRecentAttendanceEvents,
   getTodayAttendanceRecord,
   type OpenShift,
 } from '@/lib/attendance';
@@ -76,6 +78,7 @@ jest.mock('@/lib/attendance', () => {
     getAttendanceRecordsForRange: jest.fn(),
     getTodayAttendanceRecord: jest.fn(),
     getOpenShift: jest.fn(),
+    getRecentAttendanceEvents: jest.fn(),
   };
 });
 
@@ -83,6 +86,7 @@ const mockUseIsFocused = useIsFocused as jest.Mock;
 const mockWeekly = getAttendanceRecordsForRange as jest.Mock;
 const mockToday = getTodayAttendanceRecord as jest.Mock;
 const mockOpenShift = getOpenShift as jest.Mock;
+const mockRecent = getRecentAttendanceEvents as jest.Mock;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -131,6 +135,18 @@ function makeOpenShift(overrides: Partial<OpenShift> = {}): OpenShift {
     officeIsRemote: false,
     shiftDurationHours: 8,
     breakDurationHours: 0.75,
+    ...overrides,
+  };
+}
+
+function makeEvent(overrides: Partial<AttendanceEvent> = {}): AttendanceEvent {
+  return {
+    id: 'record-today-out',
+    type: 'clock_out',
+    occurredAt: '2026-08-03T17:00:00.000Z',
+    workDate: '2026-08-03',
+    officeName: 'Oficina Central',
+    officeIsRemote: false,
     ...overrides,
   };
 }
@@ -206,12 +222,22 @@ const FABRICATED_STATUS_LITERALS = [
   'Team',
 ];
 
-describe('HomeScreen attendance data (L06 slice 2a)', () => {
+const FABRICATED_ACTIVITY_LITERALS = [
+  'Shift completed',
+  'Attendance recorded at Main Office',
+  'Recent Activity',
+  'View all',
+  'Yesterday, 4:30 PM',
+  'Oct 12, 11:20 AM',
+];
+
+describe('HomeScreen attendance data (L06 slice 2b)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUseIsFocused.mockReturnValue(true);
     mockToday.mockResolvedValue(null);
     mockOpenShift.mockResolvedValue(null);
+    mockRecent.mockResolvedValue([]);
   });
 
   it.each(metricCases)('$name', async ({
@@ -240,6 +266,8 @@ describe('HomeScreen attendance data (L06 slice 2a)', () => {
     await waitFor(() => expect(screen.getByText('Ana Pérez')).toBeTruthy());
 
     expect(screen.queryByText('Horas semanales')).toBeNull();
+    expect(screen.queryByText('Actividad reciente')).toBeNull();
+    expect(screen.queryByText('Todavía no hay registros.')).toBeNull();
     expect(screen.queryByText('Sin registros hoy')).toBeNull();
 
     await act(async () => {
@@ -264,6 +292,8 @@ describe('HomeScreen attendance data (L06 slice 2a)', () => {
 
     expect(screen.queryByText('Horas semanales')).toBeNull();
     expect(screen.queryByText('0h 0m')).toBeNull();
+    expect(screen.queryByText('Actividad reciente')).toBeNull();
+    expect(screen.queryByText('Todavía no hay registros.')).toBeNull();
     expect(screen.queryByText('Sin registros hoy')).toBeNull();
   });
 
@@ -307,6 +337,71 @@ describe('HomeScreen attendance data (L06 slice 2a)', () => {
 
     fireEvent.press(screen.getByText('Equipo'));
     expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/team');
+  });
+
+  it('shows the real empty state when there are no recent events', async () => {
+    mockWeekly.mockResolvedValue([]);
+
+    render(<HomeScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Todavía no hay registros.')).toBeTruthy(),
+    );
+
+    expect(screen.getByText('Actividad reciente')).toBeTruthy();
+    expect(screen.queryByText('Entrada')).toBeNull();
+    expect(screen.queryByText('Salida')).toBeNull();
+  });
+
+  it('renders real recent activity events with formatting', async () => {
+    mockToday.mockResolvedValue(makeToday(null));
+    mockWeekly.mockResolvedValue([]);
+    mockRecent.mockResolvedValue([
+      makeEvent({
+        id: 'rec-out',
+        type: 'clock_out',
+        occurredAt: '2026-08-03T17:00:00.000Z',
+      }),
+      makeEvent({
+        id: 'rec-in',
+        type: 'clock_in',
+        occurredAt: '2026-08-03T09:00:00.000Z',
+      }),
+      makeEvent({
+        id: 'rec-remote',
+        type: 'clock_in',
+        occurredAt: '2026-08-02T08:30:00.000Z',
+        officeName: null,
+        officeIsRemote: true,
+      }),
+    ]);
+
+    render(<HomeScreen />);
+
+    await waitFor(() => expect(screen.getByText('Salida')).toBeTruthy());
+
+    expect(screen.getAllByText('Entrada').length).toBe(2);
+    expect(screen.getByText('Remoto')).toBeTruthy();
+    expect(screen.getAllByText('Oficina Central').length).toBe(2);
+    expect(screen.queryByText('Todavía no hay registros.')).toBeNull();
+    expect(screen.getAllByText(/\d{2}:\d{2}/).length).toBeGreaterThan(0);
+
+    for (const literal of FABRICATED_ACTIVITY_LITERALS) {
+      expect(screen.queryByText(literal)).toBeNull();
+    }
+  });
+
+  it('navigates to control history from Ver todo', async () => {
+    mockWeekly.mockResolvedValue([]);
+
+    render(<HomeScreen />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Todavía no hay registros.')).toBeTruthy(),
+    );
+
+    fireEvent.press(screen.getByText('Ver todo'));
+    expect(mockRouterPush).toHaveBeenCalledWith('/(tabs)/control-history');
   });
 
   it('ignores a stale home response after a focus refetch', async () => {

@@ -9,12 +9,14 @@ import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
 import {
+  type AttendanceEvent,
   type AttendanceRecord,
   calculateWeeklyTotals,
   getAttendanceRecordsForRange,
   getOpenShift,
   getOrganizationToday,
   getOrganizationWeekRange,
+  getRecentAttendanceEvents,
   getTodayAttendanceRecord,
   type OpenShift,
 } from '@/lib/attendance';
@@ -22,6 +24,7 @@ import { getErrorMessage } from '@/lib/error';
 import { supabase } from '@/lib/supabase';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
+  AttendanceIcon,
   Avatar,
   Chip,
   FeedbackBlock,
@@ -41,6 +44,8 @@ const QUICK_ACTIONS: ReadonlyArray<{
   { href: '/(tabs)/control-history', label: 'Historial' },
   { href: '/(tabs)/team', label: 'Equipo' },
 ];
+
+const RECENT_EVENTS_LIMIT = 5;
 
 type HomeUserSnapshot = {
   email: string;
@@ -80,6 +85,7 @@ export default function HomeScreen() {
   const [homeErrorMessage, setHomeErrorMessage] = useState('');
   const [weeklyMinutes, setWeeklyMinutes] = useState(0);
   const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
+  const [recentEvents, setRecentEvents] = useState<AttendanceEvent[]>([]);
   const [todayRecord, setTodayRecord] = useState<AttendanceRecord | null>(null);
   const [openShiftRecord, setOpenShiftRecord] = useState<OpenShift | null>(
     null,
@@ -136,7 +142,7 @@ export default function HomeScreen() {
     const week = getOrganizationWeekRange(currentTimezone);
 
     try {
-      const [today, weeklyRecords, openShift] = await Promise.all([
+      const [today, weeklyRecords, recent, openShift] = await Promise.all([
         getTodayAttendanceRecord({
           organizationId: activeOrganization.id,
           membershipId: activeOrganization.membershipId,
@@ -147,6 +153,12 @@ export default function HomeScreen() {
           membershipId: activeOrganization.membershipId,
           startDate: week.start,
           endDate: week.end,
+        }),
+        getRecentAttendanceEvents({
+          organizationId: activeOrganization.id,
+          membershipId: activeOrganization.membershipId,
+          recordLimit: RECENT_EVENTS_LIMIT,
+          eventLimit: RECENT_EVENTS_LIMIT,
         }),
         getOpenShift(activeOrganization.membershipId),
       ]);
@@ -162,6 +174,7 @@ export default function HomeScreen() {
       setOpenShiftRecord(openShift);
       setWeeklyMinutes(totals.totalMinutes);
       setWeeklyAttendedDays(totals.attendedDays);
+      setRecentEvents(recent);
     } catch (error) {
       if (requestId !== requestIdRef.current || !isMountedRef.current) return;
 
@@ -366,27 +379,55 @@ export default function HomeScreen() {
         })}
       </View>
 
-      <GlassCard style={styles.activityCard} variant="soft">
-        <SectionHeader
-          action={
-            <ThemedText colorToken="accent" variant="label">
-              View all
-            </ThemedText>
-          }
-          title="Recent Activity"
-        />
+      {isLoadingHome ? (
+        <ActivitySkeleton />
+      ) : homeErrorMessage ? null : (
+        <GlassCard style={styles.activityCard} variant="soft">
+          <SectionHeader
+            actionLabel="Ver todo"
+            actionProps={{
+              onPress: () => router.push('/(tabs)/control-history'),
+            }}
+            title="Actividad reciente"
+          />
 
-        <ActivityItem
-          accentColor={theme.colors.status.success}
-          title="Shift completed"
-          when="Yesterday, 4:30 PM"
-        />
-        <ActivityItem
-          accentColor={theme.colors.background.selected}
-          title="Attendance recorded at Main Office"
-          when="Oct 12, 11:20 AM"
-        />
-      </GlassCard>
+          {recentEvents.length === 0 ? (
+            <ThemedText colorToken="secondary" variant="bodySmall">
+              Todavía no hay registros.
+            </ThemedText>
+          ) : (
+            recentEvents.map((event) => (
+              <View key={event.id} style={styles.activityItem}>
+                <AttendanceIcon
+                  direction={event.type === 'clock_in' ? 'in' : 'out'}
+                  size="sm"
+                />
+
+                <View style={styles.activityCopy}>
+                  <ThemedText variant="subtitle">
+                    {event.type === 'clock_in' ? 'Entrada' : 'Salida'}
+                  </ThemedText>
+                  <ThemedText colorToken="secondary" variant="bodySmall">
+                    {formatHistoryOfficeLabel(
+                      event.officeName,
+                      event.officeIsRemote,
+                    )}
+                  </ThemedText>
+                </View>
+
+                <View style={styles.activityMeta}>
+                  <ThemedText style={styles.activityTime} variant="subtitle">
+                    {formatTime(event.occurredAt, currentTimezone)}
+                  </ThemedText>
+                  <ThemedText colorToken="secondary" variant="bodySmall">
+                    {formatCompactDate(event.occurredAt, currentTimezone)}
+                  </ThemedText>
+                </View>
+              </View>
+            ))
+          )}
+        </GlassCard>
+      )}
 
       <View style={styles.statusRow}>
         {isLoadingHome ? (
@@ -500,24 +541,54 @@ function MetricSkeletonCard() {
   );
 }
 
-function ActivityItem(props: {
-  accentColor: string;
-  title: string;
-  when: string;
-}) {
+function ActivitySkeleton() {
   return (
-    <View style={styles.activityItem}>
-      <View
-        style={[styles.activityDot, { backgroundColor: props.accentColor }]}
-      />
-      <View style={styles.activityCopy}>
-        <ThemedText variant="subtitle">{props.title}</ThemedText>
-        <ThemedText colorToken="secondary" variant="bodySmall">
-          {props.when}
-        </ThemedText>
-      </View>
-    </View>
+    <GlassCard style={styles.activityCard} variant="soft">
+      <Skeleton style={styles.skeletonActivityHeader} />
+
+      {Array.from({ length: 3 }).map((_, index) => (
+        <View key={`activity-skeleton-${index}`} style={styles.activityItem}>
+          <Skeleton style={styles.skeletonActivityIcon} />
+
+          <View style={styles.activityCopy}>
+            <Skeleton style={styles.skeletonActivityLinePrimary} />
+            <Skeleton style={styles.skeletonActivityLineSecondary} />
+          </View>
+
+          <Skeleton style={styles.skeletonActivityMeta} />
+        </View>
+      ))}
+    </GlassCard>
   );
+}
+
+function formatHistoryOfficeLabel(
+  officeName: string | null | undefined,
+  officeIsRemote?: boolean,
+) {
+  if (officeIsRemote) {
+    return 'Remoto';
+  }
+
+  return officeName?.trim() || 'Sin sucursal';
+}
+
+function formatTime(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
+}
+
+function formatCompactDate(value: string, timezone: string) {
+  return new Intl.DateTimeFormat('es-CL', {
+    timeZone: timezone,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(value));
 }
 
 function formatMinutes(totalMinutes: number) {
@@ -643,14 +714,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  activityDot: {
-    borderRadius: 999,
-    height: 10,
-    width: 10,
-  },
   activityCopy: {
     flex: 1,
     gap: 2,
+  },
+  activityMeta: {
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  activityTime: {
+    fontVariant: ['tabular-nums'],
   },
   statusRow: {
     alignItems: 'center',
@@ -673,5 +746,30 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     height: 14,
     width: '55%',
+  },
+  skeletonActivityHeader: {
+    borderRadius: 8,
+    height: 24,
+    width: '55%',
+  },
+  skeletonActivityIcon: {
+    borderRadius: 999,
+    height: 18,
+    width: 18,
+  },
+  skeletonActivityLinePrimary: {
+    borderRadius: 6,
+    height: 14,
+    width: '60%',
+  },
+  skeletonActivityLineSecondary: {
+    borderRadius: 6,
+    height: 12,
+    width: '40%',
+  },
+  skeletonActivityMeta: {
+    borderRadius: 6,
+    height: 14,
+    width: 56,
   },
 });
