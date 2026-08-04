@@ -9,6 +9,19 @@ import {
   View,
 } from 'react-native';
 
+import { LiveClock } from '@/components/control/clock';
+import {
+  buildRecentHistoryItems,
+  formatCompactDate,
+  formatDisplayDate,
+  formatMinutes,
+  formatOvertimeTitle,
+  formatTime,
+  getBlockedMessage,
+  getStandardCloseAt,
+  isOvertimeThresholdExceeded,
+  type RecentHistoryItem,
+} from '@/components/control/format';
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { BottomTabInset } from '@/constants/theme';
@@ -16,7 +29,6 @@ import { useOrganization } from '@/hooks/use-organization';
 import { useProximityValidation } from '@/hooks/use-proximity-validation';
 import { useTheme } from '@/hooks/use-theme';
 import {
-  type AttendanceEventType,
   type AttendanceLocation,
   type AttendanceRecord,
   calculateWeeklyTotals,
@@ -62,15 +74,6 @@ const CONTROL_MODE = {
 
 type ControlMode = (typeof CONTROL_MODE)[keyof typeof CONTROL_MODE];
 
-type RecentHistoryItem = {
-  id: string;
-  type: AttendanceEventType;
-  occurredAt: string;
-  workDate: string;
-  officeName: string;
-  officeIsRemote: boolean;
-};
-
 type AppTheme = ReturnType<typeof useTheme>;
 
 type ControlStatusViewModel = {
@@ -102,7 +105,6 @@ export default function ControlScreen() {
 
   const proximity = useProximityValidation();
 
-  const [now, setNow] = useState(() => new Date());
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -115,14 +117,6 @@ export default function ControlScreen() {
   const [weeklyAttendedDays, setWeeklyAttendedDays] = useState(0);
   const [recentEvents, setRecentEvents] = useState<RecentHistoryItem[]>([]);
   const [isOvertimeAutoDismissed, setIsOvertimeAutoDismissed] = useState(false);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
 
   const loadAttendance = useCallback(async () => {
     if (!activeOrganization) return;
@@ -656,7 +650,6 @@ export default function ControlScreen() {
           errorMessage={errorMessage}
           isCrossDateOpenShift={isCrossDateOpenShift}
           isSubmitting={isSubmitting}
-          now={now}
           onRegisterAction={onRegisterAction}
           onResetValidation={proximity.reset}
           onSelectRemote={proximity.selectRemote}
@@ -715,7 +708,6 @@ type ControlHeroCardProps = {
   errorMessage: string;
   isCrossDateOpenShift: boolean;
   isSubmitting: boolean;
-  now: Date;
   onRegisterAction: () => void;
   onResetValidation: () => void;
   onSelectRemote: () => void;
@@ -732,7 +724,6 @@ function ControlHeroCard({
   errorMessage,
   isCrossDateOpenShift,
   isSubmitting,
-  now,
   onRegisterAction,
   onResetValidation,
   onSelectRemote,
@@ -761,12 +752,7 @@ function ControlHeroCard({
         style={styles.statusChip}
         tone={proximityStatus.chipTone}
       />
-      <ThemedText style={styles.clock} variant="display">
-        {formatClock(now, currentTimezone)}
-      </ThemedText>
-      <ThemedText colorToken="secondary" style={styles.date} variant="body">
-        {formatLongDate(now, currentTimezone)}
-      </ThemedText>
+      <LiveClock currentTimezone={currentTimezone} />
 
       <View style={styles.statusContainer}>
         {controlMode === CONTROL_MODE.VALIDATING ? (
@@ -1066,139 +1052,6 @@ function HistorySkeleton() {
   );
 }
 
-function getBlockedMessage(
-  reason?: 'gps_accuracy' | 'permission_denied' | 'location_unavailable',
-) {
-  switch (reason) {
-    case 'gps_accuracy':
-      return 'Señal GPS débil. Intentá moverte a un lugar abierto.';
-    case 'permission_denied':
-      return 'Necesitamos acceso a tu ubicación para validar tu zona de trabajo.';
-    case 'location_unavailable':
-    default:
-      return 'No se pudo obtener tu ubicación. Intentá de nuevo.';
-  }
-}
-
-function formatClock(date: Date, timezone: string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    timeZone: timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(date);
-}
-
-function formatLongDate(date: Date, timezone: string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    timeZone: timezone,
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
-}
-
-function formatCompactDate(value: string, timezone: string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    timeZone: timezone,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(new Date(value));
-}
-
-function buildRecentHistoryItems(
-  records: Array<{
-    id: string;
-    type: AttendanceEventType;
-    occurredAt: string;
-    workDate: string;
-    officeName?: string | null;
-    officeIsRemote?: boolean;
-  }>,
-) {
-  return records
-    .map((record) => ({
-      id: record.id,
-      type: record.type,
-      occurredAt: record.occurredAt,
-      workDate: record.workDate,
-      officeName: formatHistoryOfficeLabel(
-        record.officeName,
-        record.officeIsRemote,
-      ),
-      officeIsRemote: Boolean(record.officeIsRemote),
-    }))
-    .slice(0, 6);
-}
-
-function formatHistoryOfficeLabel(
-  officeName: string | null | undefined,
-  officeIsRemote?: boolean,
-) {
-  if (officeIsRemote) {
-    return 'Remoto';
-  }
-
-  return officeName?.trim() || 'Sin sucursal';
-}
-
-function formatTime(value: string, timezone: string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    timeZone: timezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date(value));
-}
-
-function formatDisplayDate(value: string, timezone: string) {
-  return new Intl.DateTimeFormat('es-CL', {
-    timeZone: timezone,
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date(`${value}T12:00:00Z`));
-}
-
-function formatHoursLabel(value: number) {
-  return new Intl.NumberFormat('es-CL', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
-  }).format(value);
-}
-
-function formatOvertimeTitle(record: OpenShift, timezone: string) {
-  return `Entrada: ${formatTime(record.clockInAt, timezone)} — Jornada: ${formatHoursLabel(record.shiftDurationHours)}h + ${formatHoursLabel(record.breakDurationHours)}h colación`;
-}
-
-function getStandardCloseAt(record: OpenShift) {
-  return new Date(
-    new Date(record.clockInAt).getTime() +
-      (record.shiftDurationHours + record.breakDurationHours) * 3_600_000,
-  );
-}
-
-function getOvertimeThreshold(record: OpenShift) {
-  return new Date(
-    new Date(record.clockInAt).getTime() +
-      (record.shiftDurationHours + record.breakDurationHours + 1) * 3_600_000,
-  );
-}
-
-function isOvertimeThresholdExceeded(record: OpenShift) {
-  return Date.now() > getOvertimeThreshold(record).getTime();
-}
-
-function formatMinutes(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  return `${hours}h ${minutes}m`;
-}
-
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
@@ -1215,13 +1068,6 @@ const styles = StyleSheet.create({
   heroCard: {
     alignItems: 'center',
     gap: 12,
-  },
-  clock: {
-    textAlign: 'center',
-  },
-  date: {
-    textAlign: 'center',
-    textTransform: 'capitalize',
   },
   helper: {
     textAlign: 'center',
