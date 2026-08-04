@@ -34,6 +34,7 @@ import {
   normalizeDepartment,
   type TeamMember,
 } from '@/components/team/team-member';
+import { TeamMemberFilters } from '@/components/team/team-member-filters';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -241,13 +242,6 @@ export default function TeamScreen() {
   useEffect(() => {
     void loadMembers();
   }, [loadMembers]);
-
-  const departments = useMemo(() => {
-    const uniqueDepartments = [
-      ...new Set(members.map((member) => member.department)),
-    ];
-    return [DEPARTMENT_FILTERS.all, ...uniqueDepartments];
-  }, [members]);
 
   const filteredMembers = useMemo(
     () => filterTeamMembers(members, searchQuery, selectedDepartment),
@@ -512,47 +506,13 @@ export default function TeamScreen() {
         ) : null}
       </GlassCard>
 
-      <GlassCard style={styles.filtersCard} variant="soft">
-        <SectionHeader
-          eyebrow="Explorar equipo"
-          subtitle="Filtrá por nombre o departamento."
-          title="Miembros"
-        />
-
-        <TextField
-          autoCapitalize="none"
-          autoCorrect={false}
-          inputStyle={styles.searchInput}
-          onChangeText={setSearchQuery}
-          placeholder="Buscar miembros del equipo..."
-          returnKeyType="search"
-          value={searchQuery}
-        />
-
-        <ScrollView
-          contentContainerStyle={styles.departmentsRow}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-        >
-          {departments.map((department) => {
-            const isSelected = department === selectedDepartment;
-
-            return (
-              <Chip
-                key={department}
-                label={
-                  department === DEPARTMENT_FILTERS.all
-                    ? 'TODOS'
-                    : department.toUpperCase()
-                }
-                onPress={() => setSelectedDepartment(department)}
-                selected={isSelected}
-                tone="brand"
-              />
-            );
-          })}
-        </ScrollView>
-      </GlassCard>
+      <TeamMemberFilters
+        members={members}
+        onDepartmentChange={setSelectedDepartment}
+        onSearchChange={setSearchQuery}
+        searchQuery={searchQuery}
+        selectedDepartment={selectedDepartment}
+      />
 
       {errorMessage ? (
         <FeedbackBlock tone="error" message={errorMessage} />
@@ -1461,9 +1421,6 @@ const styles = StyleSheet.create({
   inlineAction: {
     minWidth: 188,
   },
-  filtersCard: {
-    gap: 16,
-  },
   invitationCard: {
     gap: 12,
   },
@@ -1492,12 +1449,6 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-  },
-  searchInput: {
-    minHeight: 24,
-  },
-  departmentsRow: {
     gap: 8,
   },
   memberCard: {
