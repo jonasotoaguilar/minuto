@@ -161,7 +161,7 @@ requirements. Dark-mode values live in `src/theme/tokens/colors.ts` and are
 unaffected by light-mode contrast changes. The automated proof is
 `src/theme/__tests__/colors-contrast.test.ts`.
 
-Known inconsistency to fix: splash/animated assets still use blue Expo-era colors while the product brand is green.
+Resolved state: the final splash and icon assets use the canonical green Minuto palette defined in this document. Future visual assets (splash screens, icons, marketing) must follow the palette and token rules in DESIGN.md.
 
 The YAML front matter records the light palette because the DESIGN.md lint schema supports a single canonical color map. Dark-mode values, overlay tokens, elevation tokens, and translucent surface tokens are part of the implementation source of truth in `src/theme/tokens/colors.ts`, `overlay.ts`, `elevation.ts`, and `surfaces.ts` until the design spec schema supports those token families directly.
 
