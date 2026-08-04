@@ -1,4 +1,5 @@
 import { Link } from 'expo-router';
+import Head from 'expo-router/head';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { loginScreenLimits, useLoginScreen } from '@/hooks/use-login-screen';
 import { useTheme } from '@/hooks/use-theme';
@@ -15,22 +16,45 @@ export default function LoginScreen() {
   const screen = useLoginScreen();
 
   return (
-    <Screen
-      keyboardAvoiding
-      scroll
-      contentContainerStyle={[
-        styles.container,
-        {
-          paddingTop: theme.spacing['2xl'],
-          paddingBottom: theme.spacing['3xl'],
-          paddingHorizontal: theme.spacing.lg,
-          gap: theme.spacing.lg,
-        },
-      ]}
-    >
-      <LoginBrandHeader />
-      <LoginFormCard screen={screen} />
-    </Screen>
+    <>
+      <Head>
+        <title>Iniciar sesión | Minuto</title>
+        <meta
+          name="description"
+          content="Inicia sesión en Minuto para registrar la asistencia de tu equipo y revisar tus horas trabajadas."
+        />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Minuto" />
+        <meta property="og:locale" content="es_CL" />
+        <meta property="og:title" content="Iniciar sesión | Minuto" />
+        <meta
+          property="og:description"
+          content="Inicia sesión en Minuto para registrar la asistencia de tu equipo y revisar tus horas trabajadas."
+        />
+        <meta name="twitter:card" content="summary" />
+        <meta name="twitter:title" content="Iniciar sesión | Minuto" />
+        <meta
+          name="twitter:description"
+          content="Inicia sesión en Minuto para registrar la asistencia de tu equipo y revisar tus horas trabajadas."
+        />
+      </Head>
+      <Screen
+        keyboardAvoiding
+        scroll
+        contentContainerStyle={[
+          styles.container,
+          {
+            paddingTop: theme.spacing['2xl'],
+            paddingBottom: theme.spacing['3xl'],
+            paddingHorizontal: theme.spacing.lg,
+            gap: theme.spacing.lg,
+          },
+        ]}
+      >
+        <LoginBrandHeader />
+        <LoginFormCard screen={screen} />
+      </Screen>
+    </>
   );
 }
 
