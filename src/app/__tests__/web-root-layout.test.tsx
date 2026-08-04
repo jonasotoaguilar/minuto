@@ -22,10 +22,6 @@ jest.mock('expo-font', () => ({
   useFonts: jest.fn(() => [true, null]),
 }));
 
-jest.mock('@/components/animated-icon', () => ({
-  AnimatedSplashOverlay: () => null,
-}));
-
 jest.mock('@/hooks/use-organization', () => ({
   OrganizationProvider: ({ children }: { children: React.ReactNode }) =>
     children,
