@@ -434,4 +434,92 @@ describe('membership invitation SQL migration regression', () => {
     expect(body).toMatch(/can_manage_membership_role/);
     expect(body).toMatch(/auth\.uid\(\)/);
   });
+
+  it('adds authorization guards to create/delete/suspend RPCs (F04)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260804011530_rpc_authorization_guards.sql',
+      ),
+      'utf8',
+    );
+
+    const executable = sql
+      .split('\n')
+      .filter((line) => !line.trimStart().startsWith('--'))
+      .join('\n');
+    expect(executable).not.toContain('REVOKE');
+    expect(executable).not.toContain('GRANT ');
+
+    const functions = sql.split('CREATE OR REPLACE FUNCTION');
+    const guards: Record<string, string[]> = {
+      create_membership_invitation: [
+        'auth.uid()',
+        'v_actor_role',
+        'No tenés permisos para invitar en esta organización.',
+        'can_manage_membership_role',
+        'FROM public.memberships AS m',
+      ],
+      delete_membership: [
+        'auth.uid()',
+        'MEMBERSHIP_NOT_FOUND',
+        'No tenés permisos para eliminar este miembro.',
+        'can_manage_membership_role',
+        'FROM public.memberships AS m',
+      ],
+      suspend_membership: [
+        'auth.uid()',
+        'MEMBERSHIP_NOT_FOUND',
+        'No tenés permisos para suspender este miembro.',
+        'can_manage_membership_role',
+        'FROM public.memberships AS m',
+      ],
+    };
+
+    expect(sql.match(/CREATE OR REPLACE FUNCTION/g)).toHaveLength(3);
+    for (const [name, needles] of Object.entries(guards)) {
+      const fn = functions.find((f) => f.startsWith(` public.${name}`));
+      expect(fn).toBeDefined();
+      expect(fn).toBeTruthy();
+      expect(fn).toContain('SECURITY DEFINER');
+      expect(fn).toContain("SET search_path = ''");
+      for (const needle of needles) {
+        expect(fn).toContain(needle);
+      }
+    }
+  });
+
+  it('qualifies OUT-param-colliding columns in guarded RPC bodies (42702 class)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260804011530_rpc_authorization_guards.sql',
+      ),
+      'utf8',
+    );
+
+    const functions = sql.split('CREATE OR REPLACE FUNCTION');
+    const createFn = functions.find((f) =>
+      f.startsWith(' public.create_membership_invitation'),
+    );
+    const createBody =
+      (createFn ?? '').match(/\$function\$(.*)\$function\$/s)?.[1] ?? '';
+    const badPatterns = [
+      /\bWHERE\s+organization_id\s*=/gi,
+      /\bAND\s+organization_id\s*=/gi,
+      /\bWHERE\s+role\s*=/gi,
+      /\bAND\s+role\s*=/gi,
+      /\bWHERE\s+status\s*=/gi,
+      /\bAND\s+status\s*=/gi,
+      /\bWHERE\s+user_id\s*=/gi,
+      /\bAND\s+user_id\s*=/gi,
+    ];
+    for (const pattern of badPatterns) {
+      expect(createBody).not.toMatch(pattern);
+    }
+    expect(createBody).toMatch(/m\.organization_id\s*=/);
+    expect(createBody).toMatch(/m\.user_id\s*=/);
+    expect(createBody).toMatch(/m\.status\s*=/);
+    expect(createBody).toMatch(/m\.role\b/);
+  });
 });
