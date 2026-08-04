@@ -35,6 +35,7 @@ import {
   normalizeDepartment,
   type TeamMember,
 } from '@/components/team/team-member';
+import { TeamMemberCard } from '@/components/team/team-member-card';
 import { TeamMemberFilters } from '@/components/team/team-member-filters';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
@@ -52,7 +53,6 @@ import {
 import { ROLE_PERMISSION_SUMMARIES } from '@/lib/role-permission-summaries';
 import { supabase } from '@/lib/supabase';
 import {
-  Avatar,
   Chip,
   EmptyState,
   FeedbackBlock,
@@ -533,7 +533,7 @@ export default function TeamScreen() {
       ) : null}
 
       {filteredMembers.map((member) => (
-        <TeamMemberCard
+        <TeamMemberCardWithExpel
           canManageOrganization={canManageOrganization}
           isApplyingMemberAction={isApplyingMemberAction}
           key={member.id}
@@ -541,7 +541,6 @@ export default function TeamScreen() {
           onDeleteMember={onDeleteMember}
           onEditMember={onEditMember}
           onSuspendMember={onSuspendMember}
-          theme={theme}
         />
       ))}
 
@@ -568,30 +567,27 @@ export default function TeamScreen() {
   );
 }
 
-type TeamMemberCardProps = {
+type TeamMemberCardWithExpelProps = {
   canManageOrganization: boolean;
   isApplyingMemberAction: boolean;
   member: TeamMember;
   onDeleteMember: (membershipId: string) => Promise<void>;
   onEditMember: (member: TeamMember) => void;
   onSuspendMember: (membershipId: string) => Promise<void>;
-  theme: AppTheme;
 };
 
-function TeamMemberCard({
+function TeamMemberCardWithExpel({
   canManageOrganization,
   isApplyingMemberAction,
   member,
   onDeleteMember,
   onEditMember,
   onSuspendMember,
-  theme,
-}: TeamMemberCardProps) {
-  const canExpel = member.role !== 'owner';
+}: TeamMemberCardWithExpelProps) {
   const [expelFlowState, setExpelFlowState] = useState<ExpelFlowState>('idle');
   const expelFlowView = getExpelFlowView(expelFlowState);
 
-  const handleExpel = useCallback(() => {
+  const handleExpel = useCallback((_member: TeamMember) => {
     setExpelFlowState((current) =>
       transitionExpelFlowState(current, 'open-choice'),
     );
@@ -630,50 +626,14 @@ function TeamMemberCard({
   }, [expelFlowState, member.id, onDeleteMember, onSuspendMember]);
 
   return (
-    <GlassCard style={styles.memberCard} variant="soft">
-      <View style={styles.memberTopRow}>
-        <Avatar initials={member.initials} size="sm" />
-
-        <View style={styles.memberChipsRow}>
-          <Chip label={getRoleLabel(member.role)} tone="brand" />
-        </View>
-      </View>
-
-      <View style={styles.memberCopy}>
-        <ThemedText style={styles.memberName} variant="heading">
-          {member.name}
-        </ThemedText>
-        <ThemedText colorToken="secondary" variant="subtitle">
-          {member.roleLabel}
-        </ThemedText>
-        <ThemedText colorToken="secondary" variant="bodySmall">
-          Departamento: {member.department}
-        </ThemedText>
-        <ThemedText colorToken="secondary" variant="bodySmall">
-          Email: {member.email || 'Sin email'}
-        </ThemedText>
-        <ThemedText colorToken="secondary" variant="bodySmall">
-          Teléfono: {member.phone || 'Sin teléfono'}
-        </ThemedText>
-      </View>
-
-      {canManageOrganization ? (
-        <View style={[styles.memberActions, styles.memberActionsRow]}>
-          <SecondaryButton
-            fullWidth={false}
-            label="Editar"
-            onPress={() => onEditMember(member)}
-          />
-          {canExpel ? (
-            <SecondaryButton
-              disabled={isApplyingMemberAction}
-              fullWidth={false}
-              label="Expulsar"
-              onPress={handleExpel}
-            />
-          ) : null}
-        </View>
-      ) : null}
+    <>
+      <TeamMemberCard
+        canManageOrganization={canManageOrganization}
+        isApplyingMemberAction={isApplyingMemberAction}
+        member={member}
+        onEditMember={onEditMember}
+        onExpel={handleExpel}
+      />
 
       <ExpelMemberDialog
         expelFlowView={expelFlowView}
@@ -684,7 +644,7 @@ function TeamMemberCard({
         onSelectDelete={handleSelectDelete}
         onSelectSuspend={handleSelectSuspend}
       />
-    </GlassCard>
+    </>
   );
 }
 
@@ -1357,29 +1317,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
   },
-  memberCard: {
-    gap: 12,
-  },
-  memberTopRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-  },
-  memberCopy: {
-    gap: 4,
-  },
-  memberActions: {
-    alignItems: 'flex-end',
-  },
-  memberActionsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  memberName: {
-    letterSpacing: -0.4,
-  },
   modalActionButton: {
     flex: 1,
   },
@@ -1423,11 +1360,6 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   fieldGroup: {
-    gap: 8,
-  },
-  memberChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 8,
   },
   roleChipsRow: {
