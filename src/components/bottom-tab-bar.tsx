@@ -5,6 +5,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '@/hooks/use-theme';
 import { GlassCard, ThemedText } from '@/theme/primitives';
 
+const TAB_LABELS: Record<string, string> = {
+  home: 'Inicio',
+  control: 'Control',
+  team: 'Equipo',
+  profile: 'Perfil',
+};
+
 type IconProps = {
   color: string;
   isActive?: boolean;
@@ -12,7 +19,7 @@ type IconProps = {
 
 function HomeIcon({ color, isActive }: IconProps) {
   return (
-    <View style={styles.iconBox}>
+    <View testID="bottom-tab-icon-home" style={styles.iconBox}>
       <View
         style={[
           styles.gridCell,
@@ -47,6 +54,7 @@ function ClockIcon({ color, isActive }: IconProps) {
       <SymbolView
         name="clock"
         size={22}
+        testID="bottom-tab-icon-control"
         tintColor={color}
         style={{ opacity: isActive ? 1 : 0.6 }}
       />
@@ -56,6 +64,7 @@ function ClockIcon({ color, isActive }: IconProps) {
   // Android + Web fallback: simple circle + hands
   return (
     <View
+      testID="bottom-tab-icon-control"
       style={[
         styles.clockShell,
         { borderColor: color, opacity: isActive ? 1 : 0.6 },
@@ -85,7 +94,7 @@ function ClockIcon({ color, isActive }: IconProps) {
 
 function TeamIcon({ color, isActive }: IconProps) {
   return (
-    <View style={styles.teamIcon}>
+    <View testID="bottom-tab-icon-team" style={styles.teamIcon}>
       <View
         style={[
           styles.teamHeadPrimary,
@@ -116,7 +125,7 @@ function TeamIcon({ color, isActive }: IconProps) {
 
 function ProfileIcon({ color, isActive }: IconProps) {
   return (
-    <View style={styles.profileIcon}>
+    <View testID="bottom-tab-icon-profile" style={styles.profileIcon}>
       <View
         style={[
           styles.profileHead,
@@ -133,11 +142,7 @@ function ProfileIcon({ color, isActive }: IconProps) {
   );
 }
 
-export function BottomTabBar({
-  state,
-  descriptors,
-  navigation,
-}: BottomTabBarProps) {
+export function BottomTabBar({ state, navigation }: BottomTabBarProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
@@ -167,6 +172,15 @@ export function BottomTabBar({
     (route) => route.key === profileRoute.key,
   );
 
+  const homeSelected = state.index === homeRouteIndex;
+  const homeLabel = TAB_LABELS[homeRoute.name];
+  const controlSelected = state.index === controlRouteIndex;
+  const controlLabel = TAB_LABELS[controlRoute.name];
+  const teamSelected = state.index === teamRouteIndex;
+  const teamLabel = TAB_LABELS[teamRoute.name];
+  const profileSelected = state.index === profileRouteIndex;
+  const profileLabel = TAB_LABELS[profileRoute.name];
+
   const goToRoute = (routeName: string) => {
     navigation.navigate(routeName as never);
   };
@@ -185,6 +199,8 @@ export function BottomTabBar({
       pointerEvents="box-none"
     >
       <GlassCard
+        accessible
+        accessibilityRole="tablist"
         padding={0}
         style={[
           styles.bar,
@@ -198,102 +214,90 @@ export function BottomTabBar({
         variant="soft"
       >
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            descriptors[homeRoute.key]?.options.title ?? 'Home'
-          }
+          accessibilityRole="tab"
+          accessibilityState={{ selected: homeSelected }}
+          accessibilityLabel={homeLabel}
           onPress={() => goToRoute(homeRoute.name)}
           style={styles.tabButton}
         >
           <HomeIcon
-            color={state.index === homeRouteIndex ? primary : inactive}
-            isActive={state.index === homeRouteIndex}
+            color={homeSelected ? primary : inactive}
+            isActive={homeSelected}
           />
           <ThemedText
             style={[
               styles.tabLabel,
-              {
-                color: state.index === homeRouteIndex ? primary : inactive,
-              },
+              { color: homeSelected ? primary : inactive },
             ]}
             variant="caption"
           >
-            Inicio
+            {homeLabel}
           </ThemedText>
         </Pressable>
 
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            descriptors[controlRoute.key]?.options.title ?? 'Control'
-          }
+          accessibilityRole="tab"
+          accessibilityState={{ selected: controlSelected }}
+          accessibilityLabel={controlLabel}
           onPress={() => goToRoute(controlRoute.name)}
           style={styles.tabButton}
         >
           <ClockIcon
-            color={state.index === controlRouteIndex ? primary : inactive}
-            isActive={state.index === controlRouteIndex}
+            color={controlSelected ? primary : inactive}
+            isActive={controlSelected}
           />
           <ThemedText
             style={[
               styles.tabLabel,
-              {
-                color: state.index === controlRouteIndex ? primary : inactive,
-              },
+              { color: controlSelected ? primary : inactive },
             ]}
             variant="caption"
           >
-            Control
+            {controlLabel}
           </ThemedText>
         </Pressable>
 
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            descriptors[teamRoute.key]?.options.title ?? 'Equipo'
-          }
+          accessibilityRole="tab"
+          accessibilityState={{ selected: teamSelected }}
+          accessibilityLabel={teamLabel}
           onPress={() => goToRoute(teamRoute.name)}
           style={styles.tabButton}
         >
           <TeamIcon
-            color={state.index === teamRouteIndex ? primary : inactive}
-            isActive={state.index === teamRouteIndex}
+            color={teamSelected ? primary : inactive}
+            isActive={teamSelected}
           />
           <ThemedText
             style={[
               styles.tabLabel,
-              {
-                color: state.index === teamRouteIndex ? primary : inactive,
-              },
+              { color: teamSelected ? primary : inactive },
             ]}
             variant="caption"
           >
-            Equipo
+            {teamLabel}
           </ThemedText>
         </Pressable>
 
         <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={
-            descriptors[profileRoute.key]?.options.title ?? 'Perfil'
-          }
+          accessibilityRole="tab"
+          accessibilityState={{ selected: profileSelected }}
+          accessibilityLabel={profileLabel}
           onPress={() => goToRoute(profileRoute.name)}
           style={styles.tabButton}
         >
           <ProfileIcon
-            color={state.index === profileRouteIndex ? primary : inactive}
-            isActive={state.index === profileRouteIndex}
+            color={profileSelected ? primary : inactive}
+            isActive={profileSelected}
           />
           <ThemedText
             style={[
               styles.tabLabel,
-              {
-                color: state.index === profileRouteIndex ? primary : inactive,
-              },
+              { color: profileSelected ? primary : inactive },
             ]}
             variant="caption"
           >
-            Perfil
+            {profileLabel}
           </ThemedText>
         </Pressable>
       </GlassCard>
