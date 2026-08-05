@@ -7,6 +7,9 @@ const startCommand =
 
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/seed/global-setup.ts',
+  outputDir: '/tmp/minuto-e2e-results',
+  workers: 1, // serial: parallel boots race the dev server and flake
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

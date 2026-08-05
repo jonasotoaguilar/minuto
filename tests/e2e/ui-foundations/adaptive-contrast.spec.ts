@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+import { fillFormField } from '../helpers';
+
 const SHOT_DIR = '/tmp/opencode/minuto-8082';
 
 function wcagContrast(a: string, b: string): number {
@@ -65,6 +67,18 @@ test.describe('L04 F12/F09 web adaptive + contrast', () => {
   }) => {
     await page.goto('/login');
     await page.waitForSelector('[role="button"]');
+
+    // The CTA is disabled on an empty form, which renders reduced-contrast
+    // colors. Fill valid credentials so AA contrast is measured on the
+    // interactive (enabled) state.
+    await fillFormField(page.getByLabel('Email'), 'e2e.contrast@minuto.test');
+    await fillFormField(
+      page.getByRole('textbox', { name: '********' }),
+      'TestPassword123',
+    );
+    await expect(
+      page.getByRole('button', { name: 'Iniciar Sesión →' }),
+    ).toBeEnabled();
 
     const cta = await primaryCtaContrast(page);
     expect(cta).not.toBeNull();
