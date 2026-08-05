@@ -1,7 +1,3 @@
-import DateTimePicker, {
-  DateTimePickerAndroid,
-  type DateTimePickerEvent,
-} from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -9,26 +5,6 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { ExpelMemberDialog } from '@/components/team/expel-member-dialog';
-import {
-  decimalToHHMM,
-  formatDateForDisplay,
-  formatDateForStorageFromPicker,
-  formatDateInputOnBlur,
-  formatTimeInputOnBlur,
-  getDatePickerValue,
-  getTodayPickerMaximumDate,
-  getTodayStorageDate,
-  normalizeDateForStorage,
-  normalizeOptionalText,
-  parseHHMMInput,
-} from '@/components/team/team-date-time-format';
-import {
-  createEditFormValues,
-  type EditEmployeeFormErrors,
-  type EditEmployeeFormValues,
-  getEmptyEditFormValues,
-  validateEditForm,
-} from '@/components/team/team-edit-form';
 import { EditMemberModal } from '@/components/team/team-edit-member-modal';
 import {
   DEPARTMENT_FILTERS,
@@ -40,10 +16,9 @@ import { TeamMemberFilters } from '@/components/team/team-member-filters';
 import { TeamMemberList } from '@/components/team/team-member-list';
 import {
   normalizeTeamMemberRows,
-  roleUpdateResponseSchema,
   teamMemberRowsSchema,
-  type UpdateEmployeeProfileFn,
 } from '@/components/team/team-screen-data';
+import { useEditMemberForm } from '@/components/team/use-edit-member-form';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -90,16 +65,6 @@ export default function TeamScreen() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>(
     DEPARTMENT_FILTERS.all,
   );
-  const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
-  const [editFormValues, setEditFormValues] = useState<EditEmployeeFormValues>(
-    getEmptyEditFormValues(),
-  );
-  const [editFormErrors, setEditFormErrors] = useState<EditEmployeeFormErrors>(
-    {},
-  );
-  const [editFormMessage, setEditFormMessage] = useState('');
-  const [isHireDatePickerVisible, setIsHireDatePickerVisible] = useState(false);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isApplyingMemberAction, setIsApplyingMemberAction] = useState(false);
   const [expelTarget, setExpelTarget] = useState<TeamMember | null>(null);
   const [expelFlowState, setExpelFlowState] = useState<ExpelFlowState>('idle');
@@ -149,173 +114,27 @@ export default function TeamScreen() {
     void loadMembers();
   }, [loadMembers]);
 
+  const {
+    editFormErrors,
+    editFormMessage,
+    editFormValues,
+    isEditModalVisible,
+    isHireDatePickerVisible,
+    isSavingProfile,
+    onCloseEditModal,
+    onEditMember,
+    onHireDateChange,
+    onOpenHireDatePicker,
+    onSaveMemberProfile,
+    selectedMember,
+    setEditFormValues,
+    setIsHireDatePickerVisible,
+  } = useEditMemberForm(loadMembers);
+
   const filteredMembers = useMemo(
     () => filterTeamMembers(members, searchQuery, selectedDepartment),
     [members, searchQuery, selectedDepartment],
   );
-
-  const isEditModalVisible = selectedMember !== null;
-
-  const onEditMember = useCallback((member: TeamMember) => {
-    setSelectedMember(member);
-    setEditFormValues(createEditFormValues(member));
-    setEditFormErrors({});
-    setEditFormMessage('');
-    setIsHireDatePickerVisible(false);
-  }, []);
-
-  const onCloseEditModal = useCallback(() => {
-    if (isSavingProfile) {
-      return;
-    }
-
-    setSelectedMember(null);
-    setEditFormValues(getEmptyEditFormValues());
-    setEditFormErrors({});
-    setEditFormMessage('');
-    setIsHireDatePickerVisible(false);
-  }, [isSavingProfile]);
-
-  const applyHireDateSelection = useCallback((date: Date) => {
-    const storageValue = formatDateForStorageFromPicker(date);
-
-    setEditFormValues((current) => ({
-      ...current,
-      hireDate: formatDateForDisplay(storageValue),
-    }));
-    setEditFormErrors((current) => ({
-      ...current,
-      hireDate: undefined,
-    }));
-  }, []);
-
-  const onHireDateChange = useCallback(
-    (event: DateTimePickerEvent, selectedDate?: Date) => {
-      if (process.env.EXPO_OS === 'android') {
-        setIsHireDatePickerVisible(false);
-      }
-
-      if (event.type === 'dismissed' || !selectedDate) {
-        return;
-      }
-
-      applyHireDateSelection(selectedDate);
-    },
-    [applyHireDateSelection],
-  );
-
-  const onOpenHireDatePicker = useCallback(() => {
-    const pickerValue = getDatePickerValue(editFormValues.hireDate);
-
-    if (process.env.EXPO_OS === 'android') {
-      DateTimePickerAndroid.open({
-        maximumDate: getTodayPickerMaximumDate(),
-        mode: 'date',
-        onChange: onHireDateChange,
-        value: pickerValue,
-      });
-      return;
-    }
-
-    if (process.env.EXPO_OS !== 'ios') {
-      return;
-    }
-
-    setIsHireDatePickerVisible(true);
-  }, [editFormValues.hireDate, onHireDateChange]);
-
-  const onSaveMemberProfile = useCallback(async () => {
-    if (!selectedMember) {
-      return;
-    }
-
-    const validation = validateEditForm(editFormValues);
-    setEditFormErrors(validation.errors);
-
-    if (!validation.isValid) {
-      setEditFormMessage('Revisá los campos marcados antes de guardar.');
-      return;
-    }
-
-    setIsSavingProfile(true);
-    setEditFormMessage('');
-
-    try {
-      const attendanceModule = (await import(
-        '@/lib/attendance'
-      )) as typeof import('@/lib/attendance') & {
-        updateEmployeeProfile?: UpdateEmployeeProfileFn;
-      };
-
-      if (typeof attendanceModule.updateEmployeeProfile !== 'function') {
-        throw new Error(
-          'La actualización del perfil todavía no está disponible.',
-        );
-      }
-
-      const result = await attendanceModule.updateEmployeeProfile({
-        membershipId: selectedMember.id,
-        shiftDurationHours: validation.parsed.shiftDurationHours,
-        breakDurationHours: validation.parsed.breakDurationHours,
-        weeklyHours: validation.parsed.weeklyHours,
-        position: validation.parsed.position,
-        department: validation.parsed.department,
-        hireDate: validation.parsed.hireDate,
-      });
-
-      if (!result.success) {
-        throw new Error(mapProfileUpdateError(result.errorCode));
-      }
-
-      if (editFormValues.role !== selectedMember.role) {
-        const { data: roleData, error: roleError } = await supabase.rpc(
-          'update_membership_role',
-          {
-            p_membership_id: selectedMember.id,
-            p_new_role: editFormValues.role,
-          },
-        );
-
-        if (roleError) {
-          throw new Error(
-            `No se pudo actualizar el rol del colaborador (${roleError.message}).`,
-          );
-        }
-
-        const parsedRoleResult = roleUpdateResponseSchema.safeParse(roleData);
-
-        if (!parsedRoleResult.success) {
-          throw new Error(
-            'La actualización del rol devolvió un formato inválido.',
-          );
-        }
-
-        const roleResult = parsedRoleResult.data;
-        if (!roleResult?.success) {
-          throw new Error(mapRoleUpdateError(roleResult?.error_code));
-        }
-      }
-
-      await loadMembers();
-      setSelectedMember(null);
-      setEditFormValues(getEmptyEditFormValues());
-      setEditFormErrors({});
-      setEditFormMessage('');
-      setIsHireDatePickerVisible(false);
-      feedback.show({
-        tone: 'success',
-        title: 'Perfil actualizado',
-        message: 'Los datos del colaborador fueron guardados.',
-      });
-    } catch (error) {
-      setEditFormMessage(
-        getErrorMessage(error) ??
-          'No se pudo guardar el perfil del colaborador.',
-      );
-    } finally {
-      setIsSavingProfile(false);
-    }
-  }, [editFormValues, feedback, loadMembers, selectedMember]);
 
   const onSuspendMember = useCallback(
     async (membershipId: string) => {
@@ -520,36 +339,6 @@ export default function TeamScreen() {
   );
 }
 
-function mapProfileUpdateError(errorCode?: string) {
-  switch (errorCode) {
-    case 'MEMBERSHIP_NOT_FOUND':
-      return 'No encontramos al colaborador que querés actualizar.';
-    case 'INVALID_SHIFT':
-      return 'La jornada informada no es válida.';
-    case 'INVALID_BREAK':
-      return 'La colación informada no es válida.';
-    default:
-      return 'No se pudo guardar el perfil del colaborador.';
-  }
-}
-
-function mapRoleUpdateError(errorCode?: string) {
-  switch (errorCode) {
-    case 'MEMBERSHIP_NOT_FOUND':
-      return 'No encontramos al colaborador.';
-    case 'CANNOT_CHANGE_OWN_ROLE':
-      return 'No podés cambiar tu propio rol.';
-    case 'CANNOT_CHANGE_OWNER_ROLE':
-      return 'El rol de owner no puede modificarse.';
-    case 'UNAUTHORIZED':
-      return 'No tenés permisos para asignar ese rol.';
-    case 'INVALID_ROLE':
-      return 'El rol seleccionado no es válido.';
-    default:
-      return 'No se pudo actualizar el rol del colaborador.';
-  }
-}
-
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
@@ -581,35 +370,5 @@ const styles = StyleSheet.create({
   },
   listHeader: {
     gap: 16,
-  },
-  invitationCard: {
-    gap: 12,
-  },
-  pendingInvitationsList: {
-    gap: 8,
-  },
-  pendingInvitationItem: {
-    gap: 8,
-  },
-  pendingInvitationTopRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  pendingInvitationEmailWrap: {
-    flex: 1,
-  },
-  pendingInvitationEmail: {
-    flexShrink: 1,
-  },
-  pendingInvitationCode: {
-    flexShrink: 1,
-  },
-  pendingInvitationActions: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
   },
 });
