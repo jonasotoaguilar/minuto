@@ -5,7 +5,6 @@ import DateTimePicker, {
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { z } from 'zod';
 
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
@@ -25,32 +24,26 @@ import {
 } from '@/components/team/team-date-time-format';
 import {
   createEditFormValues,
-  DEFAULT_BREAK_DURATION_HOURS,
-  DEFAULT_SHIFT_DURATION_HOURS,
-  DEFAULT_WEEKLY_HOURS,
   type EditEmployeeFormErrors,
   type EditEmployeeFormValues,
   getEmptyEditFormValues,
-  MAX_BREAK_DURATION_HOURS,
-  MAX_SHIFT_DURATION_HOURS,
-  MAX_WEEKLY_HOURS,
   validateEditForm,
 } from '@/components/team/team-edit-form';
 import { EditMemberModal } from '@/components/team/team-edit-member-modal';
 import {
-  DEFAULT_DEPARTMENT,
   DEPARTMENT_FILTERS,
-  deriveInitials,
-  deriveName,
   filterTeamMembers,
-  getRoleLabel,
-  mapMembershipRole,
-  normalizeDepartment,
   type TeamMember,
 } from '@/components/team/team-member';
 import { TeamMemberCard } from '@/components/team/team-member-card';
 import { TeamMemberFilters } from '@/components/team/team-member-filters';
 import { TeamMemberList } from '@/components/team/team-member-list';
+import {
+  normalizeTeamMemberRows,
+  roleUpdateResponseSchema,
+  teamMemberRowsSchema,
+  type UpdateEmployeeProfileFn,
+} from '@/components/team/team-screen-data';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -78,53 +71,6 @@ import {
   SectionHeader,
   ThemedText,
 } from '@/theme/primitives';
-
-const MEMBERSHIP_ROLES = ['owner', 'admin', 'manager', 'employee'] as const;
-const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended'] as const;
-
-const teamMemberRowSchema = z.object({
-  id: z.string().min(1),
-  organization_id: z.string().min(1),
-  user_id: z.string().nullable(),
-  invited_email: z.string().nullable(),
-  role: z.enum(MEMBERSHIP_ROLES),
-  status: z.enum(MEMBERSHIP_STATUSES),
-  member_position: z.string().nullable(),
-  department: z.string().nullable(),
-  hire_date: z.string().nullable(),
-  shift_duration_hours: z.number().nullable(),
-  break_duration_hours: z.number().nullable(),
-  weekly_hours: z.number().nullable(),
-  full_name: z.string().nullable(),
-  phone: z.string().nullable(),
-  email: z.string().nullable(),
-});
-
-const teamMemberRowsSchema = z.array(teamMemberRowSchema);
-
-const roleUpdateResponseSchema = z.object({
-  success: z.boolean().optional(),
-  error_code: z.string().optional(),
-});
-
-interface UpdateEmployeeProfileParams {
-  membershipId: string;
-  breakDurationHours?: number;
-  department?: string;
-  hireDate?: string;
-  position?: string;
-  shiftDurationHours?: number;
-  weeklyHours?: number;
-}
-
-interface UpdateEmployeeProfileResult {
-  errorCode?: string;
-  success: boolean;
-}
-
-type UpdateEmployeeProfileFn = (
-  params: UpdateEmployeeProfileParams,
-) => Promise<UpdateEmployeeProfileResult>;
 
 const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
 export default function TeamScreen() {
@@ -195,34 +141,7 @@ export default function TeamScreen() {
       return;
     }
 
-    const normalizedMembers = parsedRows.data.map((row) => {
-      const name = deriveName(
-        row.full_name ?? undefined,
-        row.invited_email,
-        row.user_id,
-        row.id,
-      );
-
-      return {
-        breakDurationHours:
-          row.break_duration_hours ?? DEFAULT_BREAK_DURATION_HOURS,
-        department: normalizeDepartment(row.department),
-        hireDate: row.hire_date?.trim() ?? '',
-        email: row.email?.trim() ?? '',
-        id: row.id,
-        initials: deriveInitials(name),
-        name,
-        phone: row.phone?.trim() ?? '',
-        position: row.member_position?.trim() ?? '',
-        role: row.role,
-        roleLabel: row.member_position?.trim() || mapMembershipRole(row.role),
-        shiftDurationHours:
-          row.shift_duration_hours ?? DEFAULT_SHIFT_DURATION_HOURS,
-        weeklyHours: row.weekly_hours ?? DEFAULT_WEEKLY_HOURS,
-      } satisfies TeamMember;
-    });
-
-    setMembers(normalizedMembers);
+    setMembers(normalizeTeamMemberRows(parsedRows.data));
     setIsLoadingMembers(false);
   }, [activeOrganization]);
 
