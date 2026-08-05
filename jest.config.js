@@ -11,4 +11,12 @@ module.exports = {
     '^@/assets/(.*)$': '<rootDir>/assets/$1',
   },
   collectCoverageFrom: ['src/**/*.{ts,tsx}', '!src/**/*.d.ts'],
+  coverageThreshold: {
+    global: {
+      branches: 50,
+      functions: 55,
+      lines: 55,
+      statements: 55,
+    },
+  },
 };
