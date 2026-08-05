@@ -2,21 +2,19 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { formatMinutes, formatTime } from '@/components/control/format';
 import {
   type AttendancePeriod,
   EMPTY_SUMMARY,
   formatAttendanceMonthLabel,
-  formatWorkdayLabel,
   getAdjacentPeriod,
   getCurrentAttendancePeriod,
   getTodayDateString,
   type HistoryDisplayRow,
   type HistorySummary,
-  resolveJourneyStatusLabel,
 } from '@/components/control/history-format';
 import { HistoryMetrics } from '@/components/control/history-metrics';
 import { HistoryPeriodCard } from '@/components/control/history-period-card';
+import { HistoryRecordList } from '@/components/control/history-record-list';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { SecondaryScreenHeader } from '@/components/secondary-screen-header';
 import { BottomTabInset } from '@/constants/theme';
@@ -25,8 +23,6 @@ import { useTheme } from '@/hooks/use-theme';
 import { getAttendanceHistoryPage } from '@/lib/attendance';
 import { resolveOrganizationTimezone } from '@/lib/timezone';
 import {
-  AttendanceIcon,
-  EmptyState,
   Screen,
   SecondaryButton,
   SectionHeader,
@@ -204,310 +200,94 @@ export default function ControlHistoryScreen() {
   }
 
   return (
-    <Screen
-      scroll
-      contentContainerStyle={[
-        styles.container,
-        {
+    <Screen contentContainerStyle={styles.container}>
+      <HistoryRecordList
+        contentContainerStyle={{
           paddingTop: theme.spacing.lg,
           paddingBottom: BottomTabInset + theme.spacing['2xl'],
-        },
-      ]}
-      scrollProps={{ contentInsetAdjustmentBehavior: 'automatic' }}
-    >
-      <SecondaryScreenHeader
-        title="Historial control"
-        subtitle="Revisá tus marcaciones del mes y navegá entre períodos con actividad."
-        onBack={() => router.replace('/(tabs)/control' as never)}
-      />
-
-      <HistoryPeriodCard
-        errorMessage={errorMessage}
-        nextDisabled={!nextPeriod || isLoading}
-        onNext={() => (nextPeriod ? handleChangePeriod(nextPeriod) : undefined)}
-        periodLabel={formatAttendanceMonthLabel(
-          selectedPeriod.year,
-          selectedPeriod.month,
-        )}
-        previousDisabled={!previousPeriod || isLoading}
-        onPrevious={() =>
-          previousPeriod ? handleChangePeriod(previousPeriod) : undefined
-        }
-      />
-
-      <HistoryMetrics summary={summary} />
-
-      <SectionHeader title="Detalle de registros" />
-
-      <View style={styles.tableCard}>
-        {displayRows.length === 0 ? (
-          isLoading ? (
-            <ThemedText
-              colorToken="secondary"
-              style={styles.emptyText}
-              variant="bodySmall"
-            >
-              Cargando...
-            </ThemedText>
-          ) : (
-            <EmptyState
-              description="No hay registros para el mes seleccionado."
-              title="Sin registros"
+        }}
+        currentTimezone={currentTimezone}
+        footer={
+          <View style={styles.paginationRow}>
+            <SecondaryButton
+              disabled={!hasPreviousPage || isLoading}
+              fullWidth={false}
+              label="Anterior"
+              onPress={() =>
+                setPage((currentPage) => Math.max(0, currentPage - 1))
+              }
+              style={styles.paginationButton}
             />
-          )
-        ) : (
-          displayRows.map((row) => {
-            const dayLabel = formatWorkdayLabel(row.workDate, currentTimezone);
 
-            return (
-              <View
-                key={row.key}
-                style={[
-                  styles.historyRow,
-                  {
-                    backgroundColor: theme.surface.glass.soft,
-                    borderColor: theme.surface.glass.border,
-                  },
-                  !row.hasRecord && {
-                    borderColor: theme.colors.status.error,
-                    opacity: 0.9,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.dayBadge,
-                    {
-                      backgroundColor: row.hasRecord
-                        ? theme.surface.glass.tint
-                        : 'rgba(255, 99, 99, 0.12)',
-                    },
-                  ]}
-                >
-                  <ThemedText
-                    colorToken={row.hasRecord ? 'secondary' : 'error'}
-                    style={styles.dayBadgeWeekday}
-                    variant="bodySmall"
-                  >
-                    {dayLabel.weekday}
-                  </ThemedText>
-                  <ThemedText
-                    colorToken={row.hasRecord ? 'primary' : 'error'}
-                    style={styles.dayBadgeDay}
-                    variant="subtitle"
-                  >
-                    {dayLabel.day}
-                  </ThemedText>
-                </View>
+            <ThemedText colorToken="secondary" variant="bodySmall">
+              Página {Math.min(page + 1, Math.max(totalPages, 1))} de{' '}
+              {Math.max(totalPages, 1)}
+            </ThemedText>
 
-                <View style={styles.historyInfo}>
-                  {row.hasRecord ? (
-                    <View style={styles.journeyTimesRow}>
-                      <JourneyEvent
-                        label={
-                          row.clockInAt
-                            ? formatTime(row.clockInAt, currentTimezone)
-                            : '--:--'
-                        }
-                        tone="Entrada"
-                      />
-                      <JourneyEvent
-                        label={
-                          row.clockOutAt
-                            ? formatTime(row.clockOutAt, currentTimezone)
-                            : '--:--'
-                        }
-                        tone="Salida"
-                      />
-                    </View>
-                  ) : (
-                    <ThemedText colorToken="error" style={styles.noRecordText}>
-                      Sin registro
-                    </ThemedText>
-                  )}
-                  <ThemedText
-                    colorToken={row.hasRecord ? 'secondary' : 'error'}
-                    numberOfLines={1}
-                    style={styles.statusText}
-                    variant="bodySmall"
-                  >
-                    {resolveJourneyStatusLabel(row)}
-                  </ThemedText>
-                </View>
+            <SecondaryButton
+              disabled={!hasNextPage || isLoading}
+              fullWidth={false}
+              label="Siguiente"
+              onPress={() =>
+                setPage((currentPage) =>
+                  hasNextPage ? currentPage + 1 : currentPage,
+                )
+              }
+              style={styles.paginationButton}
+            />
+          </View>
+        }
+        header={
+          <View style={styles.headerBlock}>
+            <SecondaryScreenHeader
+              title="Historial control"
+              subtitle="Revisá tus marcaciones del mes y navegá entre períodos con actividad."
+              onBack={() => router.replace('/(tabs)/control' as never)}
+            />
 
-                <View style={styles.historyMeta}>
-                  <ThemedText
-                    style={styles.historyWorkedTime}
-                    variant="heading"
-                  >
-                    {row.hasRecord ? formatMinutes(row.workedMinutes) : '-'}
-                  </ThemedText>
-                </View>
-              </View>
-            );
-          })
-        )}
+            <HistoryPeriodCard
+              errorMessage={errorMessage}
+              nextDisabled={!nextPeriod || isLoading}
+              onNext={() =>
+                nextPeriod ? handleChangePeriod(nextPeriod) : undefined
+              }
+              periodLabel={formatAttendanceMonthLabel(
+                selectedPeriod.year,
+                selectedPeriod.month,
+              )}
+              previousDisabled={!previousPeriod || isLoading}
+              onPrevious={() =>
+                previousPeriod ? handleChangePeriod(previousPeriod) : undefined
+              }
+            />
 
-        <View style={styles.paginationRow}>
-          <SecondaryButton
-            disabled={!hasPreviousPage || isLoading}
-            fullWidth={false}
-            label="Anterior"
-            onPress={() =>
-              setPage((currentPage) => Math.max(0, currentPage - 1))
-            }
-            style={styles.paginationButton}
-          />
+            <HistoryMetrics summary={summary} />
 
-          <ThemedText colorToken="secondary" variant="bodySmall">
-            Página {Math.min(page + 1, Math.max(totalPages, 1))} de{' '}
-            {Math.max(totalPages, 1)}
-          </ThemedText>
-
-          <SecondaryButton
-            disabled={!hasNextPage || isLoading}
-            fullWidth={false}
-            label="Siguiente"
-            onPress={() =>
-              setPage((currentPage) =>
-                hasNextPage ? currentPage + 1 : currentPage,
-              )
-            }
-            style={styles.paginationButton}
-          />
-        </View>
-      </View>
-    </Screen>
-  );
-}
-
-type JourneyEventProps = {
-  tone: 'Entrada' | 'Salida';
-  label: string;
-};
-
-function JourneyEvent({ tone, label }: JourneyEventProps) {
-  const theme = useTheme();
-  const isEntry = tone === 'Entrada';
-  const color = isEntry
-    ? theme.colors.status.success
-    : theme.colors.status.error;
-
-  return (
-    <View
-      style={[
-        styles.journeyEvent,
-        isEntry ? styles.journeyEventLeft : styles.journeyEventRight,
-      ]}
-    >
-      <AttendanceIcon
-        color={color}
-        direction={isEntry ? 'in' : 'out'}
-        size="sm"
+            <SectionHeader title="Detalle de registros" />
+          </View>
+        }
+        isLoading={isLoading}
+        rows={displayRows}
       />
-      <ThemedText style={styles.journeyEventLabel} variant="subtitle">
-        {label}
-      </ThemedText>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
-    gap: 16,
     maxWidth: 960,
     paddingHorizontal: 16,
     width: '100%',
+  },
+  headerBlock: {
+    gap: 16,
+    marginBottom: 4,
   },
   loaderContainer: {
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
-  },
-  tableCard: {
-    gap: 12,
-  },
-  historyRow: {
-    alignItems: 'center',
-    borderRadius: 24,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    minHeight: 88,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  dayBadge: {
-    alignItems: 'center',
-    borderRadius: 999,
-    justifyContent: 'center',
-    minHeight: 58,
-    minWidth: 58,
-    paddingHorizontal: 8,
-    paddingVertical: 10,
-  },
-  dayBadgeWeekday: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-  },
-  dayBadgeDay: {
-    fontSize: 24,
-    fontVariant: ['tabular-nums'],
-    lineHeight: 26,
-  },
-  historyInfo: {
-    flex: 1,
-    gap: 3,
-  },
-  journeyTimesRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  journeyEvent: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-    minWidth: 0,
-  },
-  journeyEventLeft: {
-    justifyContent: 'flex-start',
-  },
-  journeyEventRight: {
-    justifyContent: 'flex-end',
-  },
-  journeyEventLabel: {
-    fontSize: 16,
-    fontVariant: ['tabular-nums'],
-    lineHeight: 18,
-  },
-  noRecordText: {
-    fontSize: 13,
-    fontStyle: 'italic',
-    lineHeight: 16,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-    lineHeight: 14,
-  },
-  historyMeta: {
-    alignItems: 'flex-end',
-    minWidth: 120,
-    paddingLeft: 8,
-  },
-  historyWorkedTime: {
-    fontSize: 22,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'right',
-    width: '100%',
-  },
-
-  emptyText: {
-    paddingVertical: 8,
   },
   paginationRow: {
     alignItems: 'center',
