@@ -9,6 +9,8 @@ export default defineConfig({
   testDir: './tests/e2e',
   globalSetup: './tests/e2e/seed/global-setup.ts',
   outputDir: '/tmp/minuto-e2e-results',
+  // Covers the cold first-bundle compile of the Expo dev server on CI.
+  timeout: 60_000,
   workers: 1, // serial: parallel boots race the dev server and flake
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
