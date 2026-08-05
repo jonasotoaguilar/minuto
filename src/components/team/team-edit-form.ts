@@ -135,3 +135,14 @@ export function validateEditForm(values: EditEmployeeFormValues) {
     },
   } as const;
 }
+
+export function getAllowedRolesForCaller(
+  callerRole: MembershipRole,
+  targetRole: MembershipRole,
+): MembershipRole[] {
+  if (targetRole === 'owner') return [];
+  if (callerRole === 'owner') return ['admin', 'manager', 'employee'];
+  if (callerRole === 'admin' && targetRole !== 'admin')
+    return ['manager', 'employee'];
+  return [];
+}

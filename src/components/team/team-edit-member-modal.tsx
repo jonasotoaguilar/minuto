@@ -1,6 +1,9 @@
-import type { Dispatch, PropsWithChildren, SetStateAction } from 'react';
+import type { DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import type { Dispatch, SetStateAction } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 
+import { HireDateField } from '@/components/team/hire-date-field';
+import { MemberRoleSection } from '@/components/team/member-role-section';
 import { WorkScheduleFields } from '@/components/team/work-schedule-fields';
 import { useTheme } from '@/hooks/use-theme';
 import {
@@ -9,37 +12,48 @@ import {
   PrimaryButton,
   SecondaryButton,
   SectionHeader,
+  TextField,
   ThemedText,
 } from '@/theme/primitives';
 
-import type {
-  EditEmployeeFormErrors,
-  EditEmployeeFormValues,
+import {
+  type EditEmployeeFormErrors,
+  type EditEmployeeFormValues,
+  getAllowedRolesForCaller,
 } from './team-edit-form';
-import type { TeamMember } from './team-member';
+import type { MembershipRole, TeamMember } from './team-member';
 
-type EditMemberModalProps = PropsWithChildren<{
+type EditMemberModalProps = {
+  activeOrganizationRole: MembershipRole;
   editFormErrors: EditEmployeeFormErrors;
   editFormMessage: string;
   editFormValues: EditEmployeeFormValues;
+  isHireDatePickerVisible: boolean;
   isSavingProfile: boolean;
   onCloseEditModal: () => void;
+  onHireDateChange: (event: DateTimePickerEvent, selectedDate?: Date) => void;
+  onOpenHireDatePicker: () => void;
   onSaveMemberProfile: () => void;
   selectedMember: TeamMember | null;
   setEditFormValues: Dispatch<SetStateAction<EditEmployeeFormValues>>;
+  setIsHireDatePickerVisible: Dispatch<SetStateAction<boolean>>;
   visible: boolean;
-}>;
+};
 
 export function EditMemberModal({
-  children,
+  activeOrganizationRole,
   editFormErrors,
   editFormMessage,
   editFormValues,
+  isHireDatePickerVisible,
   isSavingProfile,
   onCloseEditModal,
+  onHireDateChange,
+  onOpenHireDatePicker,
   onSaveMemberProfile,
   selectedMember,
   setEditFormValues,
+  setIsHireDatePickerVisible,
   visible,
 }: EditMemberModalProps) {
   const theme = useTheme();
@@ -47,6 +61,12 @@ export function EditMemberModal({
   if (!selectedMember) {
     return null;
   }
+
+  const isOwnerMember = selectedMember.role === 'owner';
+  const allowedRoles = getAllowedRolesForCaller(
+    activeOrganizationRole,
+    selectedMember.role,
+  );
 
   return (
     <Modal
@@ -89,7 +109,52 @@ export function EditMemberModal({
             setEditFormValues={setEditFormValues}
           />
 
-          {children}
+          {!isOwnerMember ? (
+            <>
+              <TextField
+                label="Cargo"
+                onChangeText={(value) =>
+                  setEditFormValues((current) => ({
+                    ...current,
+                    position: value,
+                  }))
+                }
+                placeholder="Ej: Supervisor de turno"
+                value={editFormValues.position}
+              />
+
+              <TextField
+                label="Departamento"
+                onChangeText={(value) =>
+                  setEditFormValues((current) => ({
+                    ...current,
+                    department: value,
+                  }))
+                }
+                placeholder="Ej: Operaciones"
+                value={editFormValues.department}
+              />
+            </>
+          ) : null}
+
+          {!isOwnerMember && allowedRoles.length > 0 ? (
+            <MemberRoleSection
+              allowedRoles={allowedRoles}
+              editFormErrors={editFormErrors}
+              editFormValues={editFormValues}
+              setEditFormValues={setEditFormValues}
+            />
+          ) : null}
+
+          <HireDateField
+            editFormErrors={editFormErrors}
+            editFormValues={editFormValues}
+            isHireDatePickerVisible={isHireDatePickerVisible}
+            onHireDateChange={onHireDateChange}
+            onOpenHireDatePicker={onOpenHireDatePicker}
+            setEditFormValues={setEditFormValues}
+            setIsHireDatePickerVisible={setIsHireDatePickerVisible}
+          />
 
           {editFormMessage ? (
             <FeedbackBlock message={editFormMessage} tone="error" />

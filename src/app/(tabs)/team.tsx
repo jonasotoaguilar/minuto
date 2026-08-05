@@ -10,8 +10,6 @@ import { z } from 'zod';
 import { AppHeader } from '@/components/header-user-menu';
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { ExpelMemberDialog } from '@/components/team/expel-member-dialog';
-import { HireDateField } from '@/components/team/hire-date-field';
-import { MemberRoleSection } from '@/components/team/member-role-section';
 import {
   decimalToHHMM,
   formatDateForDisplay,
@@ -77,14 +75,11 @@ import {
   Screen,
   SecondaryButton,
   SectionHeader,
-  TextField,
   ThemedText,
 } from '@/theme/primitives';
 
 const MEMBERSHIP_ROLES = ['owner', 'admin', 'manager', 'employee'] as const;
 const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended'] as const;
-
-type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
 
 const teamMemberRowSchema = z.object({
   id: z.string().min(1),
@@ -239,11 +234,6 @@ export default function TeamScreen() {
   );
 
   const isEditModalVisible = selectedMember !== null;
-  const isOwnerMember = selectedMember?.role === 'owner';
-  const allowedRoles = getAllowedRolesForCaller(
-    activeOrganization?.membershipRole ?? 'employee',
-    selectedMember?.role ?? 'employee',
-  );
 
   const onEditMember = useCallback((member: TeamMember) => {
     setSelectedMember(member);
@@ -578,63 +568,23 @@ export default function TeamScreen() {
       ) : null}
 
       <EditMemberModal
+        activeOrganizationRole={
+          activeOrganization?.membershipRole ?? 'employee'
+        }
         editFormErrors={editFormErrors}
         editFormMessage={editFormMessage}
         editFormValues={editFormValues}
+        isHireDatePickerVisible={isHireDatePickerVisible}
         isSavingProfile={isSavingProfile}
         onCloseEditModal={onCloseEditModal}
+        onHireDateChange={onHireDateChange}
+        onOpenHireDatePicker={onOpenHireDatePicker}
         onSaveMemberProfile={onSaveMemberProfile}
         selectedMember={selectedMember}
         setEditFormValues={setEditFormValues}
+        setIsHireDatePickerVisible={setIsHireDatePickerVisible}
         visible={isEditModalVisible}
-      >
-        {!isOwnerMember ? (
-          <>
-            <TextField
-              label="Cargo"
-              onChangeText={(value) =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  position: value,
-                }))
-              }
-              placeholder="Ej: Supervisor de turno"
-              value={editFormValues.position}
-            />
-
-            <TextField
-              label="Departamento"
-              onChangeText={(value) =>
-                setEditFormValues((current) => ({
-                  ...current,
-                  department: value,
-                }))
-              }
-              placeholder="Ej: Operaciones"
-              value={editFormValues.department}
-            />
-          </>
-        ) : null}
-
-        {!isOwnerMember && allowedRoles.length > 0 ? (
-          <MemberRoleSection
-            allowedRoles={allowedRoles}
-            editFormErrors={editFormErrors}
-            editFormValues={editFormValues}
-            setEditFormValues={setEditFormValues}
-          />
-        ) : null}
-
-        <HireDateField
-          editFormErrors={editFormErrors}
-          editFormValues={editFormValues}
-          isHireDatePickerVisible={isHireDatePickerVisible}
-          onHireDateChange={onHireDateChange}
-          onOpenHireDatePicker={onOpenHireDatePicker}
-          setEditFormValues={setEditFormValues}
-          setIsHireDatePickerVisible={setIsHireDatePickerVisible}
-        />
-      </EditMemberModal>
+      />
     </Screen>
   );
 }
@@ -650,17 +600,6 @@ function mapProfileUpdateError(errorCode?: string) {
     default:
       return 'No se pudo guardar el perfil del colaborador.';
   }
-}
-
-function getAllowedRolesForCaller(
-  callerRole: MembershipRole,
-  targetRole: MembershipRole,
-): MembershipRole[] {
-  if (targetRole === 'owner') return [];
-  if (callerRole === 'owner') return ['admin', 'manager', 'employee'];
-  if (callerRole === 'admin' && targetRole !== 'admin')
-    return ['manager', 'employee'];
-  return [];
 }
 
 function mapRoleUpdateError(errorCode?: string) {
