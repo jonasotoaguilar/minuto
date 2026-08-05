@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 describe('membership invitation SQL migration regression', () => {
@@ -586,5 +586,63 @@ describe('membership invitation SQL migration regression', () => {
     expect(sql).toContain(
       'SELECT public.delete_expired_membership_invitations()',
     );
+  });
+
+  it('orders the PostGIS placement bridge before unguarded public geography/geometry casts (F03)', () => {
+    const migrationsDir = join(process.cwd(), 'supabase/migrations');
+    const bridgeFile = '20260803220000_postgis_placement_compat_bridge.sql';
+    const files = readdirSync(migrationsDir)
+      .filter((file) => file.endsWith('.sql'))
+      .sort();
+
+    expect(files).toContain(bridgeFile);
+
+    const bridgeIndex = files.indexOf(bridgeFile);
+    expect(files[bridgeIndex - 1]).toBe(
+      '20260803214222_align_postgis_placement.sql',
+    );
+    expect(files[bridgeIndex + 1]).toBe(
+      '20260803223744_harden_rpc_search_path.sql',
+    );
+
+    // The only pre-bridge migrations allowed to mention public.geography /
+    // public.geometry are placement-guarded: remote_schema captures the live
+    // remote state and align_postgis_placement only compiles its wrappers when
+    // PostGIS lives in public. Every other file hardcoding these casts must
+    // sort after the bridge or the linked remote push breaks again.
+    const guardedPreBridge = new Set([
+      '20260423202954_remote_schema.sql',
+      '20260803214222_align_postgis_placement.sql',
+    ]);
+
+    for (const file of files) {
+      if (file === bridgeFile || guardedPreBridge.has(file)) {
+        continue;
+      }
+      const sql = readFileSync(join(migrationsDir, file), 'utf8');
+      if (sql.includes('public.geography') || sql.includes('public.geometry')) {
+        expect(files.indexOf(file)).toBeGreaterThan(bridgeIndex);
+      }
+    }
+  });
+
+  it('creates guarded placement-agnostic public geometry/geography domains (F03)', () => {
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        'supabase/migrations/20260803220000_postgis_placement_compat_bridge.sql',
+      ),
+      'utf8',
+    );
+
+    expect(sql).toMatch(/IF EXISTS \(/);
+    expect(sql).toMatch(/typname IN \('geometry', 'geography'\)/);
+    expect(sql).toContain("n.nspname = 'public'");
+    expect(sql).toContain('RETURN;');
+    expect(sql).toMatch(/v_geometry regtype;/);
+    expect(sql).toMatch(/v_geography regtype;/);
+    expect(sql).toContain("format('CREATE DOMAIN public.geometry AS %s'");
+    expect(sql).toContain("format('CREATE DOMAIN public.geography AS %s'");
+    expect(sql).toContain('RAISE EXCEPTION');
   });
 });
