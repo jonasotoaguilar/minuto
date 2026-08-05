@@ -1,14 +1,36 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
-import { Text } from 'react-native';
 import type { EditEmployeeFormValues } from '@/components/team/team-edit-form';
 import { EditMemberModal } from '@/components/team/team-edit-member-modal';
 import type { TeamMember } from '@/components/team/team-member';
 
+jest.mock('@react-native-community/datetimepicker', () => ({
+  __esModule: true,
+  default: () => null,
+  DateTimePickerAndroid: { open: jest.fn() },
+}));
+
 jest.mock('@/hooks/use-theme', () => ({
   useTheme: () => ({
-    colors: { background: { card: '#ffffff' } },
-    overlay: { scrim: '#000000' },
+    colors: {
+      background: { card: '#fff' },
+      border: { default: '#ccc' },
+      shadow: { color: '#000' },
+      status: { error: '#f00' },
+    },
+    elevation: { card: {} },
+    radius: { lg: 12 },
+    spacing: { '4xl': 32, sm: 8, lg: 16 },
+    overlay: { scrim: 'rgba(0,0,0,0.4)' },
   }),
+}));
+
+jest.mock('@/lib/role-permission-summaries', () => ({
+  ROLE_PERMISSION_SUMMARIES: {
+    admin: { description: 'Admin permissions' },
+    manager: { description: 'Manager permissions' },
+    employee: { description: 'Employee permissions' },
+    owner: { description: 'Owner permissions' },
+  },
 }));
 
 jest.mock('@/theme/primitives', () => {
@@ -24,6 +46,7 @@ jest.mock('@/theme/primitives', () => {
     );
 
   return {
+    Chip: ({ label }: { label: string }) => text(label),
     FeedbackBlock: ({ message }: { message: string }) => text(message),
     GlassCard: ({
       children,
@@ -73,6 +96,8 @@ const member: TeamMember = {
   weeklyHours: 40,
 };
 
+const ownerMember: TeamMember = { ...member, id: 'member-2', role: 'owner' };
+
 const formValues: EditEmployeeFormValues = {
   breakDurationHours: '00:45',
   department: '',
@@ -87,14 +112,19 @@ function makeProps(
   overrides: Partial<Parameters<typeof EditMemberModal>[0]> = {},
 ) {
   return {
+    activeOrganizationRole: 'owner' as const,
     editFormErrors: {},
     editFormMessage: '',
     editFormValues: { ...formValues },
+    isHireDatePickerVisible: false,
     isSavingProfile: false,
     onCloseEditModal: jest.fn(),
+    onHireDateChange: jest.fn(),
+    onOpenHireDatePicker: jest.fn(),
     onSaveMemberProfile: jest.fn(),
     selectedMember: member,
     setEditFormValues: jest.fn(),
+    setIsHireDatePickerVisible: jest.fn(),
     visible: true,
     ...overrides,
   };
@@ -107,23 +137,25 @@ describe('EditMemberModal', () => {
     expect(screen.queryByText('Perfil del empleado')).toBeNull();
   });
 
-  it('renders the header, intro, schedule fields and children', () => {
-    render(
-      <EditMemberModal {...makeProps()}>
-        <Text>Campos adicionales</Text>
-      </EditMemberModal>,
-    );
+  it('renders header, schedule and edit sections', () => {
+    render(<EditMemberModal {...makeProps()} />);
 
     expect(screen.getByText('Perfil del empleado')).toBeTruthy();
-    expect(
-      screen.getByText(
-        'Ajustá la jornada, colación y datos del perfil laboral en una sola vista.',
-      ),
-    ).toBeTruthy();
     expect(screen.getByDisplayValue('08:00')).toBeTruthy();
-    expect(screen.getByText('Campos adicionales')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Ej: Supervisor de turno')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Ej: Operaciones')).toBeTruthy();
+    expect(screen.getByText('Administrador')).toBeTruthy();
+    expect(screen.getByText('Fecha de contratación')).toBeTruthy();
     expect(screen.getByText('Guardar')).toBeTruthy();
     expect(screen.getByText('Cancelar')).toBeTruthy();
+  });
+
+  it('hides position, department and role sections for owner members', () => {
+    render(<EditMemberModal {...makeProps({ selectedMember: ownerMember })} />);
+
+    expect(screen.queryByPlaceholderText('Ej: Supervisor de turno')).toBeNull();
+    expect(screen.queryByText('Administrador')).toBeNull();
+    expect(screen.getByText('Fecha de contratación')).toBeTruthy();
   });
 
   it('renders the form message when present', () => {
