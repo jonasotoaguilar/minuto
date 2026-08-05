@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { OrganizationSetupView } from '@/components/organization-setup-view';
 import { SecondaryScreenHeader } from '@/components/secondary-screen-header';
@@ -16,6 +16,7 @@ import {
   type PendingMembershipInvitation,
   revokeMembershipInvitation,
 } from '@/lib/organization-invitations';
+import { useFeedback } from '@/theme/feedback';
 import {
   Chip,
   GlassCard,
@@ -36,6 +37,7 @@ const MANAGEMENT_ROLES: readonly MembershipRole[] = [
 export default function InvitationsScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const feedback = useFeedback();
   const {
     activeOrganization,
     isLoadingOrganizations,
@@ -326,20 +328,16 @@ export default function InvitationsScreen() {
                       : 'Revocar'
                   }
                   onPress={() => {
-                    Alert.alert(
-                      'Revocar invitación',
-                      `¿Querés revocar la invitación para ${invitation.invitedEmail}?`,
-                      [
-                        { text: 'Cancelar', style: 'cancel' },
-                        {
-                          text: 'Revocar',
-                          style: 'destructive',
-                          onPress: () => {
-                            void onRevokeInvitation(invitation);
-                          },
-                        },
-                      ],
-                    );
+                    feedback.show({
+                      tone: 'info',
+                      title: 'Revocar invitación',
+                      message: `¿Querés revocar la invitación para ${invitation.invitedEmail}?`,
+                      actionLabel: 'Revocar',
+                      durationMs: 0,
+                      onAction: () => {
+                        void onRevokeInvitation(invitation);
+                      },
+                    });
                   }}
                 />
               </View>

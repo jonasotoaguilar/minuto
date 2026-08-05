@@ -4,7 +4,7 @@ import DateTimePicker, {
 } from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { z } from 'zod';
 
 import { AppHeader } from '@/components/header-user-menu';
@@ -66,6 +66,7 @@ import {
 } from '@/lib/organization-invitations';
 import { ROLE_PERMISSION_SUMMARIES } from '@/lib/role-permission-summaries';
 import { supabase } from '@/lib/supabase';
+import { useFeedback } from '@/theme/feedback';
 import {
   Chip,
   EmptyState,
@@ -129,6 +130,7 @@ const MANAGEMENT_ROLES: readonly string[] = ['owner', 'admin', 'manager'];
 export default function TeamScreen() {
   const router = useRouter();
   const theme = useTheme();
+  const feedback = useFeedback();
   const {
     activeOrganization,
     isLoadingOrganizations,
@@ -381,10 +383,11 @@ export default function TeamScreen() {
       setEditFormErrors({});
       setEditFormMessage('');
       setIsHireDatePickerVisible(false);
-      Alert.alert(
-        'Perfil actualizado',
-        'Los datos del colaborador fueron guardados.',
-      );
+      feedback.show({
+        tone: 'success',
+        title: 'Perfil actualizado',
+        message: 'Los datos del colaborador fueron guardados.',
+      });
     } catch (error) {
       setEditFormMessage(
         getErrorMessage(error) ??
@@ -393,7 +396,7 @@ export default function TeamScreen() {
     } finally {
       setIsSavingProfile(false);
     }
-  }, [editFormValues, loadMembers, selectedMember]);
+  }, [editFormValues, feedback, loadMembers, selectedMember]);
 
   const onSuspendMember = useCallback(
     async (membershipId: string) => {
@@ -402,17 +405,23 @@ export default function TeamScreen() {
       try {
         await suspendMembership(membershipId);
         await loadMembers();
-        Alert.alert('Miembro suspendido', 'El colaborador fue suspendido.');
+        feedback.show({
+          tone: 'success',
+          title: 'Miembro suspendido',
+          message: 'El colaborador fue suspendido.',
+        });
       } catch (error) {
-        Alert.alert(
-          'Error',
-          getErrorMessage(error) ?? 'No se pudo suspender al colaborador.',
-        );
+        feedback.show({
+          tone: 'error',
+          title: 'Error',
+          message:
+            getErrorMessage(error) ?? 'No se pudo suspender al colaborador.',
+        });
       } finally {
         setIsApplyingMemberAction(false);
       }
     },
-    [loadMembers],
+    [feedback, loadMembers],
   );
 
   const onDeleteMember = useCallback(
@@ -422,20 +431,23 @@ export default function TeamScreen() {
       try {
         await deleteMembership(membershipId);
         await loadMembers();
-        Alert.alert(
-          'Miembro eliminado',
-          'El colaborador fue eliminado permanentemente.',
-        );
+        feedback.show({
+          tone: 'success',
+          title: 'Miembro eliminado',
+          message: 'El colaborador fue eliminado permanentemente.',
+        });
       } catch (error) {
-        Alert.alert(
-          'Error',
-          getErrorMessage(error) ?? 'No se pudo eliminar al colaborador.',
-        );
+        feedback.show({
+          tone: 'error',
+          title: 'Error',
+          message:
+            getErrorMessage(error) ?? 'No se pudo eliminar al colaborador.',
+        });
       } finally {
         setIsApplyingMemberAction(false);
       }
     },
-    [loadMembers],
+    [feedback, loadMembers],
   );
 
   const handleExpel = useCallback((member: TeamMember) => {

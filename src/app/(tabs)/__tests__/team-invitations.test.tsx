@@ -108,6 +108,17 @@ jest.mock('@/hooks/use-organization', () => ({
   useOrganization: () => mockOrganizationState,
 }));
 
+const mockFeedbackShow = jest.fn();
+
+jest.mock('@/theme/feedback', () => ({
+  useFeedback: () => ({
+    dismiss: jest.fn(),
+    dismissAll: jest.fn(),
+    enqueue: jest.fn(),
+    show: mockFeedbackShow,
+  }),
+}));
+
 jest.mock('@/lib/supabase', () => ({
   supabase: {
     rpc: jest.fn(async (name: string) => {
@@ -346,6 +357,10 @@ describe('TeamScreen invitations entrypoint', () => {
         p_membership_id: 'membership-1',
       });
     });
+
+    expect(mockFeedbackShow).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Miembro suspendido' }),
+    );
   });
 
   it('opens second confirmation modal before delete_membership RPC', async () => {
@@ -373,6 +388,10 @@ describe('TeamScreen invitations entrypoint', () => {
         p_membership_id: 'membership-1',
       });
     });
+
+    expect(mockFeedbackShow).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Miembro eliminado' }),
+    );
   });
 
   it('does not call RPC when second confirmation modal is canceled', async () => {

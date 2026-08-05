@@ -1,7 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import * as Clipboard from 'expo-clipboard';
 import type { ReactNode } from 'react';
-import { Alert } from 'react-native';
 import InvitationsScreen from '@/app/invitations';
 import {
   createMembershipInvitation,
@@ -19,8 +18,19 @@ const mockOrganizationState = {
   isOrganizationSetupOpen: false,
 };
 
+const mockFeedbackShow = jest.fn();
+
 jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn(),
+}));
+
+jest.mock('@/theme/feedback', () => ({
+  useFeedback: () => ({
+    dismiss: jest.fn(),
+    dismissAll: jest.fn(),
+    enqueue: jest.fn(),
+    show: mockFeedbackShow,
+  }),
 }));
 
 jest.mock('@/components/header-user-menu', () => ({
@@ -202,23 +212,25 @@ describe('InvitationsScreen', () => {
       expect(screen.getByText('persona@empresa.com')).toBeTruthy();
     });
 
-    const alertSpy = jest
-      .spyOn(Alert, 'alert')
-      .mockImplementation(() => undefined);
     fireEvent.press(screen.getByText('Revocar'));
 
-    const alertButtons = alertSpy.mock.calls[0]?.[2] as
-      | { onPress?: () => void; text: string }[]
-      | undefined;
+    expect(mockFeedbackShow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionLabel: 'Revocar',
+        title: 'Revocar invitación',
+      }),
+    );
+
+    const revokeToast = mockFeedbackShow.mock.calls.find(
+      (call) => call[0]?.actionLabel === 'Revocar',
+    )?.[0] as { onAction?: () => void } | undefined;
     await act(async () => {
-      alertButtons?.find((button) => button.text === 'Revocar')?.onPress?.();
+      revokeToast?.onAction?.();
     });
 
     await waitFor(() => {
       expect(mockedRevoke).toHaveBeenCalledWith('invite-1');
     });
-
-    alertSpy.mockRestore();
   });
 
   it('renew flow updates existing invitation instead of duplicating in UI', async () => {
