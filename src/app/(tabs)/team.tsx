@@ -3,22 +3,8 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import { useRouter } from 'expo-router';
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
-import {
-  Alert,
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { z } from 'zod';
 
 import { AppHeader } from '@/components/header-user-menu';
@@ -52,6 +38,7 @@ import {
   MAX_WEEKLY_HOURS,
   validateEditForm,
 } from '@/components/team/team-edit-form';
+import { EditMemberModal } from '@/components/team/team-edit-member-modal';
 import {
   DEFAULT_DEPARTMENT,
   DEPARTMENT_FILTERS,
@@ -66,7 +53,6 @@ import {
 import { TeamMemberCard } from '@/components/team/team-member-card';
 import { TeamMemberFilters } from '@/components/team/team-member-filters';
 import { TeamMemberList } from '@/components/team/team-member-list';
-import { WorkScheduleFields } from '@/components/team/work-schedule-fields';
 import { BottomTabInset } from '@/constants/theme';
 import { useOrganization } from '@/hooks/use-organization';
 import { useTheme } from '@/hooks/use-theme';
@@ -99,7 +85,6 @@ const MEMBERSHIP_ROLES = ['owner', 'admin', 'manager', 'employee'] as const;
 const MEMBERSHIP_STATUSES = ['invited', 'active', 'suspended'] as const;
 
 type MembershipRole = (typeof MEMBERSHIP_ROLES)[number];
-type AppTheme = ReturnType<typeof useTheme>;
 
 const teamMemberRowSchema = z.object({
   id: z.string().min(1),
@@ -254,6 +239,11 @@ export default function TeamScreen() {
   );
 
   const isEditModalVisible = selectedMember !== null;
+  const isOwnerMember = selectedMember?.role === 'owner';
+  const allowedRoles = getAllowedRolesForCaller(
+    activeOrganization?.membershipRole ?? 'employee',
+    selectedMember?.role ?? 'employee',
+  );
 
   const onEditMember = useCallback((member: TeamMember) => {
     setSelectedMember(member);
@@ -588,182 +578,64 @@ export default function TeamScreen() {
       ) : null}
 
       <EditMemberModal
-        activeOrganizationRole={
-          activeOrganization?.membershipRole ?? 'employee'
-        }
         editFormErrors={editFormErrors}
         editFormMessage={editFormMessage}
         editFormValues={editFormValues}
-        isHireDatePickerVisible={isHireDatePickerVisible}
         isSavingProfile={isSavingProfile}
         onCloseEditModal={onCloseEditModal}
-        onHireDateChange={onHireDateChange}
-        onOpenHireDatePicker={onOpenHireDatePicker}
         onSaveMemberProfile={onSaveMemberProfile}
         selectedMember={selectedMember}
         setEditFormValues={setEditFormValues}
-        setIsHireDatePickerVisible={setIsHireDatePickerVisible}
-        theme={theme}
         visible={isEditModalVisible}
-      />
-    </Screen>
-  );
-}
-
-type EditMemberModalProps = {
-  activeOrganizationRole: MembershipRole;
-  editFormErrors: EditEmployeeFormErrors;
-  editFormMessage: string;
-  editFormValues: EditEmployeeFormValues;
-  isHireDatePickerVisible: boolean;
-  isSavingProfile: boolean;
-  onCloseEditModal: () => void;
-  onHireDateChange: (event: DateTimePickerEvent, selectedDate?: Date) => void;
-  onOpenHireDatePicker: () => void;
-  onSaveMemberProfile: () => void;
-  selectedMember: TeamMember | null;
-  setEditFormValues: Dispatch<SetStateAction<EditEmployeeFormValues>>;
-  setIsHireDatePickerVisible: Dispatch<SetStateAction<boolean>>;
-  theme: AppTheme;
-  visible: boolean;
-};
-
-function EditMemberModal({
-  activeOrganizationRole,
-  editFormErrors,
-  editFormMessage,
-  editFormValues,
-  isHireDatePickerVisible,
-  isSavingProfile,
-  onCloseEditModal,
-  onHireDateChange,
-  onOpenHireDatePicker,
-  onSaveMemberProfile,
-  selectedMember,
-  setEditFormValues,
-  setIsHireDatePickerVisible,
-  theme,
-  visible,
-}: EditMemberModalProps) {
-  if (!selectedMember) {
-    return null;
-  }
-
-  const isOwnerMember = selectedMember?.role === 'owner';
-  const allowedRoles = getAllowedRolesForCaller(
-    activeOrganizationRole,
-    selectedMember.role,
-  );
-
-  return (
-    <Modal
-      animationType="fade"
-      onRequestClose={onCloseEditModal}
-      transparent
-      visible={visible}
-    >
-      <View
-        style={[styles.modalRoot, { backgroundColor: theme.overlay.scrim }]}
       >
-        <Pressable onPress={onCloseEditModal} style={styles.modalBackdrop} />
+        {!isOwnerMember ? (
+          <>
+            <TextField
+              label="Cargo"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  position: value,
+                }))
+              }
+              placeholder="Ej: Supervisor de turno"
+              value={editFormValues.position}
+            />
 
-        <GlassCard
-          style={[
-            styles.modalCard,
-            { backgroundColor: theme.colors.background.card },
-          ]}
-        >
-          <SectionHeader
-            eyebrow="Editar colaborador"
-            subtitle={
-              selectedMember?.name ?? 'Actualizá los datos del perfil laboral.'
-            }
-            title="Perfil del empleado"
-          />
+            <TextField
+              label="Departamento"
+              onChangeText={(value) =>
+                setEditFormValues((current) => ({
+                  ...current,
+                  department: value,
+                }))
+              }
+              placeholder="Ej: Operaciones"
+              value={editFormValues.department}
+            />
+          </>
+        ) : null}
 
-          <ThemedText
-            colorToken="secondary"
-            style={styles.modalBody}
-            variant="bodySmall"
-          >
-            Ajustá la jornada, colación y datos del perfil laboral en una sola
-            vista.
-          </ThemedText>
-
-          <WorkScheduleFields
+        {!isOwnerMember && allowedRoles.length > 0 ? (
+          <MemberRoleSection
+            allowedRoles={allowedRoles}
             editFormErrors={editFormErrors}
             editFormValues={editFormValues}
             setEditFormValues={setEditFormValues}
           />
+        ) : null}
 
-          {!isOwnerMember ? (
-            <>
-              <TextField
-                label="Cargo"
-                onChangeText={(value) =>
-                  setEditFormValues((current) => ({
-                    ...current,
-                    position: value,
-                  }))
-                }
-                placeholder="Ej: Supervisor de turno"
-                value={editFormValues.position}
-              />
-
-              <TextField
-                label="Departamento"
-                onChangeText={(value) =>
-                  setEditFormValues((current) => ({
-                    ...current,
-                    department: value,
-                  }))
-                }
-                placeholder="Ej: Operaciones"
-                value={editFormValues.department}
-              />
-            </>
-          ) : null}
-
-          {!isOwnerMember && allowedRoles.length > 0 ? (
-            <MemberRoleSection
-              allowedRoles={allowedRoles}
-              editFormErrors={editFormErrors}
-              editFormValues={editFormValues}
-              setEditFormValues={setEditFormValues}
-            />
-          ) : null}
-
-          <HireDateField
-            editFormErrors={editFormErrors}
-            editFormValues={editFormValues}
-            isHireDatePickerVisible={isHireDatePickerVisible}
-            onHireDateChange={onHireDateChange}
-            onOpenHireDatePicker={onOpenHireDatePicker}
-            setEditFormValues={setEditFormValues}
-            setIsHireDatePickerVisible={setIsHireDatePickerVisible}
-          />
-
-          {editFormMessage ? (
-            <FeedbackBlock message={editFormMessage} tone="error" />
-          ) : null}
-
-          <View style={styles.modalActions}>
-            <PrimaryButton
-              label="Guardar"
-              loading={isSavingProfile}
-              onPress={onSaveMemberProfile}
-              style={styles.modalActionButton}
-            />
-            <SecondaryButton
-              disabled={isSavingProfile}
-              label="Cancelar"
-              onPress={onCloseEditModal}
-              style={styles.modalActionButton}
-            />
-          </View>
-        </GlassCard>
-      </View>
-    </Modal>
+        <HireDateField
+          editFormErrors={editFormErrors}
+          editFormValues={editFormValues}
+          isHireDatePickerVisible={isHireDatePickerVisible}
+          onHireDateChange={onHireDateChange}
+          onOpenHireDatePicker={onOpenHireDatePicker}
+          setEditFormValues={setEditFormValues}
+          setIsHireDatePickerVisible={setIsHireDatePickerVisible}
+        />
+      </EditMemberModal>
+    </Screen>
   );
 }
 
@@ -869,30 +741,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-  },
-  modalActionButton: {
-    flex: 1,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  modalBody: {
-    textAlign: 'left',
-  },
-  modalCard: {
-    gap: 12,
-    maxWidth: 560,
-    width: '100%',
-  },
-  modalRoot: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    padding: 16,
   },
 });
